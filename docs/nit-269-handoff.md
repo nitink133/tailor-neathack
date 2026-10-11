@@ -15,7 +15,9 @@ npm run dev            # build the browser bundle, then node src/main.ts on http
 | --- | --- | --- |
 | `PORT` | `4321` | Loopback only. |
 | `TAILOR_DATA_PATH` | `.local/tailor.sqlite` | SQLite with WAL; directory created 0700. |
-| `TAILOR_PROVIDER` | `mock` | Anything else exits with code 2. A live provider is an approval gate (see below). |
+| `TAILOR_PROVIDER` | `mock` | `mock` (offline) or `anthropic` (live; needs `ANTHROPIC_API_KEY` and `TAILOR_LIVE_CAP_USD`, see below). Anything else exits with code 2. |
+| `TAILOR_MODEL` / `TAILOR_EFFORT` | `claude-sonnet-5-5` / `medium` | Live mode only. Effort must be one of low, medium, high, xhigh, max. |
+| `TAILOR_LIVE_CAP_USD` | unset | Live mode only; required, numeric, your explicit approval. |
 | `TAILOR_TELEMETRY` | `captured` | `disabled` (no-op), `captured` (in-memory, bounded), `neatlogs` (exports via the pinned SDK; exits 2 unless `NEATLOGS_API_KEY` is set in the shell). |
 | `TAILOR_DEV_KEY` | unset | Enables `/api/dev/*` inspection routes. |
 | `NEATLOGS_ENDPOINT` | SDK default | Only read in `neatlogs` mode. |
@@ -47,9 +49,38 @@ Gates: `npm run typecheck`, `npm test`, `npm run build`, `npm run test:ui` (Play
 - **Live model behaviour.** No live model call has been made and no charge incurred. `createProvider({ kind: 'live' })` throws until a provider/model is approved and configured.
 - **Deployment.** Not attempted; no credentials created or configured.
 
+## Live provider (Anthropic, approval-gated)
+
+The live baseline is implemented and offline-tested; it runs only when you enter the key and approve a cap. Nothing falls back to the mock in live mode.
+
+| Setting | Value | Verified against |
+| --- | --- | --- |
+| Model | `claude-sonnet-5-5` (configurable via `TAILOR_MODEL`) | Anthropic model overview: Claude API id `claude-sonnet-5-5`, $2 / $10 per MTok |
+| Thinking | adaptive (`thinking: {type: "adaptive"}`, the model default) | Thinking docs: `disabled` and `enabled/budget_tokens` return 400 on Sonnet 5.5 |
+| Effort | `output_config.effort: "medium"` (configurable via `TAILOR_EFFORT`) | Effort docs: `medium` is the documented cost step-down from the `high` default |
+| Output | structured JSON via `output_config.format` (`client.messages.parse`), no tools / `tool_choice` | Structured outputs docs |
+| SDK | `@anthropic-ai/sdk` 0.133.0, exact pin | Official TypeScript SDK |
+
+Per turn: one planning call (interpret, choose a supported action, propose a scenario or ask one three-choice clarification) and, after a successful save and read-back, one explanation call that receives only the read-back evidence. Knowledge retrieval, permissions, schema/timing/relationship validation, persistence, version checks and read-back stay in deterministic code; model output is validated structurally and grounded before use. Refusals (`stop_reason: refusal`), truncation (`max_tokens`), malformed output, 401/403/402, 429, 529, timeouts and network errors are mapped to a `ProviderErrorKind`, recorded in telemetry and surfaced to the buyer as a generic "nothing changed" reply.
+
+**Where to enter the key (you, not the assistant):** open `.env.local` in the repo root (gitignored, `chmod 600`; create it from `.env.example` if missing) and set `ANTHROPIC_API_KEY=` to a server-side key from the Anthropic Console project `tailor-neathack`, plus `TAILOR_LIVE_CAP_USD=` to the numeric cap you approve. Do not paste the key in chat, a shell `export`, a commit or any log. `npm run env:check` reports only set/missing.
+
+**Spend guard:** `TAILOR_LIVE_CAP_USD` is required in live mode (0 < cap ≤ 50). Before every call the guard checks a worst-case estimate (prompt chars/4 input tokens + the call's `max_tokens`) against the running total; after every call it records provider-reported usage (input, output, thinking, cache read/write) × list rates into `.local/spend-ledger.json`, which survives restarts. `GET /api/dev/spend` (header `x-tailor-dev-key`) shows the summary. All USD figures are local estimates from reported usage; final Anthropic billing is authoritative and may differ.
+
+**Start:** `npm run dev:live` → `http://127.0.0.1:4321`. The startup line prints provider, model, effort and cap (never the key). `npm run dev` stays mock-only.
+
+**Manual test checklist (invented buyer data only):**
+1. Open `http://127.0.0.1:4321/entry`; the panel shows "Powered by Tailor · synthetic data" and no "Mock-backed" label.
+2. Send: *I'm building a travel-booking agent. Show me a booking API timeout followed by a successful retry.* Expect an applied reply citing a failed `…attempt_1`-style span, "Evidence · v2", and the trace in the list/detail/timeline views.
+3. Send: *Make the retry fail too.* Expect version 3, two traces retained, the new active trace with two ERROR spans, and an explanation that names only spans visible in the trace detail.
+4. Reload the page: conversation and version unchanged.
+5. Send: *Show me something failing.* Expect one question with exactly three choices and a free-text hint; pick one.
+6. Send: *Set up Slack alerts for this project.* Expect an "outside this demo" reply with the version unchanged.
+7. Check `GET /api/dev/spend` (or `npm run smoke:live` for the scripted version of steps 2–6) and compare the estimated USD with the Anthropic Console later.
+
 ## Approval gates (explicit, in order of likely need)
 
-1. Live provider: provider and model ID, data-flow statement (buyer text leaves the machine), API eligibility, spend cap. Then wire it in `src/agent/provider.ts` behind `TAILOR_PROVIDER`.
+1. Live provider run: you enter `ANTHROPIC_API_KEY` in `.env.local` and confirm a numeric `TAILOR_LIVE_CAP_USD`. No paid call happens before both exist.
 2. External telemetry: Tailor Neatlogs project and region confirmed; key present in the shell; run `TAILOR_TELEMETRY=neatlogs npm run dev`, send a turn, and look the trace up by its correlation ID in that project before claiming ingestion works.
 3. Merge into `main` and any deployment.
 
