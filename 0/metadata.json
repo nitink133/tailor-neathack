@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4MEBXXQBH6Y66BBMZBRPABB",
+  "session_id": "01a128b8-8734-7721-9f61-4697417b9557",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-11T02:58:44.476268Z",
+  "branch": "codex/nit-265-replica-app",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "DESIGN.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.1-sol",
+  "turn_id": "032253bfd641",
+  "checkpoint_transcript_start": 1299,
+  "transcript_lines_at_start": 1299,
+  "compact_transcript_start": 171,
+  "token_usage": {
+    "input_tokens": 3429,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 582400,
+    "output_tokens": 3163,
+    "api_call_count": 5
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-11T02:58:44.35818Z",
+    "agent_lines": 2,
+    "agent_removed": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2,
+    "total_lines_changed": 4,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
