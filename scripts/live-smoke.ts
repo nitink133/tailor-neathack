@@ -108,6 +108,16 @@ async function runSmoke(): Promise<void> {
   let sessionId = '';
   let turn2Evidence: ReadbackEvidence | undefined;
 
+  // 0. GET /api/execution: check the provider mode BEFORE any turn, so a mock/live mismatch never costs a call.
+  const exec = await requestJson<{ execution: TurnResponse['execution'] }>('/api/execution', 'GET');
+  if (exec.status !== 200 || !exec.data?.execution) failAndExit(`GET /api/execution failed with HTTP ${exec.status}`);
+  console.log(`Server execution: mode=${exec.data.execution.mode}, provider=${exec.data.execution.provider}, model=${exec.data.execution.model ?? 'null'}, effort=${exec.data.execution.effort ?? 'null'}`);
+  if (EXPECT_LIVE && exec.data.execution.mode !== 'live') {
+    recordResult('0. Execution label (pre-turn)', 'FAIL', `mode=${exec.data.execution.mode}`);
+    failAndExit(`Refusing to run: TAILOR_EXPECT_LIVE=1 was set, but GET /api/execution reports mode '${exec.data.execution.mode}'.`);
+  }
+  recordResult('0. Execution label (pre-turn)', 'PASS', `mode=${exec.data.execution.mode}`);
+
   // 1. POST /api/sessions (Idempotency-Key, description 'Live smoke — invented travel-booking buyer')
   try {
     const sessionRes = await requestJson<DemoSession>(

@@ -651,3 +651,28 @@ test('Matrix (l): Cross-session cookie returns 404 on session, traces, and turns
     await harness.cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Matrix (m): Execution label before the first turn; open trace scoped to the session (L5-01 / L5-02 server side)
+// ---------------------------------------------------------------------------
+test('Matrix (m): GET /api/execution labels the mock before any turn; a foreign openTraceId is TRACE_NOT_FOUND', async () => {
+  const harness = await createHarness();
+  try {
+    const { call } = harness;
+    const info = await call('/api/execution');
+    assert.equal(info.status, 200);
+    assert.equal(info.data.execution.mode, 'mock');
+    assert.equal(info.data.execution.effort, null);
+    const a = await call('/api/sessions', 'POST', { description: 'Open trace A' });
+    const b = await call('/api/sessions', 'POST', { description: 'Open trace B' });
+    assert.deepEqual((await call('/api/session', 'GET', undefined, a.cookie)).data.execution, info.data.execution, 'a reload or second tab gets the same label');
+    const foreign = await call(`/api/sessions/${a.data.id}/turns`, 'POST', { text: 'Explain this trace.', clientTurnId: randomUUID(), openTraceId: b.data.dataset.traces[0].id }, a.cookie);
+    assert.equal(foreign.status, 422);
+    assert.equal(foreign.data.error.code, 'TRACE_NOT_FOUND');
+    const own = await call(`/api/sessions/${a.data.id}/turns`, 'POST', { text: 'Explain this trace.', clientTurnId: randomUUID(), openTraceId: a.data.dataset.traces[1].id }, a.cookie);
+    assert.equal(own.status, 200);
+    assert.equal(own.data.version, 1, 'explaining never writes');
+  } finally {
+    await harness.cleanup();
+  }
+});

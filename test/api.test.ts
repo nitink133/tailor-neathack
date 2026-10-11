@@ -3,8 +3,22 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { LIMITS } from '../src/agent-contract.ts';
-import { travelBuyerTurn1, travelBuyerTurn2 } from '../src/examples/travel-booking.ts';
-import { harness, MINUTE } from './helpers/backend.ts';
+import { travelBuyerTurn1, travelBuyerTurn2, travelProposalV1 } from '../src/examples/travel-booking.ts';
+import { TURN_DEADLINE_MS, TURN_RUNS_PER_SESSION } from '../src/store.ts';
+import { harness, MINUTE, never, type Harness } from './helpers/backend.ts';
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+async function until(check: () => boolean, label: string) {
+  for (let i = 0; i < 500; i++) { if (check()) return; await sleep(4); }
+  throw new Error(`Timed out waiting for ${label}`);
+}
+/** A turn request the browser abandons (tab closed / network drop); resolves once the request is aborted. */
+function abandonedTurn(h: Harness, id: string, cookie: string, body: unknown) {
+  const ctl = new AbortController();
+  const done = fetch(`http://127.0.0.1:${h.port}/api/sessions/${id}/turns`, { method: 'POST', signal: ctl.signal, headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null);
+  return { abort: async () => { ctl.abort(); await done; } };
+}
+const statuses = (s: any) => s.conversation.map((m: any) => `${m.role}:${m.status}`);
 
 test('HTTP contract: coherent fixtures, transactional CAS, capability isolation, restart and malformed requests', async () => {
   const h = await harness();
@@ -217,5 +231,226 @@ test('NIT-265 regression: fixture scenario switch keeps CAS semantics inside one
     assert.equal((await call(`/api/sessions/${id}/scenario`, 'POST', { expectedVersion: 1, scenario: 'recovered' }, created.cookie)).status, 409);
     const other = await call('/api/sessions', 'POST', { description: 'Fictional other chat' });
     assert.equal((await call(`/api/sessions/${id}/scenario`, 'POST', { expectedVersion: 2, scenario: 'recovered' }, other.cookie)).status, 404);
+  } finally { await h.close(); }
+});
+
+test('crash after publish (L2-03/L4-07): story is saved with the dataset; a retry after restart never publishes again', async () => {
+  const h = await harness();
+  try {
+    const created = await h.call('/api/sessions', 'POST', { description: 'Fictional crash-after-publish agent' });
+    const id = created.data.id; const cookie = created.cookie;
+    h.agent.script = async input => { await input.tools.publishScenario(travelProposalV1); return never(); };
+    const turn = abandonedTurn(h, id, cookie, travelBuyerTurn1);
+    await until(() => h.store.read(id).version === 2, 'the publish to commit');
+    const mid = h.store.read(id);
+    assert.deepEqual(mid.story, travelProposalV1.story, 'story commits in the same transaction as the dataset');
+    assert.deepEqual(statuses(mid), ['buyer:pending']);
+    await turn.abort();
+    await h.crash();
+    h.agent.script = null;
+    const calls = h.agent.calls;
+    const retry = await h.call(`/api/sessions/${id}/turns`, 'POST', travelBuyerTurn1, cookie);
+    assert.equal(retry.status, 200);
+    assert.equal(h.agent.calls, calls, 'the agent is not run again for an interrupted turn');
+    assert.equal(retry.data.outcome, 'readback_uncertain');
+    assert.equal(retry.data.version, 2, 'no second publish');
+    assert.deepEqual(retry.data.messages.map((m: any) => `${m.role}:${m.status}`), ['buyer:uncertain', 'tailor:uncertain']);
+    assert.match(retry.data.messages[1].text, /version 2/);
+    assert.doesNotMatch(retry.data.messages[1].text, /nothing changed|verified/i);
+    const after = (await h.call(`/api/sessions/${id}`, 'GET', undefined, cookie)).data;
+    assert.equal(after.version, 2);
+    assert.deepEqual(statuses(after), ['buyer:uncertain', 'tailor:uncertain'], 'no permanent Pending bubble, no duplicate buyer turn');
+    assert.deepEqual((await h.call(`/api/sessions/${id}/turns`, 'POST', travelBuyerTurn1, cookie)).data, retry.data, 'the settlement itself replays');
+  } finally { await h.close(); }
+});
+
+test('crash before publish: retry settles as provider_unavailable with nothing changed; startup sweep settles stale runs', async () => {
+  const h = await harness();
+  try {
+    const a = await h.call('/api/sessions', 'POST', { description: 'Fictional crash-before-publish A' });
+    h.agent.gate = never();
+    let turn = abandonedTurn(h, a.data.id, a.cookie, travelBuyerTurn1);
+    await until(() => h.agent.calls === 1, 'the agent to start');
+    await turn.abort();
+    await h.crash();
+    h.agent.gate = null;
+    const retry = await h.call(`/api/sessions/${a.data.id}/turns`, 'POST', travelBuyerTurn1, a.cookie);
+    assert.equal(h.agent.calls, 1);
+    assert.equal(retry.data.outcome, 'provider_unavailable');
+    assert.equal(retry.data.version, 1);
+    assert.match(retry.data.messages[1].text, /nothing changed\. Version 1 is still live/);
+    assert.deepEqual(statuses((await h.call(`/api/sessions/${a.data.id}`, 'GET', undefined, a.cookie)).data), ['buyer:failed', 'tailor:failed']);
+
+    const b = await h.call('/api/sessions', 'POST', { description: 'Fictional crash-before-publish B' });
+    h.agent.gate = never();
+    turn = abandonedTurn(h, b.data.id, b.cookie, travelBuyerTurn1);
+    await until(() => h.agent.calls === 2, 'the second agent run');
+    await turn.abort();
+    h.clock.advance(TURN_DEADLINE_MS + 1);
+    await h.crash();
+    h.agent.gate = null;
+    const swept = (await h.call(`/api/sessions/${b.data.id}`, 'GET', undefined, b.cookie)).data;
+    assert.deepEqual(statuses(swept), ['buyer:failed', 'tailor:failed'], 'startup sweep resolves the orphaned Pending bubble without a retry');
+    const late = await h.call(`/api/sessions/${b.data.id}/turns`, 'POST', travelBuyerTurn1, b.cookie);
+    assert.equal(late.data.outcome, 'provider_unavailable');
+    assert.equal(h.agent.calls, 2);
+  } finally { await h.close(); }
+});
+
+test('client disconnect while the server finishes: in-flight retry is 409, then the stored response replays', async () => {
+  const h = await harness();
+  try {
+    const created = await h.call('/api/sessions', 'POST', { description: 'Fictional disconnect agent' });
+    const id = created.data.id; const cookie = created.cookie;
+    let release!: () => void;
+    h.agent.gate = new Promise<void>(r => { release = r; });
+    const turn = abandonedTurn(h, id, cookie, travelBuyerTurn1);
+    await until(() => h.agent.calls === 1, 'the agent to start');
+    await turn.abort();
+    const busy = await h.call(`/api/sessions/${id}/turns`, 'POST', travelBuyerTurn1, cookie);
+    assert.equal(busy.status, 409); assert.equal(busy.data.error.code, 'TURN_IN_FLIGHT', 'a live run is never settled as interrupted');
+    release(); h.agent.gate = null;
+    await until(() => !statuses(h.store.read(id)).includes('buyer:pending'), 'the turn to settle');
+    const replay = await h.call(`/api/sessions/${id}/turns`, 'POST', travelBuyerTurn1, cookie);
+    assert.equal(replay.data.outcome, 'committed');
+    assert.equal(replay.data.version, 2);
+    assert.equal(h.agent.calls, 1);
+    assert.deepEqual((await h.call(`/api/sessions/${id}/turns`, 'POST', travelBuyerTurn1, cookie)).data, replay.data);
+  } finally { await h.close(); }
+});
+
+test('idempotency (L2-02): request hash mismatch is 409 and older turns replay from a bounded ring', async () => {
+  const h = await harness();
+  try {
+    const created = await h.call('/api/sessions', 'POST', { description: 'Fictional idempotency agent' });
+    const id = created.data.id; const cookie = created.cookie; const turns = `/api/sessions/${id}/turns`;
+    const t1 = await h.call(turns, 'POST', travelBuyerTurn1, cookie);
+    const t2 = await h.call(turns, 'POST', travelBuyerTurn2, cookie);
+    assert.equal(t2.data.version, 3);
+    const old = await h.call(turns, 'POST', travelBuyerTurn1, cookie);
+    assert.deepEqual(old.data, t1.data, 'an older retry replays instead of running again');
+    assert.equal(h.agent.calls, 2);
+    const mismatch = await h.call(turns, 'POST', { ...travelBuyerTurn1, text: 'Delete everything and build me a payments agent' }, cookie);
+    assert.equal(mismatch.status, 409); assert.equal(mismatch.data.error.code, 'IDEMPOTENCY_MISMATCH');
+    assert.equal((await h.call(turns, 'POST', { ...travelBuyerTurn1, choiceId: 'c1' }, cookie)).data.error.code, 'IDEMPOTENCY_MISMATCH');
+    assert.equal(h.agent.calls, 2);
+    for (let i = 0; i < TURN_RUNS_PER_SESSION + 4; i++) assert.equal((await h.call(turns, 'POST', { text: `hello ${i}`, clientTurnId: randomUUID() }, cookie)).status, 200);
+    const runs = h.store.db.prepare('SELECT COUNT(*) AS n FROM turn_runs WHERE session_id=?').get(id) as { n: number };
+    assert.equal(runs.n, TURN_RUNS_PER_SESSION, 'the replay ring is bounded per session');
+  } finally { await h.close(); }
+});
+
+test('sanitise (L4-08/L4-09): no "unchanged" claim at an advanced version; downgraded commits lose success copy', async () => {
+  const h = await harness();
+  try {
+    const exec = { mode: 'mock' as const, provider: 'stub', model: null };
+    const lie = (outcome: 'provider_unavailable' | 'answered' | 'rejected') => async (input: any) => {
+      await input.tools.publishScenario({ ...travelProposalV1, expectedVersion: input.session.version });
+      return { outcome, messages: [{ role: 'tailor' as const, status: 'failed' as const, text: "Something went wrong on my side, so I haven't changed anything." }], steps: [], execution: exec };
+    };
+    for (const outcome of ['provider_unavailable', 'answered', 'rejected'] as const) {
+      const s = await h.call('/api/sessions', 'POST', { description: `Fictional ${outcome} after commit` });
+      h.agent.script = lie(outcome);
+      const r = await h.call(`/api/sessions/${s.data.id}/turns`, 'POST', { text: 'travel-booking', clientTurnId: randomUUID() }, s.cookie);
+      assert.equal(r.data.outcome, 'readback_uncertain', outcome);
+      assert.equal(r.data.version, 2);
+      assert.deepEqual(r.data.messages.map((m: any) => m.status), ['uncertain', 'uncertain']);
+      assert.doesNotMatch(r.data.messages[1].text, /haven't changed|nothing changed/);
+    }
+    const s = await h.call('/api/sessions', 'POST', { description: 'Fictional mismatched commit' });
+    h.agent.script = async input => {
+      const p = await input.tools.publishScenario(travelProposalV1);
+      assert.equal(p.state, 'committed');
+      const evidence = p.state === 'committed' ? { ...p.readback, version: 99 } : undefined;
+      return { outcome: 'committed', messages: [{ role: 'tailor', status: 'applied', text: 'Saved and verified as version 2.' }], steps: [], execution: exec, ...(evidence ? { evidence } : {}), story: travelProposalV1.story };
+    };
+    const r = await h.call(`/api/sessions/${s.data.id}/turns`, 'POST', { text: 'travel-booking', clientTurnId: randomUUID() }, s.cookie);
+    assert.equal(r.data.outcome, 'readback_uncertain');
+    assert.equal(r.data.evidence, undefined);
+    assert.doesNotMatch(r.data.messages[1].text, /verified/i, 'uncertain label never carries success text');
+    const u = await h.call('/api/sessions', 'POST', { description: 'Fictional unchanged rejection' });
+    h.agent.script = async () => ({ outcome: 'rejected', messages: [{ role: 'tailor', status: 'failed', text: 'Rejected; nothing changed.' }], steps: [], execution: exec });
+    const kept = await h.call(`/api/sessions/${u.data.id}/turns`, 'POST', { text: 'anything', clientTurnId: randomUUID() }, u.cookie);
+    assert.equal(kept.data.outcome, 'rejected', 'distinct outcomes survive when the version did not move');
+    assert.equal(kept.data.messages[1].text, 'Rejected; nothing changed.');
+    h.agent.script = null;
+  } finally { await h.close(); }
+});
+
+test('execution label (L5-01): GET /api/execution and session reads carry mode, provider, model and effort', async () => {
+  const live = { name: 'anthropic', model: 'claude-sonnet-5-5', mode: 'live' as const, effort: 'medium', async complete(): Promise<never> { throw new Error('never called'); } };
+  const h = await harness({ provider: live });
+  try {
+    const expected = { mode: 'live', provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'medium' };
+    const info = await h.call('/api/execution');
+    assert.equal(info.status, 200);
+    assert.deepEqual(info.data, { execution: expected }, 'no session or cookie needed');
+    const created = await h.call('/api/sessions', 'POST', { description: 'Fictional labelled agent' });
+    assert.deepEqual(created.data.execution, expected);
+    assert.deepEqual((await h.call('/api/session', 'GET', undefined, created.cookie)).data.execution, expected);
+    assert.deepEqual((await h.call(`/api/sessions/${created.data.id}`, 'GET', undefined, created.cookie)).data.execution, expected);
+    h.agent.throwAfter = 'nothing';
+    const failed = await h.call(`/api/sessions/${created.data.id}/turns`, 'POST', { text: 'hi', clientTurnId: randomUUID() }, created.cookie);
+    assert.deepEqual(failed.data.execution, expected, 'the server fallback label includes effort');
+  } finally { await h.close(); }
+  const m = await harness();
+  try { assert.deepEqual((await m.call('/api/execution')).data, { execution: { mode: 'mock', provider: 'stub', model: null, effort: null } }); } finally { await m.close(); }
+});
+
+test('openTraceId (L5-02): validated, scoped to this session, hashed and passed to the agent', async () => {
+  const h = await harness();
+  try {
+    const a = await h.call('/api/sessions', 'POST', { description: 'Fictional open-trace A' });
+    const b = await h.call('/api/sessions', 'POST', { description: 'Fictional open-trace B' });
+    const turns = `/api/sessions/${a.data.id}/turns`;
+    const foreign = await h.call(turns, 'POST', { text: 'Explain this trace', clientTurnId: randomUUID(), openTraceId: b.data.dataset.traces[0].id }, a.cookie);
+    assert.equal(foreign.status, 422); assert.equal(foreign.data.error.code, 'TRACE_NOT_FOUND');
+    assert.doesNotMatch(foreign.data.error.message, new RegExp(b.data.id));
+    for (const bad of ['has space', 'x'.repeat(121), 42]) assert.equal((await h.call(turns, 'POST', { text: 'Explain', clientTurnId: randomUUID(), openTraceId: bad }, a.cookie)).data.error.code, 'TRACE_NOT_FOUND');
+    assert.equal(h.agent.calls, 0);
+    assert.equal(h.store.read(a.data.id).conversation.length, 0, 'rejected before the buyer turn is stored');
+    const open = a.data.dataset.traces[1].id;
+    const req = { text: 'Explain this trace', clientTurnId: randomUUID(), openTraceId: open };
+    assert.equal((await h.call(turns, 'POST', req, a.cookie)).status, 200);
+    assert.equal(h.agent.lastInput?.request.openTraceId, open);
+    assert.equal((await h.call(turns, 'POST', { ...req, openTraceId: a.data.dataset.traces[0].id }, a.cookie)).data.error.code, 'IDEMPOTENCY_MISMATCH');
+  } finally { await h.close(); }
+});
+
+test('request bodies (L2-08/L2-09): chunked multibyte UTF-8 survives and the media type must match exactly', async () => {
+  const h = await harness();
+  try {
+    const description = '€'.repeat(3999);
+    const raw = Buffer.from(JSON.stringify({ description }));
+    const created = await new Promise<{ status: number; body: any }>((resolve, reject) => {
+      const req = httpRequest({ hostname: '127.0.0.1', port: h.port, path: '/api/sessions', method: 'POST', headers: { 'content-type': 'application/json', 'content-length': raw.length, 'idempotency-key': randomUUID() } }, res => {
+        const chunks: Buffer[] = []; res.on('data', c => chunks.push(c)); res.on('end', () => resolve({ status: res.statusCode!, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }));
+      });
+      req.on('error', reject);
+      (async () => { for (let i = 0; i < raw.length; i += 1001) { req.write(raw.subarray(i, i + 1001)); await sleep(2); } req.end(); })();
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.description, description, 'no U+FFFD from split code points');
+    for (const [type, status] of [['application/jsonxyz', 415], ['text/plain', 415], ['Application/JSON; charset=utf-8', 201]] as const) {
+      assert.equal((await h.call('/api/sessions', 'POST', { description: 'Fictional media type' }, '', { 'content-type': type })).status, status, type);
+    }
+  } finally { await h.close(); }
+});
+
+test('developer routes (L2-12): constant-time key check, metadata-only session list, telemetry diagnostics', async () => {
+  const h = await harness();
+  try {
+    const created = await h.call('/api/sessions', 'POST', { description: 'Fictional SECRET-MARKER desk' });
+    await h.call(`/api/sessions/${created.data.id}/turns`, 'POST', { text: 'hello SECRET-MARKER', clientTurnId: randomUUID() }, created.cookie);
+    for (const key of ['', 'wrong', 'local-test-key-but-longer']) assert.equal((await h.call('/api/dev/sessions', 'GET', undefined, '', { 'x-tailor-dev-key': key })).status, 403, key);
+    const list = await h.call('/api/dev/sessions');
+    assert.equal(list.status, 200);
+    assert.equal(list.data.length, 1);
+    assert.equal(list.data[0].id, created.data.id);
+    assert.equal(JSON.stringify(list.data).includes('SECRET-MARKER'), false, 'no description or conversation');
+    const diag = await h.call('/api/dev/telemetry');
+    assert.equal(diag.status, 200);
+    assert.deepEqual(diag.data, h.telemetry.diagnostics());
+    assert.equal((await h.call('/api/dev/telemetry', 'GET', undefined, '', { 'x-tailor-dev-key': 'nope' })).status, 403);
   } finally { await h.close(); }
 });

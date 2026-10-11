@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
 import { LIMITS } from '../src/agent-contract.ts';
 import { travelProposalV1, travelProposalV2 } from '../src/examples/travel-booking.ts';
 import { Store, Failure, TOMBSTONE_TTL_MS } from '../src/store.ts';
@@ -60,7 +61,7 @@ test('End demo is idempotent, deletes content immediately and leaves a 410 tombs
     assert.equal(failureCode(() => t.store.appendTurns(s.id, [{ role: 'buyer', text: 'late', status: 'note' }])), '410 SESSION_ENDED');
     assert.deepEqual(t.store.publish(s.id, travelProposalV1), { state: 'expired' }, 'no late publish');
     t.clock.advance(TOMBSTONE_TTL_MS + 1);
-    assert.deepEqual(t.store.sweep(), { expired: 0, tombstones: 1 });
+    assert.deepEqual(t.store.sweep(), { expired: 0, tombstones: 1, interrupted: 0 });
     assert.equal(failureCode(() => t.store.read(s.id)), '404 NOT_FOUND');
   } finally { t.cleanup(); }
 });
@@ -72,7 +73,7 @@ test('sweep deletes expired sessions nobody revisits and keeps live ones', () =>
     t.clock.advance(30 * MINUTE);
     const fresh = t.store.create('Fresh demo', undefined, op());
     t.clock.advance(31 * MINUTE);
-    assert.deepEqual(t.store.sweep(), { expired: 1, tombstones: 0 });
+    assert.deepEqual(t.store.sweep(), { expired: 1, tombstones: 0, interrupted: 0 });
     assert.equal(rowCount(t.store), 1);
     assert.equal(t.store.read(fresh.id).id, fresh.id);
     assert.equal(failureCode(() => t.store.read(old.id)), '404 NOT_FOUND');
@@ -228,5 +229,85 @@ test('session tools are bound to one session and share HTTP filter semantics', a
     assert.equal(t.store.read(a.id).version, 1, 'validateProposal never writes');
     await tools.publishScenario(travelProposalV1);
     assert.equal((await tools.readTraces({ scenario: 'booking-timeout-retry-ok' })).filtered, 1, 'scenario filter follows the dataset keys');
+  } finally { t.cleanup(); }
+});
+
+const files = (path: string) => ['', '-wal'].map(s => { try { return readFileSync(path + s); } catch { return Buffer.alloc(0); } });
+const onDisk = (path: string, marker: string) => files(path).reduce((n, b) => n + (b.includes(marker) ? 1 : 0), 0);
+
+test('turn runs: begin is durable with the pending buyer turn; publish marks the run published in the same transaction', () => {
+  const t = tempStore();
+  try {
+    const s = t.store.create('Run demo', undefined, op());
+    const execution = { mode: 'mock' as const, provider: 'stub', model: null, effort: null };
+    const begun = t.store.beginTurn(s.id, { clientTurnId: 'run-turn-0001', requestHash: 'h1', text: 'Build travel', turnId: 'turn-1', execution });
+    assert.equal(begun.run.state, 'running');
+    assert.equal(begun.run.startedVersion, 1);
+    assert.deepEqual(t.store.read(s.id).conversation.map(c => c.status), ['pending']);
+    assert.equal(failureCode(() => t.store.findRun(s.id, 'run-turn-0001', 'other')), '409 IDEMPOTENCY_MISMATCH');
+    const r = t.store.publish(s.id, travelProposalV1, { clientTurnId: 'run-turn-0001' });
+    assert.equal(r.state, 'committed');
+    const run = t.store.findRun(s.id, 'run-turn-0001', 'h1')!;
+    assert.equal(run.state, 'published'); assert.equal(run.publishedVersion, 2);
+    assert.deepEqual(t.store.read(s.id).story, travelProposalV1.story);
+    t.store.close();
+    const reopened = new Store(t.path, { clock: t.clock });
+    const response = reopened.recoverRun(s.id, 'run-turn-0001');
+    assert.equal(response.outcome, 'readback_uncertain'); assert.equal(response.version, 2); assert.equal(response.turnId, 'turn-1');
+    assert.deepEqual(response.execution, execution);
+    assert.equal(reopened.findRun(s.id, 'run-turn-0001', 'h1')!.state, 'settled');
+    assert.deepEqual(reopened.read(s.id).conversation.map(c => c.status), ['uncertain', 'uncertain']);
+    reopened.close();
+  } finally { t.cleanup(); }
+});
+
+test('turn runs are deleted with the session (End demo and expiry)', () => {
+  const t = tempStore();
+  try {
+    const runs = () => (t.store.db.prepare('SELECT COUNT(*) AS n FROM turn_runs').get() as { n: number }).n;
+    const execution = { mode: 'mock' as const, provider: 'stub', model: null };
+    const a = t.store.create('Ends', undefined, op());
+    const b = t.store.create('Expires', undefined, op());
+    t.store.beginTurn(a.id, { clientTurnId: 'end-turn-0001', requestHash: 'h', text: 'x', turnId: 't', execution });
+    t.store.beginTurn(b.id, { clientTurnId: 'exp-turn-0001', requestHash: 'h', text: 'x', turnId: 't', execution });
+    assert.equal(runs(), 2);
+    t.store.end(a.id);
+    assert.equal(runs(), 1);
+    t.clock.advance(LIMITS.idleMs + 1);
+    t.store.sweep();
+    assert.equal(runs(), 0);
+  } finally { t.cleanup(); }
+});
+
+test('existing databases without turn_runs still open; a legacy last_turn record is imported for replay', () => {
+  const t = tempStore();
+  try {
+    const s = t.store.create('Pre-migration demo', undefined, op());
+    const legacy = { clientTurnId: 'legacy-turn-01', response: { turnId: 'old', outcome: 'answered', version: 1, conversationVersion: 1, messages: [], steps: [], execution: { mode: 'mock', provider: 'stub', model: null } } };
+    t.store.db.exec('DROP TABLE turn_runs');
+    t.store.db.prepare('UPDATE sessions SET last_turn=? WHERE id=?').run(JSON.stringify(legacy), s.id);
+    t.store.close();
+    const reopened = new Store(t.path, { clock: t.clock });
+    const run = reopened.findRun(s.id, 'legacy-turn-01', 'any-hash');
+    assert.equal(run?.state, 'settled');
+    assert.equal(run?.response?.turnId, 'old');
+    reopened.close();
+  } finally { t.cleanup(); }
+});
+
+test('deletion is physical (L2-13): End demo and sweep leave no content in the database or WAL files', () => {
+  const t = tempStore();
+  try {
+    const marker = 'ZQXJ-UNIQUE-MARKER-7731';
+    const a = t.store.create(`Fictional ${marker} desk`, undefined, op());
+    t.store.appendTurns(a.id, [{ role: 'buyer', text: `please ${marker}`, status: 'note' }]);
+    assert.ok(onDisk(t.path, marker) > 0, 'precondition: content is on disk');
+    t.store.end(a.id);
+    assert.equal(onDisk(t.path, marker), 0, 'ended content is gone from the db file and WAL');
+    const b = t.store.create(`Fictional ${marker} sweep`, undefined, op());
+    t.store.appendTurns(b.id, [{ role: 'buyer', text: `again ${marker}`, status: 'note' }]);
+    t.clock.advance(LIMITS.idleMs + 1);
+    assert.equal(t.store.sweep().expired, 1);
+    assert.equal(onDisk(t.path, marker), 0, 'swept content is gone from the db file and WAL');
   } finally { t.cleanup(); }
 });

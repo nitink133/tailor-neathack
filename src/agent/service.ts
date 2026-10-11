@@ -14,16 +14,37 @@ import {
 import type { ChatStatus, Clarification, Story, Trace } from '../contracts.ts';
 import { buildContext, clip, resolveTurnText } from './context.ts';
 import { composeAnswer } from './answer.ts';
-import { cleanNarrative, citedSpanIds, describeCommit, describeTrace, groundNarrative } from './explain.ts';
+import { sanitiseClarificationText, stripUngroundedClaims } from './claims.ts';
+import { cleanNarrative, citedSpanIds, describeCommit, describeTrace, groundNarrative, groundNarrativeOrFallback } from './explain.ts';
 import { explanationMessage, EXPLANATION_SYSTEM_PROMPT, repairMessage, SYSTEM_PROMPT, userMessage } from './prompts.ts';
 import { validateAgentAction, validateEvidenceExplanation } from './provider.ts';
-import { isProviderError, type ProviderError } from './provider-error.ts';
+import { isProviderError, ProviderError } from './provider-error.ts';
+import { PER_CALL_OUTPUT_TOKEN_CEILING } from './spend.ts';
 
-const MODEL_TIMEOUT_MS = LIMITS.providerTimeoutMs;
+/**
+ * Turn-loop limits that extend the frozen LIMITS in agent-contract.ts.
+ * - turnDeadlineMs: wall-clock bound for ALL provider calls in one turn (planning, repairs, escalation, explanation).
+ *   The turn ends `provider_unavailable` before a browser would give up; it is longer than one provider call
+ *   (LIMITS.providerTimeoutMs) so a fast retry still fits, and a timed-out call is never retried in-turn.
+ * - providerGraceMs: the service's per-call backstop is providerTimeoutMs + this, strictly longer than the
+ *   provider-owned timeout, so the provider normally times out (and settles its spend reservation) first.
+ * - minCallBudgetMs: no new provider call starts with less than this left before the deadline.
+ * - planningMaxOutputTokens: upper bound the service requests; the provider clamps it to its effort-aware ceiling.
+ */
+export const AGENT_LIMITS = {
+  turnDeadlineMs: 90_000,
+  providerGraceMs: 5_000,
+  minCallBudgetMs: 5_000,
+  planningMaxOutputTokens: PER_CALL_OUTPUT_TOKEN_CEILING,
+} as const;
 
 class BudgetError extends Error {}
 
 type TailorMessage = AgentTurnResult['messages'][number];
+
+const ABOUT_THIS_TRACE = /\b(?:this|the open|the current|that)\s+(?:trace|run)\b/i;
+const REFUSE_FALLBACK = 'I can’t help with that request.';
+const UNSUPPORTED_FALLBACK = 'That’s outside what this demo can do.';
 
 export function createAgentService(): AgentService {
   return { handleTurn };
@@ -39,17 +60,21 @@ function guardTools(tools: SessionTools, spend: () => void): SessionTools {
   };
 }
 
+/** Backstop for providers that ignore their signal. Aborting the signal is what makes a live provider stop and settle. */
 async function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('Provider timed out')); }, ms); });
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => { controller.abort(); reject(new ProviderError('timeout', 'The provider call did not finish in time', { retryable: false })); }, Math.max(0, ms));
+  });
   try { return await Promise.race([run(controller.signal), timeout]); }
   finally { if (timer) clearTimeout(timer); }
 }
 
 function normaliseClarification(c: Clarification): Clarification | null {
-  const question = clip(c.question, 300);
-  const labels = c.choices.map(x => clip(x.label.trim(), 80));
+  // Clarification text is model-authored and reaches the buyer verbatim: strip invented prices/plans/capabilities first.
+  const question = clip(sanitiseClarificationText(c.question), 300);
+  const labels = c.choices.map(x => clip(sanitiseClarificationText(x.label.trim()), 80));
   if (!question || labels.some(l => !l)) return null;
   if (new Set(labels.map(l => l.toLowerCase())).size !== 3) return null;
   return { question, choices: [{ id: 'c1', label: labels[0]! }, { id: 'c2', label: labels[1]! }, { id: 'c3', label: labels[2]! }], allowFreeText: true };
@@ -78,6 +103,9 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
   let repairs = 0;
   let escalations = 0;
   let toolCalls = 0;
+  const deadlineAt = clock.now() + AGENT_LIMITS.turnDeadlineMs;
+  /** Time the next provider call may take: the per-call backstop, cut to what is left of the turn deadline. */
+  const callBudgetMs = () => Math.min(LIMITS.providerTimeoutMs + AGENT_LIMITS.providerGraceMs, deadlineAt - clock.now());
   /** Last failure from a live provider; decides retry behaviour and the buyer-facing unavailable copy. */
   let lastProviderError: ProviderError | null = null;
   const tools = guardTools(input.tools, () => {
@@ -110,7 +138,7 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
     // 2. retrieve_knowledge ------------------------------------------------------------------------------------------
     const records = await step('retrieve_knowledge', { max: LIMITS.maxKnowledgeRecordsPerTurn }, async () => knowledge.select(resolved.effectiveText, LIMITS.maxKnowledgeRecordsPerTurn).slice(0, LIMITS.maxKnowledgeRecordsPerTurn),
       r => `${r.length} knowledge ${r.length === 1 ? 'record' : 'records'}`);
-    const context = buildContext({ session, resolved, records, knowledgeVersion: knowledge.version });
+    const context = buildContext({ session, resolved, records, knowledgeVersion: knowledge.version, ...(request.openTraceId ? { openTraceId: request.openTraceId } : {}) });
     const messages: ProviderMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userMessage(context, resolved.effectiveText) },
@@ -118,10 +146,16 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
 
     // 3. model --------------------------------------------------------------------------------------------------------
     async function callOnce(prov: ModelProvider, name: 'model' | 'repair' | 'escalate', repairOf?: ValidationProblem[]): Promise<AgentAction | null> {
+      const budgetMs = callBudgetMs();
+      if (budgetMs < AGENT_LIMITS.minCallBudgetMs) {
+        lastProviderError = new ProviderError('timeout', 'The turn deadline leaves no time for another provider call', { retryable: false });
+        telemetry.event('provider_error', { provider: prov.name, kind: 'timeout', retryable: false });
+        return null;
+      }
       providerCalls++;
       try {
         const response = await step(name, { provider: prov.name, mode: prov.mode, call: providerCalls }, () =>
-          withTimeout(signal => prov.complete({ messages, responseSchema: 'agent_action', maxOutputTokens: LIMITS.maxOutputTokens, ...(repairOf ? { repairOf } : {}) }, signal), MODEL_TIMEOUT_MS),
+          withTimeout(signal => prov.complete({ messages, responseSchema: 'agent_action', maxOutputTokens: AGENT_LIMITS.planningMaxOutputTokens, ...(repairOf ? { repairOf } : {}) }, signal), budgetMs),
         name === 'repair' ? () => 'Fixed what the checks flagged' : name === 'escalate' ? () => 'Asked a stronger model once' : () => 'Planned the response');
         telemetry.recordUsage(response.usage, prov.model);
         telemetry.event('provider_latency', { provider: prov.name, latencyMs: response.latencyMs });
@@ -161,7 +195,7 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
     const action = await acquire(provider, 'model');
     if (!action) {
       if ((lastProviderError as ProviderError | null)?.kind === 'spend_cap') {
-        return finish('provider_unavailable', note('The demo’s model budget for today is used up, so I can’t plan new scenarios right now and I haven’t changed anything. Please try again later.', 'failed'));
+        return finish('provider_unavailable', note('This demo’s model budget is used up, so I can’t plan new scenarios right now and I haven’t changed anything.', 'failed'));
       }
       return finish('provider_unavailable', note('I couldn’t get a usable answer from my planning step just now, so I haven’t changed anything. Please try again in a moment.', 'failed'));
     }
@@ -171,9 +205,9 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
       case 'ask': return finish('clarification', note(action.clarification.question, 'question', { clarification: action.clarification }), { clarification: action.clarification });
       case 'propose': return await actOnProposal(action.proposal, action.explanation);
       case 'explain': return await actOnExplain(action);
-      case 'answer': return actOnAnswer(action);
+      case 'answer': return await actOnAnswer(action);
       case 'unsupported': return actOnUnsupported(action);
-      case 'refuse': return finish('refused', note(`${oneLine(cleanNarrative(action.text) || 'I can’t help with that request.', 400)} Nothing was changed.`));
+      case 'refuse': return finish('refused', note(`${oneLine(stripUngroundedClaims(cleanNarrative(action.text)) || REFUSE_FALLBACK, 400)} Nothing was changed.`));
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -248,7 +282,7 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
             try { trace = (await step('explain', { traces: readback.traces.length }, () => tools.readTrace(traceId), () => 'Read the saved trace'))?.trace ?? null; }
             catch { trace = null; }
           }
-          let narrative = groundNarrative(explanation, trace, readback);
+          let narrative = groundNarrativeOrFallback(explanation, trace, readback);
           let citedByModel: string[] = [];
           if (trace) {
             const live = await explainFromEvidence(trace, readback, proposal.story);
@@ -279,6 +313,8 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
     async function explainFromEvidence(trace: Trace, readback: ReadbackEvidence, story: Story): Promise<{ narrative: string; spanIds: string[] } | null> {
       if (!provider.explain) return null;
       if (providerCalls >= LIMITS.maxProviderCallsPerTurn) { telemetry.event('explain_unavailable', { kind: 'budget' }); return null; }
+      const budgetMs = callBudgetMs();
+      if (budgetMs < AGENT_LIMITS.minCallBudgetMs) { telemetry.event('explain_unavailable', { kind: 'timeout' }); return null; }
       providerCalls++;
       try {
         const messages: ProviderMessage[] = [
@@ -286,7 +322,7 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
           { role: 'user', content: explanationMessage({ buyerText: resolved.effectiveText, story, trace, readback }) },
         ];
         const response = await step('explain', { provider: provider.name, mode: provider.mode, call: providerCalls }, () =>
-          withTimeout(signal => provider.explain!({ messages, responseSchema: 'evidence_explanation', maxOutputTokens: LIMITS.maxExplanationOutputTokens }, signal), MODEL_TIMEOUT_MS),
+          withTimeout(signal => provider.explain!({ messages, responseSchema: 'evidence_explanation', maxOutputTokens: LIMITS.maxExplanationOutputTokens }, signal), budgetMs),
         () => 'Wrote the explanation from the saved trace');
         telemetry.recordUsage(response.usage, provider.model);
         telemetry.event('provider_latency', { provider: provider.name, latencyMs: response.latencyMs });
@@ -304,24 +340,38 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
     }
 
     async function actOnExplain(a: Extract<AgentAction, { type: 'explain' }>): Promise<AgentTurnResult> {
-      const wanted = a.traceId?.trim();
-      const target = session.dataset.traces.find(t => wanted && (t.id === wanted || t.scenario === wanted))
-        ?? session.dataset.traces.find(t => t.scenario === session.dataset.activeScenario)
-        ?? session.dataset.traces[0];
-      if (!target) return finish('answered', note('There’s no scenario to explain yet. Describe the workflow you’re building and I’ll create one first.'));
+      // The trace the buyer has open wins over whatever the model named; it is never silently swapped for another one.
+      const openId = request.openTraceId?.trim();
+      let targetId: string;
+      let spanCount = 0;
+      if (openId) {
+        targetId = openId;
+        spanCount = session.dataset.traces.find(t => t.id === openId)?.spans.length ?? 0;
+      } else {
+        const wanted = a.traceId?.trim();
+        const target = session.dataset.traces.find(t => wanted && (t.id === wanted || t.scenario === wanted))
+          ?? session.dataset.traces.find(t => t.scenario === session.dataset.activeScenario)
+          ?? session.dataset.traces[0];
+        if (!target) return finish('answered', note('There’s no scenario to explain yet. Describe the workflow you’re building and I’ll create one first.'));
+        targetId = target.id;
+        spanCount = target.spans.length;
+      }
       let read: { version: number; trace: Trace } | null = null;
-      try { read = await step('explain', { spans: target.spans.length }, () => tools.readTrace(target.id), () => 'Read the saved trace'); }
-      catch { read = null; }
+      try { read = await step('explain', { spans: spanCount }, () => tools.readTrace(targetId), () => 'Read the saved trace'); }
+      catch { return finish('answered', note('I couldn’t read that trace just now, so I won’t describe it from memory. Please try again.', 'failed')); }
+      if (!read && openId) return finish('answered', note('I couldn’t find the trace you have open in this demo, so I won’t describe a different one instead. Reopen it from the trace list and ask again.', 'failed'));
       if (!read) return finish('answered', note('I couldn’t read that trace just now, so I won’t describe it from memory. Please try again.', 'failed'));
-      const narrative = groundNarrative(a.text, read.trace, null);
+      const narrative = groundNarrativeOrFallback(a.text, read.trace, null);
       const known = new Set(read.trace.spans.map(s => s.id));
       const chosen = (a.spanIds ?? []).filter(id => known.has(id));
       const evidence = { version: read.version, traceIds: [read.trace.id], spanIds: chosen.length ? chosen : citedSpanIds(read.trace) };
       return finish('answered', note(`${describeTrace(read.trace)}${narrative ? `\n${narrative}` : ''}`, 'note', { evidence }));
     }
 
-    function actOnAnswer(a: Extract<AgentAction, { type: 'answer' }>): AgentTurnResult {
+    async function actOnAnswer(a: Extract<AgentAction, { type: 'answer' }>): Promise<AgentTurnResult> {
       const cited = [...new Set(a.knowledgeIds)].map(id => knowledge.get(id)).filter((r): r is NonNullable<typeof r> => r !== undefined).slice(0, LIMITS.maxKnowledgeRecordsPerTurn);
+      // An uncited "answer" about the trace on screen is really an explanation of THAT trace, read back by code.
+      if (!cited.length && request.openTraceId && ABOUT_THIS_TRACE.test(resolved.effectiveText)) return actOnExplain({ type: 'explain', text: a.text });
       if (!cited.length) return finish('answered', note('I don’t have a verified record that answers that, so I won’t guess. I can show you a fictional failing workflow or explain the open trace.'));
       // The reply is composed by code from the cited records; provider prose can add at most one filtered lead sentence.
       return finish('answered', note(composeAnswer(cited, resolved.effectiveText, a.text)));
@@ -329,7 +379,7 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
 
     function actOnUnsupported(a: Extract<AgentAction, { type: 'unsupported' }>): AgentTurnResult {
       const record = a.capabilityId ? knowledge.get(a.capabilityId) : undefined;
-      const lead = cleanNarrative(a.text) || (record ? `${record.title} isn’t something this demo can do.` : 'That’s outside what this demo can do.');
+      const lead = stripUngroundedClaims(cleanNarrative(a.text)) || (record ? `${record.title} isn’t something this demo can do.` : UNSUPPORTED_FALLBACK);
       const tail = record ? ` (See: ${record.title}.)` : '';
       return finish('unsupported', note(`${lead}${tail} Nothing was changed.`));
     }

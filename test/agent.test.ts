@@ -440,7 +440,7 @@ test('createProvider: mock has no effort; anthropic is a live provider built fro
   assert.deepEqual([mock.mode, mock.name, mock.model, mock.effort], ['mock', 'tailor-mock', null, null]);
   assert.equal(mock.explain, undefined);
   const spend = createSpendGuard({ capUsd: 1 });
-  const client = { messages: { parse: async () => { throw new Error('offline'); } } };
+  const client = { messages: { create: async () => { throw new Error('offline'); } } };
   const live = createProvider({ kind: 'anthropic', apiKey: 'placeholder-not-a-key', spend, client });
   assert.deepEqual([live.mode, live.name, live.model, live.effort], ['live', 'anthropic', 'claude-sonnet-5-5', 'medium']);
   assert.equal(typeof live.explain, 'function');
@@ -533,14 +533,32 @@ test('FINDING 1: the answer is composed from the cited record (behaviour, limits
 });
 
 test('FINDING 1: at most one lead sentence survives, and only if it passes the claim filter', async () => {
-  const safe = harness({ provider: answerProvider('Failed retries show up as ERROR steps in the trace. Neatlogs also exports to Splunk.', ['trace-detail']) });
+  // Every content word of the lead must come from the cited record's own text (L1-05), so the lead reuses its vocabulary.
+  const safe = harness({ provider: answerProvider('Failing steps show as ERROR in the trace detail. Neatlogs also exports to Splunk.', ['trace-detail']) });
   const safeText = (await safe.say('Can Neatlogs detect failed retries?')).messages[0]!.text;
-  assert.ok(safeText.startsWith('Failed retries show up as ERROR steps in the trace.'));
+  assert.ok(safeText.startsWith('Failing steps show as ERROR in the trace detail.'));
   assert.doesNotMatch(safeText, /Splunk/);
   const planClaim = harness({ provider: answerProvider('The Enterprise plan includes trace detail for every team.', ['trace-detail']) });
   assert.doesNotMatch((await planClaim.say('Can Neatlogs detect failed retries?')).messages[0]!.text, /Enterprise plan includes/);
   const capClaim = harness({ provider: answerProvider('Trace detail integrates with Salesforce dashboards.', ['trace-detail']) });
   assert.doesNotMatch((await capClaim.say('Can Neatlogs detect failed retries?')).messages[0]!.text, /Salesforce/);
+});
+
+test('L1-05: a lead sentence with words the cited record never uses is dropped even when no claim pattern matches', async () => {
+  for (const lead of ['Failed retries show up as ERROR steps in the trace.', 'Neatlogs offers SSO and SOC 2 compliance out of the box.', 'Neatlogs keeps your traces for 90 days.', 'Neatlogs is available on every plan at no extra charge.', 'Neatlogs can page PagerDuty as well.']) {
+    const h = harness({ provider: answerProvider(lead, ['trace-detail']) });
+    const text = (await h.say('Can Neatlogs detect failed retries?')).messages[0]!.text;
+    assert.ok(text.startsWith('Trace detail and spans: '), `no lead for: ${lead}`);
+    assert.doesNotMatch(text, /SSO|90 days|every plan|no extra charge|PagerDuty|SOC/);
+  }
+});
+
+test('L1-05: pricing question with claim-laden lead stays unknown and code-composed', async () => {
+  const h = harness({ provider: answerProvider('Neatlogs is available on every plan at no extra charge.', ['pricing']) });
+  const text = (await h.say('How much does Neatlogs cost?')).messages[0]!.text;
+  assert.doesNotMatch(text, /every plan|no extra charge/);
+  assert.match(text, /I don’t have verified prices/);
+  assert.match(lastLine(text), /unknown/i);
 });
 
 test('FINDING 1: sentencePassesAnswerFilter checks prices, plan words against the cited plans, and capability objects', () => {
@@ -608,6 +626,23 @@ test('FINDING 2: groundNarrative keeps plain compounds and matching durations, a
   assert.match(kept, /overall/);
   assert.equal(groundNarrative('It took 7777 ms. Its sibling ghost_span_1 failed.', trace, null), '');
   assert.equal(groundNarrative(undefined, trace, null), '');
+});
+
+test('L1-04: invented counts, minutes, HTTP codes, CamelCase names and capability claims are dropped from a committed reply; the evidence sentence is intact', async () => {
+  const inner = createMockProvider();
+  const provider = countingProvider({
+    ...inner,
+    async complete(request, signal) {
+      const out = await inner.complete(request, signal);
+      if (out.action.type !== 'propose') return out;
+      const explanation = 'The payment step retried 7 times over 2 minutes. PaymentGateway returned HTTP 503 for 4 of 5 attempts. Neatlogs would page your on-call team in PagerDuty. Neatlogs automatically fixes failing retries. This happened in 87 percent of runs. Neatlogs Enterprise includes this detection.';
+      return { ...out, action: { ...out.action, explanation } };
+    },
+  });
+  const h = harness({ provider });
+  const text = (await h.say(travelBuyerTurn1.text)).messages[0]!.text;
+  assert.match(text, /^Saved and verified as version 2\./);
+  for (const gone of ['retried 7', 'minutes', 'PaymentGateway', '503', 'PagerDuty', 'automatically', '87 percent', 'Enterprise']) assert.ok(!text.includes(gone), `dropped: ${gone}`);
 });
 
 test('FINDING 3: explicit session IDs, paths and "session id = token" are refused with no tool call and the version unchanged', async () => {

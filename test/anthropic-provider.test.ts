@@ -1,5 +1,6 @@
-// Live Anthropic provider tests (NIT-272 live wave). 100% offline: an injected fake `client.messages.parse` stands in for
-// the SDK transport. No network, no credentials (the "key" below is a placeholder string), no environment reads.
+// Live Anthropic provider tests (NIT-272 live wave). 100% offline: an injected fake `client.messages.create` stands in for
+// the SDK transport (test/provider-sdk-wire.test.ts runs the REAL SDK over a scripted fetch). No network, no credentials
+// (the "key" below is a placeholder string), no environment reads.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -9,39 +10,47 @@ import Anthropic from '@anthropic-ai/sdk';
 import { CONTRACT_VERSION, LIMITS, OUTCOME_KINDS, SPAN_KINDS, type AgentAction, type ProviderRequest } from '../src/agent-contract.ts';
 import { travelBuyerTurn1, travelProposalV1, travelProposalV2 } from '../src/examples/travel-booking.ts';
 import {
-  AGENT_ACTION_SCHEMA, EVIDENCE_EXPLANATION_SCHEMA, ProviderError, createAnthropicProvider, mapSdkError, normaliseWireAction, toAnthropicMessages, toProviderUsage,
-  type AnthropicMessageParams, type MessagesClientLike, type ParsedMessageLike,
+  AGENT_ACTION_SCHEMA, EVIDENCE_EXPLANATION_SCHEMA, ProviderError, createAnthropicProvider, mapSdkError, maxOutputTokensFor, normaliseWireAction, toAnthropicMessages, toProviderUsage,
+  type AnthropicMessageParams, type MessagesClientLike, type RawMessageLike, type RequestOptionsLike,
 } from '../src/agent/anthropic-provider.ts';
-import { explanationMessage } from '../src/agent/prompts.ts';
+import { explanationMessage, parseUserMessage } from '../src/agent/prompts.ts';
 import { createProvider, validateAgentAction, validateEvidenceExplanation } from '../src/agent/provider.ts';
-import { SPEND_ESTIMATE_NOTE, createSpendGuard } from '../src/agent/spend.ts';
-import { harness, recordingTelemetry, SESSION_ID, FAKE_RECORDS, fakeKnowledge } from './helpers/agent.ts';
+import { createAgentService } from '../src/agent/service.ts';
+import { PER_CALL_OUTPUT_TOKEN_CEILING, SPEND_ESTIMATE_NOTE, createSpendGuard } from '../src/agent/spend.ts';
+import { harness, recordingTelemetry, scriptedProvider, SESSION_ID, FAKE_RECORDS, fixedClock, fakeKnowledge, type StubTools, type CountingProvider } from './helpers/agent.ts';
 
 const PLACEHOLDER_KEY = 'placeholder-not-a-key';
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Fakes
 // ---------------------------------------------------------------------------------------------------------------------
-type Reply = ParsedMessageLike | Error;
-interface Call { params: AnthropicMessageParams; options: { signal?: AbortSignal; timeout?: number } | undefined }
+/** `parsed_output` is test shorthand: the fake turns it into the JSON text block the API would return. */
+type FakeMessage = RawMessageLike & { parsed_output?: unknown };
+type Reply = FakeMessage | Error;
+interface Call { params: AnthropicMessageParams; options: RequestOptionsLike | undefined }
 
 function fakeClient(reply: (params: AnthropicMessageParams, call: number) => Reply): { client: MessagesClientLike; calls: Call[] } {
   const calls: Call[] = [];
   const client: MessagesClientLike = {
     messages: {
-      async parse(params, options) {
-        // The real output_config.format carries a parse() function, so snapshot through JSON (what goes on the wire).
+      async create(params, options) {
         calls.push({ params: JSON.parse(JSON.stringify(params)) as AnthropicMessageParams, options });
         const out = reply(params, calls.length);
         if (out instanceof Error) throw out;
-        return out;
+        const { parsed_output, _request_id, ...rest } = out;
+        const raw: RawMessageLike = 'parsed_output' in out
+          ? { ...rest, content: parsed_output === null || parsed_output === undefined ? [] : [{ type: 'text', text: JSON.stringify(parsed_output) }] }
+          : rest;
+        // Like the SDK: the request id is a non-enumerable property.
+        Object.defineProperty(raw, '_request_id', { value: _request_id, enumerable: false });
+        return raw;
       },
     },
   };
   return { client, calls };
 }
 
-const message = (over: Partial<ParsedMessageLike> = {}): ParsedMessageLike => ({
+const message = (over: Partial<FakeMessage> = {}): FakeMessage => ({
   stop_reason: 'end_turn', stop_details: null,
   usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: null, cache_read_input_tokens: null, output_tokens_details: null },
   parsed_output: null, _request_id: 'req_test_1', ...over,
@@ -97,23 +106,32 @@ test('request shape: model, adaptive thinking (no budget_tokens, no disabled), e
   assert.equal(params.output_config.format.schema.additionalProperties, false);
   // The SDK helper's default transform demotes enums/items to descriptions; that looser schema failed to compile live.
   assert.equal(JSON.stringify(params.output_config.format.schema), JSON.stringify(AGENT_ACTION_SCHEMA), 'the schema goes on the wire untransformed');
-  assert.equal(params.max_tokens, LIMITS.maxOutputTokens, 'bounded by LIMITS.maxOutputTokens');
+  assert.equal(params.max_tokens, maxOutputTokensFor('medium'), 'bounded by the effort-aware planning ceiling');
   const wire = JSON.stringify(params);
   for (const forbidden of ['budget_tokens', '"disabled"', '"enabled"', 'tool_choice', '"tools"', 'temperature', 'top_p', 'top_k']) assert.ok(!wire.includes(forbidden), `must not send ${forbidden}`);
   assert.equal(options?.timeout, LIMITS.providerTimeoutMs);
-  assert.ok(options?.signal === undefined);
+  assert.equal(options?.maxRetries, 0, 'the SDK never retries; the service loop owns retries');
+  assert.ok(options?.signal instanceof AbortSignal && !options.signal.aborted, 'the provider owns the per-call abort signal');
   await p.complete(planRequest({ maxOutputTokens: 500 }));
   assert.equal(calls[1]!.params.max_tokens, 500);
 });
 
-test('request shape: model/effort/timeout are configurable and the signal is passed through', async () => {
+test('request shape: model/effort/timeout are configurable and aborting the caller signal aborts the request', async () => {
+  let seen: AbortSignal | undefined;
+  const hung: MessagesClientLike = { messages: { create: (_params, options) => { seen = options?.signal; return new Promise(() => {}); } } };
   const { client, calls } = fakeClient(() => message({ parsed_output: answerWire }));
-  const controller = new AbortController();
-  await provider(client, { model: 'claude-test-model', effort: 'xhigh', timeoutMs: 1234 }).complete(planRequest(), controller.signal);
+  const priced = createSpendGuard({ capUsd: 100, rates: { inputPerMTok: 2, outputPerMTok: 10 } });
+  await provider(client, { model: 'claude-test-model', effort: 'high', timeoutMs: 1234, spend: priced }).complete(planRequest({ maxOutputTokens: 1_000_000 }));
   assert.equal(calls[0]!.params.model, 'claude-test-model');
-  assert.equal(calls[0]!.params.output_config.effort, 'xhigh');
+  assert.equal(calls[0]!.params.output_config.effort, 'high');
+  assert.equal(calls[0]!.params.max_tokens, maxOutputTokensFor('high'));
   assert.equal(calls[0]!.options?.timeout, 1234);
-  assert.equal(calls[0]!.options?.signal, controller.signal);
+  const controller = new AbortController();
+  const pending = rejection(provider(hung, { timeoutMs: 60_000 }).complete(planRequest(), controller.signal));
+  await new Promise(r => setImmediate(r));
+  controller.abort();
+  assert.equal((await pending).kind, 'timeout');
+  assert.equal(seen?.aborted, true);
 });
 
 test('message mapping: system joins into `system` (plus the wire notes), tool becomes an untrusted user message, roles are kept', async () => {
@@ -269,8 +287,9 @@ test('SDK errors map to ProviderError kinds with retryable flags, status and req
     ['503', new Anthropic.InternalServerError(503, {}, 'unavailable', headers()), 'overloaded', true, 503],
     ['500', new Anthropic.InternalServerError(500, {}, 'boom', headers()), 'unknown', true, 500],
     ['404', new Anthropic.NotFoundError(404, {}, 'model not found', headers()), 'invalid_request', false, 404],
-    ['timeout', new Anthropic.APIConnectionTimeoutError(), 'timeout', true, undefined],
-    ['abort', new Anthropic.APIUserAbortError(), 'timeout', true, undefined],
+    // A timeout is not retried within the turn: a second full-length wait would outlast the turn deadline.
+    ['timeout', new Anthropic.APIConnectionTimeoutError(), 'timeout', false, undefined],
+    ['abort', new Anthropic.APIUserAbortError(), 'timeout', false, undefined],
     ['network', new Anthropic.APIConnectionError({ message: 'ECONNRESET' }), 'network', true, undefined],
     ['plain error', new Error('mystery'), 'unknown', false, undefined],
   ];
@@ -280,7 +299,7 @@ test('SDK errors map to ProviderError kinds with retryable flags, status and req
     assert.equal(error.kind, kind, label);
     assert.equal(error.retryable, retryable, `${label}: retryable`);
     assert.equal(error.status, status, `${label}: status`);
-    assert.equal(calls.length, 1, `${label}: the provider itself never retries (the SDK does)`);
+    assert.equal(calls.length, 1, `${label}: the provider never retries (the SDK is told not to either)`);
     assert.ok(!/invalid x-api-key|bad key|ECONNRESET|mystery/.test(error.message), `${label}: raw SDK text is classified, not forwarded`);
     if (label === '401') assert.equal(error.requestId, 'req_err');
   }
@@ -321,24 +340,24 @@ test('spend guard: summary math, every USD number labelled as an estimate', () =
   spend.record({ inputTokens: 200, outputTokens: 100 }, 'claude-sonnet-5-5', 'explain');
   spend.record(null, null, 'plan');
   const s = spend.summary();
-  // (1000*2 + 500*10 + 2000*0.2 + 400*2.5)/1e6 = 0.0084 ; (200*2 + 100*10)/1e6 = 0.0014
-  assert.ok(Math.abs(s.spentUsd - 0.0098) < 1e-9, String(s.spentUsd));
+  // (1000*2 + 500*10 + 2000*0.10 + 400*4)/1e6 = 0.0088 (cache writes at the conservative 1-hour rate) ; (200*2 + 100*10)/1e6 = 0.0014
+  assert.ok(Math.abs(s.spentUsd - 0.0102) < 1e-9, String(s.spentUsd));
   assert.deepEqual([s.calls, s.inputTokens, s.outputTokens, s.thinkingTokens, s.cacheReadTokens, s.cacheWriteTokens], [3, 1200, 600, 300, 2000, 400]);
-  assert.ok(Math.abs(s.byKind.plan!.spentUsd - 0.0084) < 1e-9);
+  assert.ok(Math.abs(s.byKind.plan!.spentUsd - 0.0088) < 1e-9);
   assert.equal(s.byKind.plan!.calls, 2);
   assert.equal(s.byKind.explain!.calls, 1);
   assert.equal(s.capUsd, 5);
-  assert.ok(Math.abs(s.remainingUsd - (5 - 0.0098)) < 1e-9);
+  assert.ok(Math.abs(s.remainingUsd - (5 - 0.0102)) < 1e-9);
   assert.equal(s.estimated, true);
   assert.equal(s.note, SPEND_ESTIMATE_NOTE);
   assert.match(s.note, /estimates/);
   assert.match(s.note, /may differ from final Anthropic billing/);
-  assert.deepEqual(s.limits, { perCallMaxOutputTokens: LIMITS.maxOutputTokens, perTurnMaxCalls: LIMITS.maxProviderCallsPerTurn });
+  assert.deepEqual(s.limits, { perCallMaxOutputTokens: PER_CALL_OUTPUT_TOKEN_CEILING, perTurnMaxCalls: LIMITS.maxProviderCallsPerTurn });
   const custom = createSpendGuard({ capUsd: 1, rates: { inputPerMTok: 1, outputPerMTok: 1 } });
   custom.record({ inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadInputTokens: 1_000_000 }, null, 'plan');
   assert.equal(custom.summary().spentUsd, 3, 'configurable rates; cache falls back to the input rate');
   assert.equal(spend.worstCaseUsd(4000, 1000), (1000 * 2 + 1000 * 10) / 1e6);
-  assert.equal(spend.worstCaseUsd(0, 999_999), (LIMITS.maxOutputTokens * 10) / 1e6, 'output allowance is capped per call');
+  assert.equal(spend.worstCaseUsd(0, 999_999), (PER_CALL_OUTPUT_TOKEN_CEILING * 10) / 1e6, 'output allowance is capped per call');
 });
 
 test('spend guard: the ledger persists the running total across two guard instances, atomically, with numbers only', () => {
@@ -357,7 +376,7 @@ test('spend guard: the ledger persists the running total across two guard instan
     assert.equal(createSpendGuard({ capUsd: 1000, ledgerPath }).summary().calls, 2);
     const raw = readFileSync(ledgerPath, 'utf8');
     assert.ok(!/sk-|api[-_ ]?key|secret|authorization|bearer/i.test(raw), 'no secrets in the ledger');
-    assert.equal(JSON.parse(raw).version, 1);
+    assert.equal(JSON.parse(raw).version, 2);
     assert.equal(statSync(ledgerPath).mode & 0o077, 0, 'owner-only permissions');
     assert.ok(!existsSync(`${ledgerPath}.${process.pid}.tmp`), 'the temp file is renamed away');
     writeFileSync(ledgerPath, '{not json');
@@ -468,7 +487,8 @@ test('service + live provider: spend_cap says the demo’s model budget is used 
   assert.equal(calls.length, 0);
   assert.equal(result.steps.find(s => s.name === 'model')?.detail, 'spend_cap');
   const copy = result.messages[0]!.text;
-  assert.match(copy, /model budget for today is used up/);
+  assert.match(copy, /model budget is used up/);
+  assert.doesNotMatch(copy, /today/, 'the ledger never resets by day');
   assert.doesNotMatch(copy, /\d|\$|USD/);
 });
 
@@ -596,4 +616,72 @@ test('createProvider({ kind: "anthropic" }) wires the spend guard and never need
   assert.equal(p.effort, 'high');
   await p.complete(planRequest());
   assert.equal(spend.summary().calls, 1);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// (j) "explain this trace" uses the trace the buyer has OPEN (L5-02), and refuse/unsupported prose is claim-filtered (L1-03)
+// ---------------------------------------------------------------------------------------------------------------------
+/** Two saved traces: v1's `booking-timeout-retry-ok` (not active) and v2's `booking-timeout-retry-fails` (active). */
+async function twoTraceTools(): Promise<StubTools> {
+  const h = harness({ provider: scriptedProvider((_r, n) => (n === 1 ? { type: 'propose', proposal: travelProposalV1, explanation: 'v1' } : { type: 'propose', proposal: travelProposalV2, explanation: 'v2' })) });
+  await h.say('first'); await h.say('second');
+  assert.equal(h.tools.state.dataset.traces.length, 2);
+  return h.tools;
+}
+
+async function turnWith(tools: StubTools, provider: CountingProvider, text: string, openTraceId?: string) {
+  const session = { ...(await tools.readSession()), conversation: [{ id: 'b9', role: 'buyer' as const, text, status: 'pending' as const, at: '2026-10-11T12:00:00.000Z' }] };
+  return createAgentService().handleTurn({
+    session, request: { text, clientTurnId: 'ct-open', ...(openTraceId ? { openTraceId } : {}) }, tools, knowledge: fakeKnowledge(), telemetry: recordingTelemetry(), clock: fixedClock, provider,
+  });
+}
+
+test('L5-02: "explain this trace" explains the OPEN trace even when the model names another one; the model sees which trace is open', async () => {
+  const tools = await twoTraceTools();
+  const openId = `${SESSION_ID}-booking-timeout-retry-ok`;
+  const activeId = `${SESSION_ID}-booking-timeout-retry-fails`;
+  const provider = scriptedProvider(() => ({ type: 'explain', text: 'The booking call timed out, then the retry confirmed the reservation.', traceId: 'booking-timeout-retry-fails' }));
+  const result = await turnWith(tools, provider, 'Explain this trace', openId);
+  assert.equal(result.outcome, 'answered');
+  assert.deepEqual(result.messages[0]!.evidence?.traceIds, [openId], 'the open trace, not the model’s pick or the active one');
+  assert.ok(!result.messages[0]!.evidence?.spanIds.some(id => id.startsWith(activeId)));
+  const framed = parseUserMessage(provider.calls[0]!.messages.find(m => m.role === 'user')!.content);
+  assert.deepEqual(framed?.context.openTrace, { id: openId, key: 'booking-timeout-retry-ok', label: travelProposalV1.traces[0]!.label });
+
+  // Without an open trace the model's named trace is still honoured.
+  const named = await turnWith(tools, scriptedProvider(() => ({ type: 'explain', text: 'x', traceId: 'booking-timeout-retry-ok' })), 'Explain the first one');
+  assert.deepEqual(named.messages[0]!.evidence?.traceIds, [openId]);
+  const fallback = await turnWith(tools, scriptedProvider(() => ({ type: 'explain', text: 'x' })), 'Explain it');
+  assert.deepEqual(fallback.messages[0]!.evidence?.traceIds, [activeId], 'no open trace: the active scenario, as before');
+});
+
+test('L5-02: an open trace that cannot be found is reported truthfully and no other trace is described', async () => {
+  const tools = await twoTraceTools();
+  const result = await turnWith(tools, scriptedProvider(() => ({ type: 'explain', text: 'The retry failed.', traceId: 'booking-timeout-retry-fails' })), 'Explain this trace', 'sess-other-trace');
+  assert.equal(result.outcome, 'answered');
+  assert.match(result.messages[0]!.text, /couldn’t find the trace you have open/);
+  assert.equal(result.messages[0]!.evidence, undefined, 'no evidence from a substituted trace');
+  assert.ok(!/retry failed|Saved|booking/i.test(result.messages[0]!.text));
+});
+
+test('L5-02: an uncited "answer" about "this trace" explains the open trace from its read-back', async () => {
+  const tools = await twoTraceTools();
+  const openId = `${SESSION_ID}-booking-timeout-retry-ok`;
+  const result = await turnWith(tools, scriptedProvider(() => ({ type: 'answer', text: 'It retried.', knowledgeIds: [] })), 'What happened in this trace?', openId);
+  assert.equal(result.outcome, 'answered');
+  assert.deepEqual(result.messages[0]!.evidence?.traceIds, [openId]);
+});
+
+test('L1-03: refuse and unsupported prose never carries invented prices or plans; an emptied reply gets a fixed sentence', async () => {
+  const tools = await twoTraceTools();
+  const unsupported = await turnWith(tools, scriptedProvider(() => ({ type: 'unsupported', text: 'Slack alerts are on the Neatlogs Pro plan for $49/month; I can’t wire them here.', capabilityId: 'alerts' })), 'Can you send Slack alerts?');
+  assert.equal(unsupported.outcome, 'unsupported');
+  assert.doesNotMatch(unsupported.messages[0]!.text, /\$|49|Pro plan|month/);
+  assert.match(unsupported.messages[0]!.text, /Alerts and notifications isn’t something this demo can do\..*Nothing was changed\./);
+  const refused = await turnWith(tools, scriptedProvider(() => ({ type: 'refuse', text: 'I won’t change your real project. Neatlogs Enterprise ($999/yr) can do that automatically.', reason: 'real_mutation' })), 'Delete my real project');
+  assert.equal(refused.outcome, 'refused');
+  assert.doesNotMatch(refused.messages[0]!.text, /\$|999|Enterprise/);
+  assert.match(refused.messages[0]!.text, /Nothing was changed\.$/);
+  const emptied = await turnWith(tools, scriptedProvider(() => ({ type: 'refuse', text: 'Neatlogs Enterprise costs $999/yr.', reason: 'off_topic' })), 'x');
+  assert.equal(emptied.messages[0]!.text, 'I can’t help with that request. Nothing was changed.');
 });

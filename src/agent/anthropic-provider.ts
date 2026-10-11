@@ -6,6 +6,11 @@
 //   thinking: { type: 'adaptive' }                       // 'disabled' and enabled/budget_tokens are 400s on this model: never sent
 //   output_config: { effort, format: json_schema }       // GA structured outputs, no beta header
 //
+// `messages.create()`, not `messages.parse()`: parse() JSON-parses the text inside the SDK promise and throws on a
+// cut-off (max_tokens) or prose (refusal) reply before stop_reason or usage can be read. Here usage is settled in the
+// spend ledger first, then stop_reason is mapped, then the first text block is parsed and validated by our own code.
+// The SDK never retries (maxRetries 0) and the per-call timeout is owned here, so every attempt is reserved and settled.
+//
 // JSON REPRESENTATION. The structured-output grammar cannot express arbitrary JSON, so every free-form `input` / `output`
 // (trace level and span level) travels as a STRING that holds JSON text. The provider decodes it server-side, bounded by
 // LIMITS.maxSpanJsonBytes, and checks `isJson` before `validateAgentAction` sees the value. Optional TypeScript fields are
@@ -13,7 +18,6 @@
 // The wire root must be an object, so the AgentAction union (anyOf of six objects) sits under a single `action` property.
 
 import Anthropic from '@anthropic-ai/sdk';
-import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema';
 import {
   CONTRACT_VERSION, LIMITS,
   type AgentAction, type EvidenceExplanation, type ExplanationRequest, type ExplanationResponse, type ModelProvider, type ProviderErrorKind,
@@ -21,13 +25,25 @@ import {
 } from '../agent-contract.ts';
 import { ProviderError } from './provider-error.ts';
 import { isJson, validateAgentAction, validateEvidenceExplanation } from './provider.ts';
-import type { SpendGuard } from './spend.ts';
+import { PER_CALL_OUTPUT_TOKEN_CEILING, type SpendGuard } from './spend.ts';
 
 export { ProviderError } from './provider-error.ts';
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export const DEFAULT_MODEL = 'claude-sonnet-5-5';
 export const DEFAULT_EFFORT: Effort = 'medium';
+
+/**
+ * Planning `max_tokens` per effort. It is a hard limit on thinking PLUS the JSON reply, so higher effort needs more
+ * room. `xhigh`/`max` would need more than PER_CALL_OUTPUT_TOKEN_CEILING and are refused (null) rather than run
+ * with a ceiling that truncates them. The spend reservation is proportional (worst case = this allowance).
+ */
+const PLANNING_OUTPUT_TOKENS: Record<Effort, number | null> = { low: 4000, medium: 8000, high: PER_CALL_OUTPUT_TOKEN_CEILING, xhigh: null, max: null };
+
+/** Planning output ceiling for an effort, or null when this build refuses that effort. main.ts validates TAILOR_EFFORT with it. */
+export function maxOutputTokensFor(effort: Effort): number | null {
+  return Object.hasOwn(PLANNING_OUTPUT_TOKENS, effort) ? PLANNING_OUTPUT_TOKENS[effort] : null;
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Schemas (plain `as const` objects). Rules: additionalProperties:false on every object, every property required,
@@ -168,42 +184,43 @@ export interface AnthropicMessageParams {
   thinking: { type: 'adaptive' };
   output_config: { effort: Effort; format: OutputFormatLike };
 }
-export interface ParsedMessageLike {
+/** The raw (unparsed) Messages API response fields Tailor reads. */
+export interface RawMessageLike {
   stop_reason: string | null;
   stop_details?: { type?: string; category?: string | null; explanation?: string | null } | null;
-  usage: {
+  usage?: {
     input_tokens: number;
     output_tokens: number;
     cache_creation_input_tokens?: number | null;
     cache_read_input_tokens?: number | null;
     output_tokens_details?: { thinking_tokens: number } | null;
-  };
-  parsed_output: unknown;
+  } | null;
+  content?: { type: string; text?: string }[] | null;
+  /** Set by the SDK from the `request-id` header as a NON-enumerable property: read it directly, never after a spread. */
   _request_id?: string | null;
 }
+export interface RequestOptionsLike { signal?: AbortSignal; timeout?: number; maxRetries?: number }
 export interface MessagesClientLike {
-  messages: { parse(params: AnthropicMessageParams, options?: { signal?: AbortSignal; timeout?: number }): Promise<ParsedMessageLike> };
+  messages: { create(params: AnthropicMessageParams, options?: RequestOptionsLike): Promise<RawMessageLike> };
 }
 
 export interface AnthropicProviderOptions {
   apiKey: string;
   model?: string;
   effort?: Effort;
-  maxRetries?: number;
+  /** Per-call bound (ms) owned by the provider; the service's own bound is strictly longer. */
   timeoutMs?: number;
   spend: SpendGuard;
   /** Tests inject a fake; production builds the SDK client from `apiKey`. */
   client?: MessagesClientLike;
 }
 
-// The helper is typed for literal schemas; the wire schemas are checked at runtime by the API and by our own validators.
-type ObjectSchema = { type: 'object' };
-// `transform: false`: the helper's default transform rewrites the schema for "compatibility" (every `enum` and the
-// `items` of nullable arrays are demoted to description text). Against the live API that looser schema failed to
-// compile ("The compiled grammar is too large") while the untransformed one compiles; our schemas already follow the
-// structured-output rules (enforced by test), so nothing needs transforming.
-const PLAN_FORMAT = jsonSchemaOutputFormat(AGENT_ACTION_SCHEMA as unknown as ObjectSchema, { transform: false }) as unknown as OutputFormatLike;
-const EXPLAIN_FORMAT = jsonSchemaOutputFormat(EVIDENCE_EXPLANATION_SCHEMA as unknown as ObjectSchema, { transform: false }) as unknown as OutputFormatLike;
+// Plain format objects: the schema goes on the wire exactly as written (the SDK helper's default transform demotes
+// every `enum` and nullable `items` to description text; that looser schema failed to compile live with "The compiled
+// grammar is too large"). Our schemas already follow the structured-output rules (enforced by test).
+const PLAN_FORMAT: OutputFormatLike = { type: 'json_schema', schema: AGENT_ACTION_SCHEMA as unknown as Record<string, unknown> };
+const EXPLAIN_FORMAT: OutputFormatLike = { type: 'json_schema', schema: EVIDENCE_EXPLANATION_SCHEMA as unknown as Record<string, unknown> };
+const SCHEMA_CHARS = { plan: JSON.stringify(AGENT_ACTION_SCHEMA).length, explain: JSON.stringify(EVIDENCE_EXPLANATION_SCHEMA).length } as const;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Wire <-> AgentAction
@@ -327,7 +344,7 @@ export function mapSdkError(error: unknown): ProviderError {
   return make('unknown');
 }
 
-export function toProviderUsage(usage: ParsedMessageLike['usage'] | undefined | null): ProviderUsage | null {
+export function toProviderUsage(usage: RawMessageLike['usage'] | undefined | null): ProviderUsage | null {
   if (!usage || typeof usage.input_tokens !== 'number' || typeof usage.output_tokens !== 'number') return null;
   return {
     inputTokens: usage.input_tokens,
@@ -344,12 +361,19 @@ export function toProviderUsage(usage: ParsedMessageLike['usage'] | undefined | 
 export function createAnthropicProvider(options: AnthropicProviderOptions): ModelProvider {
   const model = options.model ?? DEFAULT_MODEL;
   const effort = options.effort ?? DEFAULT_EFFORT;
+  const planningCeiling = maxOutputTokensFor(effort);
+  if (planningCeiling === null) throw new Error(`Effort "${effort}" needs more output tokens than this build allows per call; use low, medium or high`);
   const timeoutMs = options.timeoutMs ?? LIMITS.providerTimeoutMs;
   const { spend } = options;
+  // Fail closed at construction when the guard cannot price this model (unknown rates would read as $0).
+  spend.worstCaseUsd(0, 1, model);
   const client: MessagesClientLike = options.client
-    ?? new Anthropic({ apiKey: options.apiKey, maxRetries: options.maxRetries ?? 2, timeout: timeoutMs }) as unknown as MessagesClientLike;
+    ?? new Anthropic({ apiKey: options.apiKey, maxRetries: 0, timeout: timeoutMs }) as unknown as MessagesClientLike;
 
-  /** One structured call: size check -> spend check -> request -> record usage (always) -> map stop reason -> extract. */
+  /**
+   * One structured call: size check -> reserve worst case (persisted) -> request (own timeout, no SDK retries)
+   * -> settle usage (always, before anything can throw) -> map stop reason -> parse + validate the first text block.
+   */
   async function invoke<T>(args: {
     kind: 'plan' | 'explain'; messages: ProviderMessage[]; extraSystem?: string; maxTokens: number; format: OutputFormatLike;
     extract: (parsed: unknown) => T | null; signal: AbortSignal | undefined;
@@ -358,8 +382,13 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
     if (mapped.chars > LIMITS.maxInputCharsPerCall) throw new ProviderError('invalid_request', 'The prompt is larger than the per-call input limit');
     if (mapped.messages.length === 0 || mapped.messages[0]!.role !== 'user') throw new ProviderError('invalid_request', 'The conversation must start with a user message');
     if (mapped.messages[mapped.messages.length - 1]!.role !== 'user') throw new ProviderError('invalid_request', 'The conversation must end with a user message');
-    const maxTokens = Math.max(1, Math.min(args.maxTokens, args.kind === 'explain' ? LIMITS.maxExplanationOutputTokens : LIMITS.maxOutputTokens));
-    spend.check(spend.worstCaseUsd(mapped.chars, maxTokens));
+    if (args.signal?.aborted) throw new ProviderError('timeout', 'The turn deadline passed before the call was made');
+    const maxTokens = Math.max(1, Math.min(args.maxTokens, args.kind === 'explain' ? LIMITS.maxExplanationOutputTokens : planningCeiling!));
+    // The output schema is billed as input too.
+    const worstCase = spend.worstCaseUsd(mapped.chars + SCHEMA_CHARS[args.kind], maxTokens, model);
+    let reservation: string;
+    try { reservation = spend.reserve(worstCase, { kind: args.kind, model }); }
+    catch (error) { throw error instanceof ProviderError ? error : new ProviderError('spend_cap', 'The spend ledger could not be read, so the call was not made'); }
 
     const params: AnthropicMessageParams = {
       model,
@@ -369,15 +398,36 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       thinking: { type: 'adaptive' },
       output_config: { effort, format: args.format },
     };
+    const controller = new AbortController();
+    const timedOut = () => new ProviderError('timeout', 'The model call did not finish within the per-call time limit', { retryable: false });
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<never>((_, reject) => { onAbort = () => reject(timedOut()); controller.signal.addEventListener('abort', onAbort, { once: true }); });
+    aborted.catch(() => {});
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const forward = () => controller.abort();
+    args.signal?.addEventListener('abort', forward, { once: true });
     const started = performance.now();
-    let message: ParsedMessageLike;
-    try { message = await client.messages.parse(params, { ...(args.signal ? { signal: args.signal } : {}), timeout: timeoutMs }); }
-    catch (error) { throw mapSdkError(error); }
+    let message: RawMessageLike;
+    try {
+      // Racing the abort keeps the bound even for a client that ignores the signal.
+      message = await Promise.race([client.messages.create(params, { signal: controller.signal, timeout: timeoutMs, maxRetries: 0 }), aborted]);
+    } catch (error) {
+      const mappedError = controller.signal.aborted ? timedOut() : mapSdkError(error);
+      // The API answered with an HTTP error: not billed. Anything else (timeout, dropped connection, unknown) may
+      // have been billed: keep the worst case, marked unreconciled.
+      if (!controller.signal.aborted && error instanceof Anthropic.APIError && typeof error.status === 'number') spend.release(reservation);
+      else spend.settle(reservation, null);
+      throw mappedError;
+    } finally {
+      clearTimeout(timer);
+      args.signal?.removeEventListener('abort', forward);
+      if (onAbort) controller.signal.removeEventListener('abort', onAbort);
+    }
     const latencyMs = Math.max(0, Math.round(performance.now() - started));
+    const requestId = typeof message._request_id === 'string' && message._request_id ? message._request_id : undefined;
     const usage = toProviderUsage(message.usage);
-    const requestId = message._request_id ?? undefined;
-    // Refusals and truncations are billed: record BEFORE any throw below.
-    spend.record(usage, model, args.kind);
+    // Refusals, truncations and malformed replies are billed: settle BEFORE any throw below.
+    spend.settle(reservation, usage);
     const failure = (kind: ProviderErrorKind, text: string) => new ProviderError(kind, text, { requestId });
 
     switch (message.stop_reason) {
@@ -390,8 +440,11 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       case 'end_turn': break;
       default: throw failure('malformed', `Unexpected stop reason: ${String(message.stop_reason)}`);
     }
-    if (message.parsed_output === null || message.parsed_output === undefined) throw failure('malformed', 'The response was not valid structured JSON');
-    const value = args.extract(message.parsed_output);
+    const text = (message.content ?? []).find(block => block.type === 'text' && typeof block.text === 'string')?.text;
+    if (text === undefined) throw failure('malformed', 'The response had no text block');
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { throw failure('malformed', 'The response was not valid structured JSON'); }
+    const value = args.extract(parsed);
     if (value === null) throw failure('malformed', 'The structured response failed validation');
     return { value, usage, latencyMs, ...(requestId ? { requestId } : {}) };
   }

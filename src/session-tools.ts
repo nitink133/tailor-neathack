@@ -14,8 +14,11 @@ const publishAttributes = (r: PublishResult): Record<string, string | number> =>
   return { state: r.state };
 };
 
-/** `telemetry` (optional) wraps backend-owned validate/save steps; payloads are never attached. */
-export function createSessionTools(store: Store, sessionId: string, clock: Clock, telemetry?: TurnTelemetry): SessionTools {
+/**
+ * `telemetry` (optional) wraps backend-owned validate/save steps; payloads are never attached.
+ * `turn` (optional) ties publishes to the durable turn run, which is marked published in the save transaction.
+ */
+export function createSessionTools(store: Store, sessionId: string, clock: Clock, telemetry?: TurnTelemetry, turn?: { clientTurnId: string }): SessionTools {
   const step = <T>(name: 'validate' | 'save', attrs: Record<string, string | number | boolean>, fn: () => Promise<T>) => telemetry ? telemetry.step(name, attrs, fn) : fn();
   return {
     async readSession() { return store.snapshot(sessionId); },
@@ -32,7 +35,7 @@ export function createSessionTools(store: Store, sessionId: string, clock: Clock
     async publishScenario(proposal: ScenarioProposal) {
       const expectedVersion = typeof proposal?.expectedVersion === 'number' ? proposal.expectedVersion : -1;
       return step('save', { expectedVersion }, async () => {
-        const result = store.publish(sessionId, proposal);
+        const result = store.publish(sessionId, proposal, turn);
         telemetry?.event('publish.result', publishAttributes(result));
         return result;
       });

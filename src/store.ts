@@ -5,10 +5,10 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import type { ChatStatus, ChatTurn, Dataset, DemoSession, FixtureScenario, Span, Story, Trace, TraceList, TraceQuery } from './contracts.ts';
 import {
   LIMITS, systemClock,
-  type Clock, type PublishResult, type ReadbackEvidence, type ScenarioProposal, type SessionSnapshot, type TurnResponse,
+  type Clock, type ExecutionLabel, type PublishResult, type ReadbackEvidence, type ScenarioProposal, type SessionSnapshot, type TurnOutcome, type TurnResponse,
 } from './agent-contract.ts';
 import { fixtures } from './fixtures.ts';
-import { datasetProblems, validateProposal } from './validator.ts';
+import { datasetProblems, storyProblems, validateProposal } from './validator.ts';
 
 export class Failure extends Error {
   status: number; code: string;
@@ -24,9 +24,37 @@ class CommitThenThrow extends Error {
 export const TOMBSTONE_TTL_MS = 10 * 60 * 1000;
 const CHAT_STATUSES: readonly ChatStatus[] = ['pending', 'applied', 'failed', 'uncertain', 'question', 'note'];
 
+/**
+ * A run older than this cannot still be executing (provider calls + explanation call + slack), so the sweep may
+ * settle it as interrupted. Runs younger than this are only settled on a same-ID retry when no process holds them.
+ */
+export const TURN_DEADLINE_MS = (LIMITS.maxProviderCallsPerTurn + 1) * LIMITS.providerTimeoutMs + 60_000;
+/** Settled runs kept per session so an older retry replays instead of running again. */
+export const TURN_RUNS_PER_SESSION = 16;
+
 export interface StoreFaults { failSave?: () => boolean; failReadback?: () => boolean }
 export interface StoreOptions { clock?: Clock; faults?: StoreFaults }
 export interface StoredTurn { clientTurnId: string; response: TurnResponse }
+/** Durable per-turn record: running (buyer turn stored) → published (dataset saved) → settled (response stored). */
+export interface TurnRun {
+  sessionId: string; clientTurnId: string;
+  /** Empty for records imported from the legacy single `last_turn` column (no hash was kept). */
+  requestHash: string;
+  state: 'running' | 'published' | 'settled';
+  turnId: string; buyerTurnId: string;
+  startedVersion: number; startedConversationVersion: number; publishedVersion: number | null; startedAt: number;
+  execution: ExecutionLabel; response: TurnResponse | null;
+}
+export interface BeginTurn { clientTurnId: string; requestHash: string; text: string; turnId: string; execution: ExecutionLabel }
+interface RunRow {
+  session_id: string; client_turn_id: string; request_hash: string; state: TurnRun['state']; turn_id: string; buyer_turn_id: string;
+  started_version: number; started_conversation_version: number; published_version: number | null; started_at: number; execution: string; response: string | null;
+}
+const runOf = (r: RunRow): TurnRun => ({
+  sessionId: r.session_id, clientTurnId: r.client_turn_id, requestHash: r.request_hash, state: r.state, turnId: r.turn_id, buyerTurnId: r.buyer_turn_id,
+  startedVersion: r.started_version, startedConversationVersion: r.started_conversation_version, publishedVersion: r.published_version, startedAt: r.started_at,
+  execution: JSON.parse(r.execution) as ExecutionLabel, response: r.response ? JSON.parse(r.response) as TurnResponse : null,
+});
 export type NewTurn = Omit<ChatTurn, 'id' | 'at'>;
 export interface AppendOptions {
   expectedConversationVersion?: number;
@@ -50,7 +78,8 @@ export class Store {
     this.faults = options.faults ?? {};
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(path);
-    this.db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, operation TEXT UNIQUE NOT NULL, document TEXT NOT NULL)');
+    // secure_delete zeroes freed content; ended/expired content leaves the WAL at the checkpoint after deletion.
+    this.db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA secure_delete=ON; CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, operation TEXT UNIQUE NOT NULL, document TEXT NOT NULL)');
     this.db.prepare('INSERT OR IGNORE INTO settings VALUES (?, ?)').run('secret', randomBytes(32).toString('hex'));
     this.secret = (this.db.prepare('SELECT value FROM settings WHERE key=?').get('secret') as { value: string }).value;
     this.migrate();
@@ -73,7 +102,26 @@ export class Store {
       try { created = Date.parse((JSON.parse(row.document) as DemoSession).createdAt) || 0; } catch { created = 0; }
       update.run(created, created + LIMITS.lifetimeMs, row.id);
     }
+    this.db.exec(`CREATE TABLE IF NOT EXISTS turn_runs (
+      session_id TEXT NOT NULL, client_turn_id TEXT NOT NULL, request_hash TEXT NOT NULL, state TEXT NOT NULL,
+      turn_id TEXT NOT NULL, buyer_turn_id TEXT NOT NULL, started_version INTEGER NOT NULL, started_conversation_version INTEGER NOT NULL,
+      published_version INTEGER, started_at INTEGER NOT NULL, execution TEXT NOT NULL, response TEXT,
+      PRIMARY KEY (session_id, client_turn_id))`);
+    // Pre-turn_runs databases kept one settled record per session in sessions.last_turn: import it once, then clear it.
+    const lastTurns = this.db.prepare('SELECT id, last_turn, last_active_at FROM sessions WHERE last_turn IS NOT NULL').all() as { id: string; last_turn: string; last_active_at: number }[];
+    const importRun = this.db.prepare("INSERT OR IGNORE INTO turn_runs VALUES (?, ?, '', 'settled', ?, '', ?, ?, ?, ?, ?, ?)");
+    for (const row of lastTurns) {
+      try {
+        const stored = JSON.parse(row.last_turn) as StoredTurn;
+        const r = stored.response;
+        importRun.run(row.id, stored.clientTurnId, r.turnId, r.version, r.conversationVersion, r.version, row.last_active_at, JSON.stringify(r.execution), JSON.stringify(r));
+      } catch { /* unreadable legacy record: nothing to replay */ }
+    }
+    this.db.exec('UPDATE sessions SET last_turn=NULL WHERE last_turn IS NOT NULL');
   }
+  private purgeRuns(id: string) { this.db.prepare('DELETE FROM turn_runs WHERE session_id=?').run(id); }
+  /** Moves committed pages into the main file and truncates the WAL, so deleted content is not left in the log. */
+  private checkpoint() { try { this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* busy: the next checkpoint completes it */ } }
 
   token(id: string) { return createHmac('sha256', this.secret).update(id).digest('hex'); }
   authorize(id: string, cookie: string) {
@@ -90,7 +138,7 @@ export class Store {
       this.db.exec('COMMIT');
       return value;
     } catch (e) {
-      if (e instanceof CommitThenThrow) { this.db.exec('COMMIT'); throw e.failure; }
+      if (e instanceof CommitThenThrow) { this.db.exec('COMMIT'); this.inTxn = false; this.checkpoint(); throw e.failure; }
       try { this.db.exec('ROLLBACK'); } catch { /* already rolled back */ }
       throw e;
     } finally { this.inTxn = false; }
@@ -106,7 +154,10 @@ export class Store {
     const now = this.clock.now();
     const deleteAnd = (failure: Failure): never => {
       this.db.prepare('DELETE FROM sessions WHERE id=?').run(id);
-      throw this.inTxn ? new CommitThenThrow(failure) : failure;
+      this.purgeRuns(id);
+      if (this.inTxn) throw new CommitThenThrow(failure);
+      this.checkpoint();
+      throw failure;
     };
     if (row.state === 'ended') {
       if (now - row.last_active_at > TOMBSTONE_TTL_MS) deleteAnd(notFound());
@@ -162,9 +213,83 @@ export class Store {
     const s = this.read(id);
     return { id: s.id, version: s.version, conversationVersion: s.conversationVersion, story: s.story, dataset: s.dataset, conversation: s.conversation, state: s.state, expiresAt: s.expiresAt };
   }
+  /** Most recent settled turn (kept for callers of the pre-turn_runs API). */
   lastTurn(id: string): StoredTurn | null {
+    this.live(id);
+    const r = this.db.prepare("SELECT * FROM turn_runs WHERE session_id=? AND state='settled' ORDER BY rowid DESC LIMIT 1").get(id) as RunRow | undefined;
+    return r?.response ? { clientTurnId: r.client_turn_id, response: JSON.parse(r.response) as TurnResponse } : null;
+  }
+  private runRow(id: string, clientTurnId: string): RunRow | undefined {
+    return this.db.prepare('SELECT * FROM turn_runs WHERE session_id=? AND client_turn_id=?').get(id, clientTurnId) as RunRow | undefined;
+  }
+  /** The durable run for this clientTurnId, or null. A different request body under the same ID is a 409. */
+  findRun(id: string, clientTurnId: string, requestHash: string): TurnRun | null {
+    this.live(id);
+    const r = this.runRow(id, clientTurnId);
+    if (!r) return null;
+    if (r.request_hash && r.request_hash !== requestHash) throw new Failure(409, 'IDEMPOTENCY_MISMATCH', 'This clientTurnId was already used for a different message. Send a new clientTurnId.');
+    return runOf(r);
+  }
+  /**
+   * First turn transaction: store the pending buyer turn AND the durable running record together, so a crash at any
+   * later point leaves something a retry or the sweep can settle. Orphaned runs of the session are settled first
+   * (the caller guarantees no run of this session is executing in this process).
+   */
+  beginTurn(id: string, turn: BeginTurn): { run: TurnRun; buyer: ChatTurn; session: DemoSession } {
+    const [buyerTurn] = [{ role: 'buyer', text: turn.text, status: 'pending' } as NewTurn].map(checkTurn);
+    return this.txn(() => {
+      this.live(id);
+      if (this.runRow(id, turn.clientTurnId)) throw new Failure(409, 'TURN_IN_FLIGHT', 'Tailor is still working on your previous message.');
+      for (const orphan of this.db.prepare("SELECT * FROM turn_runs WHERE session_id=? AND state != 'settled'").all(id) as unknown as RunRow[]) this.settleIn(id, runOf(orphan));
+      const row = this.live(id);
+      const before = this.project(row);
+      const { session, appended: [buyer] } = this.appendIn(id, row, [buyerTurn!], {});
+      this.db.prepare("INSERT INTO turn_runs VALUES (?, ?, ?, 'running', ?, ?, ?, ?, NULL, ?, ?, NULL)")
+        .run(id, turn.clientTurnId, turn.requestHash, turn.turnId, buyer!.id, before.version, before.conversationVersion, this.clock.now(), JSON.stringify(turn.execution));
+      return { run: runOf(this.runRow(id, turn.clientTurnId)!), buyer: buyer!, session };
+    });
+  }
+  /** Settles an interrupted (running/published) run without re-running it; returns the stored response. */
+  recoverRun(id: string, clientTurnId: string): TurnResponse {
+    return this.txn(() => {
+      this.live(id);
+      const r = this.runRow(id, clientTurnId);
+      if (!r) throw notFound();
+      const run = runOf(r);
+      return run.state === 'settled' ? run.response! : this.settleIn(id, run);
+    });
+  }
+  /** In-transaction settlement of an interrupted run: truthful about whether the authoritative version moved. */
+  private settleIn(id: string, run: TurnRun): TurnResponse {
     const row = this.live(id);
-    return row.last_turn ? JSON.parse(row.last_turn) as StoredTurn : null;
+    const current = this.project(row).version;
+    const moved = run.state === 'published' || current > run.startedVersion;
+    const outcome: TurnOutcome = moved ? 'readback_uncertain' : 'provider_unavailable';
+    const status: ChatStatus = moved ? 'uncertain' : 'failed';
+    const text = run.state === 'published'
+      ? `Tailor was interrupted after saving version ${run.publishedVersion} for this request and could not confirm it. The demo now reports version ${current}; reload it before relying on the change.`
+      : moved
+        ? `Tailor was interrupted and could not confirm whether this request was saved. The demo now reports version ${current}; reload it before relying on the change.`
+        : `Tailor was interrupted before finishing this request, so nothing changed. Version ${current} is still live.`;
+    const { session, appended } = this.appendIn(id, row, [{ role: 'tailor', text, status }], { settle: { id: run.buyerTurnId, status } });
+    const buyer = session.conversation.find(t => t.id === run.buyerTurnId);
+    const response: TurnResponse = {
+      turnId: run.turnId, outcome, version: current, conversationVersion: session.conversationVersion,
+      messages: [...(buyer ? [buyer] : []), ...appended],
+      steps: [{ name: 'model', status: 'failed', detail: 'Tailor was interrupted before this turn finished.' }],
+      execution: run.execution,
+    };
+    this.settleRun(id, run.clientTurnId, response);
+    return response;
+  }
+  private settleRun(id: string, clientTurnId: string, response: TurnResponse) {
+    const updated = this.db.prepare("UPDATE turn_runs SET state='settled', response=? WHERE session_id=? AND client_turn_id=?").run(JSON.stringify(response), id, clientTurnId);
+    if (Number(updated.changes) === 0) {
+      this.db.prepare("INSERT INTO turn_runs VALUES (?, ?, '', 'settled', ?, '', ?, ?, ?, ?, ?, ?)")
+        .run(id, clientTurnId, response.turnId, response.version, response.conversationVersion, response.version, this.clock.now(), JSON.stringify(response.execution), JSON.stringify(response));
+    }
+    this.db.prepare(`DELETE FROM turn_runs WHERE session_id=? AND state='settled' AND rowid NOT IN
+      (SELECT rowid FROM turn_runs WHERE session_id=? AND state='settled' ORDER BY rowid DESC LIMIT ?)`).run(id, id, TURN_RUNS_PER_SESSION);
   }
   /** Developer inspection only: live sessions (tombstones and expired rows excluded). */
   list(): DemoSession[] {
@@ -176,30 +301,33 @@ export class Store {
   appendTurns(id: string, turns: NewTurn[], opts: AppendOptions = {}): { session: DemoSession; appended: ChatTurn[] } {
     const clean = turns.map(checkTurn);
     if (clean.length > LIMITS.maxConversationTurns) throw new Failure(413, 'CONVERSATION_FULL', `A single append may hold at most ${LIMITS.maxConversationTurns} turns.`);
-    return this.txn(() => {
-      const row = this.live(id);
-      const s = this.project(row);
-      if (opts.expectedConversationVersion !== undefined && opts.expectedConversationVersion !== s.conversationVersion) throw new Failure(409, 'CONVERSATION_CONFLICT', 'The conversation changed. Reload it before sending again.');
-      const now = this.clock.now();
-      const appended: ChatTurn[] = clean.map(t => ({ ...t, id: randomUUID(), at: iso(now) }));
-      let conversation = s.conversation.map(t => opts.settle && t.id === opts.settle.id ? { ...t, status: opts.settle.status } : t).concat(appended);
-      let conversationTruncated = s.conversationTruncated;
-      if (conversation.length > LIMITS.maxConversationTurns) { conversation = conversation.slice(-LIMITS.maxConversationTurns); conversationTruncated = true; }
-      const next: DemoSession = { ...s, conversation, conversationTruncated, conversationVersion: s.conversationVersion + 1, lastActiveAt: iso(now) };
-      if (opts.story !== undefined) next.story = opts.story;
-      let lastTurn = row.last_turn;
-      if (opts.respond) {
-        const stored = opts.respond(appended, next);
-        next.lastClientTurnId = stored.clientTurnId;
-        lastTurn = JSON.stringify(stored);
-      }
-      this.db.prepare('UPDATE sessions SET document=?, last_active_at=?, last_turn=? WHERE id=?').run(JSON.stringify(next), now, lastTurn, id);
-      return { session: next, appended };
-    });
+    return this.txn(() => this.appendIn(id, this.live(id), clean, opts));
+  }
+  /** Append inside an open transaction. `respond` also settles the turn's durable run with the stored response. */
+  private appendIn(id: string, row: Row, clean: NewTurn[], opts: AppendOptions): { session: DemoSession; appended: ChatTurn[] } {
+    const s = this.project(row);
+    if (opts.expectedConversationVersion !== undefined && opts.expectedConversationVersion !== s.conversationVersion) throw new Failure(409, 'CONVERSATION_CONFLICT', 'The conversation changed. Reload it before sending again.');
+    const now = this.clock.now();
+    const appended: ChatTurn[] = clean.map(t => ({ ...t, id: randomUUID(), at: iso(now) }));
+    let conversation = s.conversation.map(t => opts.settle && t.id === opts.settle.id ? { ...t, status: opts.settle.status } : t).concat(appended);
+    let conversationTruncated = s.conversationTruncated;
+    if (conversation.length > LIMITS.maxConversationTurns) { conversation = conversation.slice(-LIMITS.maxConversationTurns); conversationTruncated = true; }
+    const next: DemoSession = { ...s, conversation, conversationTruncated, conversationVersion: s.conversationVersion + 1, lastActiveAt: iso(now) };
+    if (opts.story !== undefined) next.story = opts.story;
+    if (opts.respond) {
+      const stored = opts.respond(appended, next);
+      next.lastClientTurnId = stored.clientTurnId;
+      this.settleRun(id, stored.clientTurnId, stored.response);
+    }
+    this.db.prepare('UPDATE sessions SET document=?, last_active_at=? WHERE id=?').run(JSON.stringify(next), now, id);
+    return { session: next, appended };
   }
 
-  /** Validate → BEGIN IMMEDIATE → re-check state/version → UPDATE → COMMIT → independent readback. */
-  publish(id: string, proposal: ScenarioProposal): PublishResult {
+  /**
+   * Validate → BEGIN IMMEDIATE → re-check state/version → UPDATE dataset + story (+ mark the turn run published)
+   * → COMMIT → independent readback.
+   */
+  publish(id: string, proposal: ScenarioProposal, turn?: { clientTurnId: string }): PublishResult {
     let before: DemoSession;
     try { before = this.read(id); } catch (e) { if (isGone(e)) return { state: 'expired' }; throw e; }
     const verdict = validateProposal(id, before.dataset, proposal, this.clock);
@@ -214,7 +342,7 @@ export class Store {
       outcome = this.txn((): Outcome => {
         const row = this.row(id);
         if (!row || row.state !== 'active') return { kind: 'expired' };
-        if (this.expired(row)) { this.db.prepare('DELETE FROM sessions WHERE id=?').run(id); return { kind: 'expired' }; }
+        if (this.expired(row)) { this.db.prepare('DELETE FROM sessions WHERE id=?').run(id); this.purgeRuns(id); return { kind: 'expired' }; }
         const s = this.project(row);
         if (s.version !== expectedVersion) return { kind: 'conflict', current: s.version };
         let dataset = verdict.dataset;
@@ -225,7 +353,9 @@ export class Store {
         }
         if (this.faults.failSave?.()) throw new Error('Injected save failure.');
         const next: DemoSession = { ...s, version: s.version + 1, dataset };
+        if (storyProblems(proposal.story).length === 0) next.story = proposal.story;
         this.db.prepare("UPDATE sessions SET document=? WHERE id=? AND state='active'").run(JSON.stringify(next), id);
+        if (turn) this.db.prepare("UPDATE turn_runs SET state='published', published_version=? WHERE session_id=? AND client_turn_id=? AND state != 'settled'").run(next.version, id, turn.clientTurnId);
         return { kind: 'saved', version: next.version, previous: s.version };
       });
     } catch {
@@ -302,21 +432,38 @@ export class Store {
     });
   }
 
-  /** Idempotent End demo: conversation and dataset are deleted now; a content-free tombstone answers 410. */
+  /**
+   * Idempotent End demo: conversation, dataset and turn records are deleted now; a content-free tombstone answers 410.
+   * With secure_delete and the WAL checkpoint the content is also physically gone from the database files.
+   */
   end(id: string): { ended: true } {
-    this.txn(() => {
+    const changed = this.txn(() => {
       const row = this.row(id);
-      if (!row || row.state === 'ended') return;
+      if (!row || row.state === 'ended') return false;
       const now = this.clock.now();
       this.db.prepare("UPDATE sessions SET state='ended', document='{}', last_turn=NULL, last_active_at=?, expires_at=? WHERE id=?").run(now, now, id);
+      this.purgeRuns(id);
+      return true;
     });
+    if (changed) this.checkpoint();
     return { ended: true };
   }
-  /** Deletes expired sessions and old tombstones without a revisit. */
-  sweep(now = this.clock.now()): { expired: number; tombstones: number } {
-    const expired = this.db.prepare("DELETE FROM sessions WHERE state != 'ended' AND (? - last_active_at > ? OR ? >= expires_at)").run(now, LIMITS.idleMs, now).changes;
-    const tombstones = this.db.prepare("DELETE FROM sessions WHERE state = 'ended' AND ? - last_active_at > ?").run(now, TOMBSTONE_TTL_MS).changes;
-    return { expired: Number(expired), tombstones: Number(tombstones) };
+  /**
+   * Deletes expired sessions, old tombstones and their turn records without a revisit, then settles runs that
+   * outlived TURN_DEADLINE_MS (interrupted by a crash or restart) so no Pending bubble stays forever.
+   */
+  sweep(now = this.clock.now()): { expired: number; tombstones: number; interrupted: number } {
+    const { expired, tombstones, interrupted } = this.txn(() => {
+      const expired = this.db.prepare("DELETE FROM sessions WHERE state != 'ended' AND (? - last_active_at > ? OR ? >= expires_at)").run(now, LIMITS.idleMs, now).changes;
+      const tombstones = this.db.prepare("DELETE FROM sessions WHERE state = 'ended' AND ? - last_active_at > ?").run(now, TOMBSTONE_TTL_MS).changes;
+      const orphanedRuns = this.db.prepare("DELETE FROM turn_runs WHERE session_id NOT IN (SELECT id FROM sessions WHERE state = 'active')").run().changes;
+      const stale = this.db.prepare("SELECT * FROM turn_runs WHERE state != 'settled' AND started_at < ?").all(now - TURN_DEADLINE_MS) as unknown as RunRow[];
+      let interrupted = 0;
+      for (const r of stale) { try { this.settleIn(r.session_id, runOf(r)); interrupted++; } catch (e) { if (!(e instanceof CommitThenThrow) && !isGone(e)) throw e; } }
+      return { expired: Number(expired), tombstones: Number(tombstones), interrupted, purged: Number(orphanedRuns) };
+    });
+    if (expired + tombstones > 0) this.checkpoint();
+    return { expired, tombstones, interrupted };
   }
   close() {
     if (this.reader !== this.db) this.reader.close();

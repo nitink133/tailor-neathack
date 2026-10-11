@@ -4,6 +4,7 @@
 import type { Evidence, Span, Trace } from '../contracts.ts';
 import type { ReadbackEvidence } from '../agent-contract.ts';
 import { clip } from './context.ts';
+import { hasPricingClaim, isUngroundedClaim, splitSentences } from './claims.ts';
 
 const MAX_NARRATIVE_CHARS = 700;
 
@@ -13,23 +14,22 @@ export function cleanNarrative(text: string | undefined): string {
   return clip(text.replace(/```[\s\S]*?```/g, ' ').replace(/`/g, ''), MAX_NARRATIVE_CHARS);
 }
 
-/** Sentence split that keeps decimals ("2.86 s") and identifiers intact. */
-export function splitSentences(text: string): string[] {
-  return (text.replace(/\s+/g, ' ').trim().match(/(?:[^.!?]|[.!?](?!\s|$))+(?:[.!?]+(?=\s|$)|$)/g) ?? []).map(s => s.trim()).filter(Boolean);
-}
-
-const CURRENCY = /[$€£¥₹]|\b(?:USD|EUR|GBP|INR|CAD|AUD)\b/i;
-const PRICE_UNIT = /\d[\d,.]*\s*(?:dollars?|euros?|pounds?|bucks|usd|eur|gbp)\b|\bper\s+(?:month|year|seat|user|mo|yr|team|project)\b|\/\s*(?:mo|month|yr|year|seat|user)\b|\ba\s+(?:month|year)\b|\b(?:monthly|annually|yearly)\b|\bpricing\s+tiers?\b|\b(?:costs?|priced|charges?|charged|billed)\b[^.]{0,40}\d/i;
-/** A sentence that states a price, a billing amount or a pricing tier. Product copy may say "pricing" with no number. */
-export function hasPricingClaim(sentence: string): boolean {
-  return CURRENCY.test(sentence) || PRICE_UNIT.test(sentence);
-}
+export { splitSentences, hasPricingClaim };
 
 const IDENTIFIER = /[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)+/g;
 const PLAIN_COMPOUNDS = new Set(['end-to-end', 'follow-up', 'built-in', 'read-only', 'explain-only', 'mock-backed', 'real-time', 'one-off', 'step-by-step', 'fail-safe', 'non-blocking', 'time-out', 'back-off', 'well-known', 'so-called', 'on-call', 'drop-in', 'trade-off', 'e-commerce', 'check-in', 'sign-in', 'log-in', 'run-time', 'high-level', 'low-level']);
-const MEASURE = /(\d[\d,]*(?:\.(\d+))?)\s*(ms|milliseconds?|seconds?|secs?|s|%)(?![A-Za-z])/gi;
+// Every measure the narrative may state: durations, percentages (also in words) and counts. Each one must match the evidence.
+const MEASURE = /(\d[\d,]*(?:\.(\d+))?)\s*(ms|milliseconds?|seconds?|secs?|s|minutes?|mins?|hours?|hrs?|h|%|percent|per\s*cent|times?|attempts?|retries|retry|steps?|spans?|errors?|failures?|traces?)(?![A-Za-z])/gi;
+const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, twenty: 20, thirty: 30, fifty: 50, hundred: 100, twice: 2, thrice: 3 };
+const WORD_MEASURE = /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|fifty|hundred)\s+(times?|attempts?|retries|minutes?|hours?|seconds?|percent|steps?|failures?|errors?)\b|\b(twice|thrice)\b/gi;
+const PLAIN_NUMBER = /\d[\d,]*(?:\.\d+)?/g;
+const CAMEL_CASE = /\b(?:[A-Z][a-z0-9]*(?:[A-Z][a-z0-9]*)+|[a-z]+(?:[A-Z][a-z0-9]+)+)\b/g;
+const QUOTED = /[“"]([^”"]{1,80})[”"]|(?<![A-Za-z0-9])[‘']([^’']{1,60})[’'](?![A-Za-z0-9])/g;
 const MUTATION = /\b(?:sav(?:e|ed|es|ing)|delet(?:e|ed|es|ing)|remov(?:e|ed|es|ing)|updat(?:e|ed|es|ing)|chang(?:e|ed|es|ing)|modif(?:y|ied|ies|ying)|wr(?:ote|itten|ite|ites)|publish(?:ed|es)?|push(?:ed|es)?|creat(?:e|ed|es|ing)|dropp?(?:ed|s)?|wip(?:e|ed|es)|renam(?:e|ed|es)|overwr(?:ote|itten|ite|ites)|edit(?:ed|s)?)\b/i;
 const REAL_TARGET = /\b(?:real|production|actual)\b|\bneatlogs\s+(?:project|account|workspace|environment|data)\b|\b(?:your|my)\s+(?:neatlogs\s+)?(?:project|account|workspace)\b|\blive\b[^.]{0,40}\b(?:neatlogs|project|account|workspace|environment|traces?)\b/i;
+
+const flat = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+const numbersIn = (s: string | null | undefined): number[] => (s ?? '').match(PLAIN_NUMBER)?.map(n => Number(n.replace(/,/g, ''))).filter(n => Number.isFinite(n)) ?? [];
 
 function allowedIdentifiers(trace: Trace | null, readback: ReadbackEvidence | null): Set<string> {
   const ok = new Set<string>();
@@ -46,72 +46,179 @@ function allowedIdentifiers(trace: Trace | null, readback: ReadbackEvidence | nu
   return ok;
 }
 
-function allowedMeasures(trace: Trace | null, readback: ReadbackEvidence | null): { ms: number[]; percents: number[] } {
-  const msValues = new Set<number>();
+interface Allowed {
+  /** Durations in ms (span starts, durations, ends, root durations, and times quoted in span error text). */
+  ms: number[];
+  percents: number[];
+  /** Counts the evidence supports: span/error/trace counts. */
+  counts: Set<number>;
+  /** "N times / attempts / retries": only the number of retry/attempt-named spans (or a number in a name/error) counts. */
+  attempts: Set<number>;
+  /** Plain numbers: versions, counts, numbers in names/labels/error text, HTTP status codes in error text/output. */
+  plain: Set<number>;
+  /** Step/span count, for "step 3" references. */
+  stepMax: number;
+  /** Lowercase alphanumeric-only text of every name/label/error/outcome, for CamelCase and quoted-name checks. */
+  corpus: string;
+}
+
+const TIME_MS: Record<string, number> = { ms: 1, millisecond: 1, milliseconds: 1, s: 1000, sec: 1000, secs: 1000, second: 1000, seconds: 1000, min: 60_000, mins: 60_000, minute: 60_000, minutes: 60_000, h: 3_600_000, hr: 3_600_000, hrs: 3_600_000, hour: 3_600_000, hours: 3_600_000 };
+const COUNT_UNIT = /^(?:steps?|spans?|errors?|failures?|traces?)$/;
+const ATTEMPT_UNIT = /^(?:times?|attempts?|retries|retry)$/;
+const PERCENT_UNIT = /^(?:%|percent|per\s*cent)$/;
+const unitKey = (u: string): string => u.toLowerCase().replace(/\s+/g, '');
+
+function buildAllowed(trace: Trace | null, readback: ReadbackEvidence | null): Allowed {
+  const ms = new Set<number>();
   const percents: number[] = [];
-  const addFromText = (text: string | null) => {
-    if (!text) return;
-    for (const m of text.matchAll(MEASURE)) {
-      const unit = m[3]!.toLowerCase();
-      if (unit === '%') continue;
-      const v = Number(m[1]!.replace(/,/g, ''));
-      msValues.add(unit.startsWith('ms') || unit.startsWith('milli') ? v : v * 1000);
+  const counts = new Set<number>();
+  const attempts = new Set<number>();
+  const plain = new Set<number>();
+  const text: string[] = ['execution failed'];
+  let stepMax = 0;
+  const addTimes = (t: string | null) => {
+    if (!t) return;
+    for (const m of t.matchAll(MEASURE)) {
+      const factor = TIME_MS[unitKey(m[3]!)];
+      if (factor) ms.add(Number(m[1]!.replace(/,/g, '')) * factor);
     }
   };
   if (trace) {
     const root = rootOf(trace);
+    stepMax = Math.max(stepMax, trace.spans.length);
+    counts.add(trace.spans.length); counts.add(errorSpans(trace).length); counts.add(1); // one trace
+    attempts.add(trace.spans.filter(s => /retry|attempt/i.test(s.name)).length);
+    text.push(trace.id, trace.scenario, trace.label, trace.name, trace.outcome, ...trace.tags);
+    for (const t of [trace.id, trace.label, trace.name, trace.outcome, ...trace.tags]) numbersIn(t).forEach(n => plain.add(n));
     for (const s of trace.spans) {
-      msValues.add(s.startMs); msValues.add(s.durationMs); msValues.add(s.startMs + s.durationMs);
-      addFromText(s.error);
+      ms.add(s.startMs); ms.add(s.durationMs); ms.add(s.startMs + s.durationMs);
+      text.push(s.id, s.name, s.error ?? '');
+      addTimes(s.error);
+      numbersIn(s.error).forEach(n => plain.add(n));
+      numbersIn(s.name).forEach(n => { plain.add(n); attempts.add(n); });
+      for (const blob of [JSON.stringify(s.output ?? null), JSON.stringify(s.input ?? null)]) {
+        for (const m of blob.matchAll(/(?:status|code|http)\D{0,12}([1-5]\d{2})\b/gi)) plain.add(Number(m[1]));
+      }
       if (root && root.durationMs > 0) percents.push(s.durationMs / root.durationMs * 100);
     }
   }
-  readback?.traces.forEach(t => msValues.add(t.rootDurationMs));
-  return { ms: [...msValues], percents };
+  if (readback) {
+    plain.add(readback.version);
+    counts.add(readback.traceIds.length);
+    for (const t of readback.traces) {
+      ms.add(t.rootDurationMs); counts.add(t.spanCount); counts.add(t.errorSpanIds.length);
+      stepMax = Math.max(stepMax, t.spanCount);
+      text.push(t.id, t.label, t.outcome, t.key);
+    }
+  }
+  counts.delete(0); attempts.delete(0); // a zero count is never ground for a claim
+  for (const c of counts) plain.add(c);
+  for (const c of attempts) plain.add(c);
+  return { ms: [...ms], percents, counts, attempts, plain, stepMax, corpus: flat(text.join(' ')) };
 }
 
-function measuresMatch(sentence: string, allowed: { ms: number[]; percents: number[] }): boolean {
-  for (const m of sentence.matchAll(MEASURE)) {
-    const unit = m[3]!.toLowerCase();
-    const decimals = m[2]?.length ?? 0;
-    const value = Number(m[1]!.replace(/,/g, ''));
-    if (unit === '%') {
-      const tol = 0.5 * 10 ** -decimals;
-      if (!allowed.percents.some(p => Math.abs(p - value) <= tol + 0.001)) return false;
-      continue;
-    }
-    const inMs = unit.startsWith('ms') || unit.startsWith('milli') ? value : value * 1000;
-    const tol = unit.startsWith('ms') || unit.startsWith('milli') ? 0.5 : 0.5 * 10 ** -decimals * 1000;
-    if (!allowed.ms.some(a => Math.abs(a - inMs) <= tol + 0.001)) return false;
+/** Does every measure (time, percent, count) and every other number in the sentence match the evidence? */
+function numbersMatch(sentence: string, known: (token: string) => boolean, allowed: Allowed): boolean {
+  // Known identifiers (span names/IDs) carry digits of their own; remove them before reading numbers.
+  let rest = sentence.replace(IDENTIFIER, tok => (known(tok) ? ' ' : tok));
+  for (const m of rest.matchAll(WORD_MEASURE)) {
+    const value = NUMBER_WORDS[(m[1] ?? m[3])!.toLowerCase()]!;
+    const unit = m[1] ? unitKey(m[2]!) : 'times'; // "twice"/"thrice" are counts
+    if (!measureOk(value, 0, unit, allowed)) return false;
+  }
+  for (const m of rest.matchAll(MEASURE)) {
+    if (!measureOk(Number(m[1]!.replace(/,/g, '')), m[2]?.length ?? 0, unitKey(m[3]!), allowed)) return false;
+  }
+  rest = rest.replace(MEASURE, ' ');
+  for (const m of rest.matchAll(PLAIN_NUMBER)) {
+    const value = Number(m[0].replace(/,/g, ''));
+    if (allowed.plain.has(value)) continue;
+    // "step 3" / "span 2" / "#2" refer to a position in the walk-through, which exists up to the span count.
+    const before = rest.slice(0, m.index).replace(/\s+$/, '');
+    if (/(?:step|span|#)$/i.test(before) && Number.isInteger(value) && value >= 1 && value <= allowed.stepMax) continue;
+    return false;
+  }
+  return true;
+}
+
+function measureOk(value: number, decimals: number, unit: string, allowed: Allowed): boolean {
+  if (PERCENT_UNIT.test(unit)) {
+    const tol = 0.5 * 10 ** -decimals;
+    return allowed.percents.some(p => Math.abs(p - value) <= tol + 0.001);
+  }
+  if (COUNT_UNIT.test(unit)) return allowed.counts.has(value);
+  if (ATTEMPT_UNIT.test(unit)) return allowed.attempts.has(value);
+  const factor = TIME_MS[unit];
+  if (factor === undefined) return false;
+  const inMs = value * factor;
+  const tol = factor === 1 ? 0.5 : 0.5 * 10 ** -decimals * factor;
+  return allowed.ms.some(a => Math.abs(a - inMs) <= tol + 0.001);
+}
+
+/** CamelCase tokens and quoted names must be present in the evidence (span names, trace labels, error text, outcomes). */
+function namesGrounded(sentence: string, allowed: Allowed): boolean {
+  for (const m of sentence.matchAll(CAMEL_CASE)) if (!allowed.corpus.includes(flat(m[0]))) return false;
+  for (const m of sentence.matchAll(QUOTED)) {
+    const quoted = flat(m[1] ?? m[2] ?? '');
+    if (quoted && !allowed.corpus.includes(quoted)) return false;
   }
   return true;
 }
 
 /**
- * Keep only the model's sentences that the read-back evidence can back. Dropped: identifiers that are not span/trace
- * names or IDs in the trace, durations/percentages that match no span, claims about changing a real/production/live
- * Neatlogs project, and any price. The evidence sentence (describeCommit/describeTrace) stays first and authoritative.
+ * Keep only the model's sentences that the read-back evidence can back. Dropped: prices, plan/tier wording,
+ * capability assertions about the product, retention/limit numbers; identifiers, CamelCase and quoted names that are not
+ * in the trace; any number (duration, percentage, count, HTTP code) that matches no evidence; and claims about changing a
+ * real/production/live Neatlogs project. The evidence sentence (describeCommit/describeTrace) stays first and
+ * authoritative and is never filtered.
  */
 export function groundNarrative(text: string | undefined, trace: Trace | null, readback: ReadbackEvidence | null): string {
   const cleaned = cleanNarrative(text);
   if (!cleaned) return '';
   const ids = allowedIdentifiers(trace, readback);
-  const measures = allowedMeasures(trace, readback);
+  const allowed = buildAllowed(trace, readback);
+  const isKnownIdentifier = (tok: string): boolean => {
+    const t = tok.toLowerCase();
+    if (!/[a-z]/.test(t) || PLAIN_COMPOUNDS.has(t)) return true;
+    // Known if it is a trace/span name or ID, or a whole piece of one (e.g. "travel-booking" inside a span name).
+    return [...ids].some(known => known === t || known.includes(t));
+  };
   const kept: string[] = [];
   for (const sentence of splitSentences(cleaned)) {
-    if (hasPricingClaim(sentence)) continue;
+    if (isUngroundedClaim(sentence)) continue;
     if (MUTATION.test(sentence) && REAL_TARGET.test(sentence)) continue;
-    const unknownId = (sentence.match(IDENTIFIER) ?? []).some(tok => {
-      const t = tok.toLowerCase();
-      if (!/[a-z]/.test(t) || PLAIN_COMPOUNDS.has(t)) return false;
-      // Known if it is a trace/span name or ID, or a whole piece of one (e.g. "travel-booking" inside a span name).
-      return ![...ids].some(known => known === t || known.includes(t));
-    });
-    if (unknownId) continue;
-    if (!measuresMatch(sentence, measures)) continue;
+    if ((sentence.match(IDENTIFIER) ?? []).some(tok => !isKnownIdentifier(tok))) continue;
+    if (!namesGrounded(sentence, allowed)) continue;
+    if (!numbersMatch(sentence, isKnownIdentifier, allowed)) continue;
     kept.push(sentence);
   }
   return kept.join(' ');
+}
+
+/**
+ * Deterministic wording built only from the read-back evidence. Used when the model supplied narrative text and every
+ * sentence was dropped, so the reply still says something true about where to look instead of going silent.
+ */
+export function safeNarrative(trace: Trace | null, readback: ReadbackEvidence | null): string {
+  if (trace) {
+    const errors = errorSpans(trace);
+    if (errors.length === 0) return 'No step in the saved trace is marked ERROR.';
+    const names = errors.map(s => s.name).join(', ');
+    return `In the saved trace, ${names} ${errors.length === 1 ? 'is' : 'are'} marked ERROR.`;
+  }
+  if (readback) {
+    const entry = readback.traces.find(t => t.key === readback.activeScenario) ?? readback.traces[0];
+    if (!entry) return '';
+    return entry.errorSpanIds.length === 0 ? 'No step in the saved trace is marked ERROR.' : `${plural(entry.errorSpanIds.length, 'step')} in the saved trace ${entry.errorSpanIds.length === 1 ? 'is' : 'are'} marked ERROR.`;
+  }
+  return '';
+}
+
+/** groundNarrative, but when the model's text was non-empty and fully dropped, fall back to {@link safeNarrative}. */
+export function groundNarrativeOrFallback(text: string | undefined, trace: Trace | null, readback: ReadbackEvidence | null): string {
+  const grounded = groundNarrative(text, trace, readback);
+  if (grounded) return grounded;
+  return cleanNarrative(text) ? safeNarrative(trace, readback) : '';
 }
 
 const ms = (n: number) => (Number.isInteger(n) ? `${n} ms` : `${Math.round(n * 100) / 100} ms`);

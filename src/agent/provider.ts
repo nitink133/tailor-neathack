@@ -9,9 +9,12 @@ import { createMockProvider } from './mock-provider.ts';
 import type { SpendGuard } from './spend.ts';
 
 export type { Effort } from './anthropic-provider.ts';
+export { maxOutputTokensFor } from './anthropic-provider.ts';
+export { hasRatesFor } from './spend.ts';
+/** No `maxRetries`: the SDK never retries; the service's bounded loop owns retries so every attempt is reserved and settled. */
 export type ProviderConfig =
   | { kind: 'mock' }
-  | { kind: 'anthropic'; apiKey: string; model?: string; effort?: Effort; spend: SpendGuard; maxRetries?: number; timeoutMs?: number; client?: AnthropicProviderOptions['client'] };
+  | { kind: 'anthropic'; apiKey: string; model?: string; effort?: Effort; spend: SpendGuard; timeoutMs?: number; client?: AnthropicProviderOptions['client'] };
 
 export function createProvider(config: ProviderConfig): ModelProvider {
   switch (config.kind) {

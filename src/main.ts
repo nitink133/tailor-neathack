@@ -6,15 +6,17 @@ import { Store } from './store.ts';
 import { appServer, startSweeper } from './server.ts';
 import { createTelemetry, type TelemetryMode } from './telemetry.ts';
 import { createAgentService } from './agent/service.ts';
-import { createProvider, type ProviderConfig } from './agent/provider.ts';
-import { createSpendGuard, type SpendGuard } from './agent/spend.ts';
+import { createProvider, maxOutputTokensFor, type ProviderConfig } from './agent/provider.ts';
+import { createSpendGuard, hasRatesFor, type SpendGuard } from './agent/spend.ts';
 import { loadKnowledge } from './knowledge.ts';
 import { systemClock } from './agent-contract.ts';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const env = process.env;
 const port = Number(env.PORT ?? 4321);
 const dataPath = env.TAILOR_DATA_PATH ?? '.local/tailor.sqlite';
+/** The spend cap is enforced per ledger file; set it explicitly so moving the data path does not start a fresh total. */
+const ledgerPath = env.TAILOR_SPEND_LEDGER?.trim() || join(dirname(dataPath), 'spend-ledger.json');
 const providerKind = env.TAILOR_PROVIDER ?? 'mock';
 const telemetryMode = (env.TAILOR_TELEMETRY ?? 'captured') as TelemetryMode;
 
@@ -50,7 +52,10 @@ if (providerKind === 'anthropic') {
   const model = (env.TAILOR_MODEL ?? 'claude-sonnet-5-5').trim();
   const effort = (env.TAILOR_EFFORT ?? 'medium').trim() as Effort;
   if (!EFFORTS.includes(effort)) fail(`TAILOR_EFFORT must be one of ${EFFORTS.join(', ')} (got ${effort}).`);
-  spend = createSpendGuard({ capUsd, ledgerPath: `${dirname(dataPath)}/spend-ledger.json` });
+  if (maxOutputTokensFor(effort) === null) fail(`TAILOR_EFFORT=${effort} needs more output tokens than this build allows per call. Use low, medium or high.`);
+  if (!hasRatesFor(model)) fail(`TAILOR_MODEL=${model} has no configured token rates, so spend cannot be estimated against the cap. Use a model with known rates.`);
+  try { spend = createSpendGuard({ capUsd, ledgerPath }); }
+  catch (e) { fail(`Spend ledger at ${ledgerPath} could not be loaded (${(e as Error).message}). Live calls refuse to start.`); }
   providerConfig = { kind: 'anthropic', apiKey, model, effort, spend };
 }
 
@@ -69,7 +74,7 @@ const server = appServer(store, { devKey: env.TAILOR_DEV_KEY, agent, provider, k
 const stopSweeper = startSweeper(store, clock);
 server.listen(port, '127.0.0.1', () => {
   const address = server.address() as { port: number };
-  const live = spend ? ` · effort=${provider.effort ?? 'n/a'} · cap=$${(spend.summary() as { capUsd: number }).capUsd} (estimates; billing is authoritative)` : '';
+  const live = spend ? ` · effort=${provider.effort ?? 'n/a'} · cap=$${(spend.summary() as { capUsd: number }).capUsd} (estimates; billing is authoritative) · spend ledger=${ledgerPath}` : '';
   console.log(`Tailor local demo: http://127.0.0.1:${address.port} · provider=${provider.name} (${provider.mode}) · model=${provider.model ?? 'none'}${live} · telemetry=${telemetry.mode} · knowledge=${knowledge.version}`);
 });
 

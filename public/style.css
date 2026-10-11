@@ -80,3 +80,19 @@ tr.is-active-fixture{background:#f4f8ff}
 .active-tag{margin-left:8px;padding:2px 7px;border:1px solid var(--line);border-radius:999px;font-size:10px;color:var(--ink);background:var(--subtle)}
 .ended{max-width:560px;margin:15vh auto 0;padding:0 24px}.ended h1{font-size:28px;font-weight:550;letter-spacing:-.02em;margin:0 0 12px}.ended p{line-height:1.7;color:var(--muted);margin:0 0 22px}.ended .solid{display:inline-flex;text-decoration:none}
 @media(max-width:900px){.chat-panel{gap:6px}.chat-panel .chat-thread{min-height:0}}
+
+/* Owner E (audit): provider-status states, open-trace hint, honest sample rows, small-screen conversation height. */
+.chat-label.chat-unknown{color:var(--muted);font-style:italic}
+.chat-label.chat-live{color:#0a6b3a}.dark .chat-label.chat-live{color:#8fe0b4}
+.chat-asking{margin:0 0 8px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.request-error h1{margin-bottom:12px}
+@media(max-width:900px){
+  html.chat-dock .workspace{padding-bottom:58vh}
+  .chat-panel{height:58vh;max-height:calc(100vh - 96px)}
+  .chat-panel .chat-thread{min-height:140px}
+  .chat-panel .chat-examples{display:none}
+  .chat-panel .chat-composer{padding:10px 12px;border-radius:18px}
+  .chat-panel .chat-composer textarea{min-height:24px}
+  .chat-panel .chat-tools{margin-top:6px}
+  .chat-panel .chat-tools .chat-chip:first-child{display:none}
+}

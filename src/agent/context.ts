@@ -44,6 +44,8 @@ export interface AgentContext {
   unresolvedQuestion: { question: string; choices: { id: string; label: string }[] } | null;
   choiceResolved: { id: string; label: string } | null;
   activeScenario: string | null;
+  /** The trace the buyer has open in the UI ("this trace"); null when none. `key` is null when it is not in this dataset. */
+  openTrace: { id: string; key: string | null; label: string | null } | null;
   dataset: { traces: TraceSummary[] };
   activeTrace: ActiveTraceDetail | null;
   knowledge: KnowledgeSummary[];
@@ -143,9 +145,11 @@ export function resolveTurnText(session: SessionSnapshot, request: TurnRequest):
   };
 }
 
-export function buildContext(args: { session: SessionSnapshot; resolved: ResolvedTurnText; records: CapabilityRecord[]; knowledgeVersion: string }): AgentContext {
+export function buildContext(args: { session: SessionSnapshot; resolved: ResolvedTurnText; records: CapabilityRecord[]; knowledgeVersion: string; openTraceId?: string }): AgentContext {
   const { session, resolved, records } = args;
   const active = session.dataset.traces.find(t => t.scenario === session.dataset.activeScenario) ?? null;
+  const openId = args.openTraceId?.trim();
+  const open = openId ? session.dataset.traces.find(t => t.id === openId) ?? null : null;
   const recent = resolved.history.slice(-MAX_RECENT_TURNS);
   return {
     contextSchema: CONTEXT_SCHEMA_VERSION,
@@ -158,6 +162,7 @@ export function buildContext(args: { session: SessionSnapshot; resolved: Resolve
     unresolvedQuestion: resolved.question ? { question: resolved.question.question, choices: resolved.question.choices.map(c => ({ id: c.id, label: c.label })) } : null,
     choiceResolved: resolved.choice,
     activeScenario: active ? active.scenario : null,
+    openTrace: openId ? { id: clip(openId, 200), key: open ? open.scenario : null, label: open ? open.label : null } : null,
     dataset: { traces: session.dataset.traces.slice(0, LIMITS.maxTracesPerDataset).map(summariseTrace) },
     activeTrace: active ? detailOf(active) : null,
     knowledge: records.slice(0, LIMITS.maxKnowledgeRecordsPerTurn).map(summariseRecord),

@@ -92,7 +92,7 @@ test('every generated scenario agrees across API, trace tree, timeline, navigati
   await page.goForward();await expect(page.locator('.root-output')).toBeVisible();
   await page.goBack();await expect(page.locator('[data-count]')).toHaveText(countText(withDet.length));
   const foreign=await browser.newContext();const other=await foreign.newPage();await enter(other);
-  await other.goto(`/demo/${s.id}/traces/${s.dataset.traces[0]!.id}`);await expect(other.getByRole('heading',{name:'Demo unavailable'})).toBeVisible();await expect(other.locator('[role=alert]')).toContainText('NOT_FOUND');await foreign.close();
+  await other.goto(`/demo/${s.id}/traces/${s.dataset.traces[0]!.id}`);await expect(other.getByRole('heading',{name:'Demo unavailable'})).toBeVisible();await expect(other.locator('[role=alert]')).toContainText('isn’t available in this browser');await expect(other.locator('body')).not.toContainText('NOT_FOUND');await expect(other.getByRole('button',{name:'Retry'})).toHaveCount(0);await foreign.close();
   await page.goto(`/demo/${s.id}/traces/unknown`);await expect(page.locator('[role=alert]')).toContainText('Trace not found');
 });
 

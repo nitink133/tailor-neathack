@@ -4,12 +4,12 @@
 
 import type { CapabilityRecord } from '../agent-contract.ts';
 import { clip } from './context.ts';
-import { cleanNarrative, hasPricingClaim, splitSentences } from './explain.ts';
+import { cleanNarrative } from './explain.ts';
+import { PLAN_WORDS, allWordsGroundedIn, hasBlanketPlanClaim, hasLimitNumber, hasPricingClaim, splitSentences } from './claims.ts';
 
 const MAX_LEAD_CHARS = 200;
 const PRICING_QUESTION = /\b(?:pric(?:e|es|ed|ing)|costs?|how much|plans?|tiers?|subscriptions?|billing|billed|licen[cs]es?|paid|free|per (?:seat|month|user|year))\b/i;
-const PLAN_WORDS = /\b(free|pro|team|enterprise|starter)\b/gi;
-const CAPABILITY_VERB = /\b(?:supports?|detects?|integrates?|integrations?|alerts?|exports?|notif(?:y|ies)|sends?|connects?|monitors?|replays?|streams?|automates?|blocks?|prevents?|guarantees?)\b/i;
+const CAPABILITY_VERB = /\b(?:offers?|provides?|includes?|has|have|can|keeps?|retains?|stores?|pages?|available|gives?|lets?|allows?|enables?|supports?|detects?|integrates?|integrations?|alerts?|exports?|notif(?:y|ies)|sends?|connects?|monitors?|replays?|streams?|automates?|blocks?|prevents?|guarantees?)\b/i;
 const STOP = new Set(['that', 'this', 'with', 'from', 'your', 'their', 'them', 'they', 'them', 'will', 'also', 'such', 'when', 'where', 'which', 'what', 'into', 'than', 'then', 'only', 'more', 'most', 'some', 'each', 'every', 'both', 'does', 'have', 'been', 'being', 'neatlogs', 'tailor', 'demo', 'agent', 'agents']);
 
 const tokens = (s: string): string[] => s.toLowerCase().match(/[a-z0-9]+/g) ?? [];
@@ -28,7 +28,7 @@ function supportedBy(word: string, vocabulary: string[]): boolean {
 /** A provider sentence is safe only if it makes no price, plan or capability claim the cited records don't back. */
 export function sentencePassesAnswerFilter(sentence: string, cited: CapabilityRecord[]): boolean {
   if (/https?:\/\//i.test(sentence)) return false;
-  if (hasPricingClaim(sentence)) return false;
+  if (hasPricingClaim(sentence) || hasBlanketPlanClaim(sentence) || hasLimitNumber(sentence)) return false;
   const plans = new Set(cited.flatMap(r => (r.planAvailability.status === 'known' ? r.planAvailability.plans : [])).map(p => p.toLowerCase()));
   const planHits = [...sentence.matchAll(PLAN_WORDS)].map(m => m[1]!.toLowerCase());
   for (const hit of planHits) if (![...plans].some(p => p === hit || tokens(p).includes(hit))) return false;
@@ -41,11 +41,16 @@ export function sentencePassesAnswerFilter(sentence: string, cited: CapabilityRe
   return true;
 }
 
-/** At most one short, filtered lead sentence from the provider; '' when nothing survives or it would only repeat the records. */
+/**
+ * At most one short lead sentence from the provider. It must pass the claim filter AND every content word (4+ letters)
+ * and number in it must appear in the cited records' own text; otherwise it is dropped entirely (the rest of the answer
+ * is code-composed from the records). '' when nothing survives or it would only repeat the records.
+ */
 export function filteredLead(providerText: string, cited: CapabilityRecord[], body: string): string {
   const first = splitSentences(cleanNarrative(providerText))[0];
   if (!first || first.length > MAX_LEAD_CHARS) return '';
   if (!sentencePassesAnswerFilter(first, cited)) return '';
+  if (!allWordsGroundedIn(first, cited.map(recordText).join(' '))) return '';
   if (squash(body).includes(squash(first))) return '';
   return endSentence(first);
 }

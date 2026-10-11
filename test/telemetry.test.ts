@@ -96,7 +96,12 @@ test('a throwing exporter never breaks step(); failures are counted with bounded
     const d = t.diagnostics();
     assert.ok(d.exportFailures >= 1);
     assert.equal(attempts, d.exportFailures * 3, 'one try plus LIMITS.telemetryExportRetries (2) per export');
-    assert.equal(typeof (await t.flush()), 'boolean');
+    const flushed = await t.flush();
+    assert.equal(flushed.ok, false, 'a failed export is never reported as a successful flush');
+    assert.ok(flushed.failed >= 1);
+    assert.equal(flushed.state, 'captured');
+    assert.equal(d.lastExportError?.name, 'Error');
+    assert.equal(JSON.stringify(d.lastExportError).includes('exporter down'), false, 'error messages are never kept');
   } finally { await t.shutdown(); }
 });
 
@@ -107,7 +112,8 @@ test('disabled mode is a no-op that still returns values and errors', async () =
   await assert.rejects(tt.step('save', {}, async () => { throw new Error('x'); }), /x/);
   tt.event('anything', {}); tt.recordUsage(null, null);
   assert.deepEqual(t.captured(), []);
-  assert.equal(await t.flush(), true);
+  assert.deepEqual(await t.flush(), { ok: true, exported: 0, failed: 0, state: 'disabled', timedOut: false });
+  assert.equal(t.diagnostics().deliveryState, 'disabled');
   await t.shutdown();
   await assert.rejects(createTelemetry({ mode: 'neatlogs', secret: SECRET }), /apiKey/, 'neatlogs mode requires an explicit key');
 });
@@ -125,4 +131,57 @@ test('mask and attribute allowlist drop payload-bearing keys and free text', () 
   assert.deepEqual(masked.attributes, { 'tailor.step': 'model', 'neatlogs.span.kind': 'chain', 'neatlogs.session.id': 'abc123' });
   assert.deepEqual(masked.events.map((e: any) => e.name), ['tailor.note']);
   assert.equal(masked.status.description, null);
+});
+
+test('a failing exporter never changes a turn result or error identity (captured mode)', async () => {
+  const failing = { export() { throw new Error('exporter down'); }, async shutdown() { throw new Error('down'); } };
+  const t = await createTelemetry({ mode: 'captured', secret: SECRET, exporter: failing });
+  const reference = await createTelemetry({ mode: 'disabled', secret: SECRET });
+  try {
+    const expected = (await runTurn(reference)).value;
+    const actual = (await runTurn(t)).value;
+    assert.deepEqual(actual, expected, 'same returned value with and without a failing exporter');
+    const boom = Object.assign(new Error('x'), { code: 'SAVE_FAILED' });
+    const tt = t.forTurn('turn-0009', SESSION);
+    await assert.rejects(tt.step('turn', {}, async () => { throw boom; }), (e) => e === boom);
+    assert.ok(t.diagnostics().exportFailures >= 1);
+  } finally { await t.shutdown(); await reference.shutdown(); }
+});
+
+test('provider-error detail is allowlisted per key with validated values (L4-10)', () => {
+  const { clean, dropped } = cleanAttributes({
+    kind: 'rate_limit', retryable: true, requestId: 'req_011CSabc123', stopReason: 'max_tokens', attempt: 2,
+    deadlineMs: 45000, reservationUsd: 0.0123,
+  });
+  assert.deepEqual(clean, {
+    'tailor.provider_error_kind': 'rate_limit', 'tailor.retryable': true, 'tailor.request_id': 'req_011CSabc123',
+    'tailor.stop_reason': 'max_tokens', 'tailor.attempt': 2, 'tailor.deadline_ms': 45000, 'tailor.reservation_usd': 0.0123,
+  });
+  assert.equal(dropped, 0);
+  assert.deepEqual(cleanAttributes({ providerRequestId: 'req_abc' }).clean, { 'tailor.request_id': 'req_abc' });
+  // Hostile values are dropped, never exported.
+  const hostile = cleanAttributes({
+    kind: `BUYERSECRET ${BUYER}`, providerErrorKind: 'sk-ant-api03-xyz', requestId: 'req with spaces', stopReason: BUYER,
+    retryable: 'yes', deadlineMs: '45000', reservationUsd: -1, spentUsd: Number.NaN, errorBody: BUYER,
+  });
+  assert.deepEqual(hostile.clean, {});
+  assert.equal(hostile.dropped, 9);
+});
+
+test('provider-error attributes survive on captured spans and events, free text still does not', async () => {
+  const t = await createTelemetry({ mode: 'captured', secret: SECRET });
+  try {
+    const tt = t.forTurn('turn-0010', SESSION);
+    await tt.step('turn', {}, async () => {
+      await tt.step('model', { provider: 'mock', kind: 'timeout', retryable: true, requestId: 'req_01ABC', error: BUYER } as any, async () => 1);
+      tt.event('provider_error', { kind: 'rate_limit', retryable: true, message: BUYER } as any);
+    });
+    const model = t.captured().find(s => s.name === 'model')!;
+    assert.equal(model.attributes['tailor.provider_error_kind'], 'timeout');
+    assert.equal(model.attributes['tailor.request_id'], 'req_01ABC');
+    const root = t.captured().find(s => s.name === 'tailor.turn')!;
+    const ev = root.events.find(e => e.name === 'tailor.provider_error')!;
+    assert.equal(ev.attributes['tailor.provider_error_kind'], 'rate_limit');
+    assert.equal(JSON.stringify(t.captured()).includes(BUYER), false);
+  } finally { await t.shutdown(); }
 });

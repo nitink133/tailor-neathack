@@ -174,6 +174,19 @@ export interface TurnRequest {
   clientTurnId: string;
   /** When answering a clarification by button; free text goes in `text` instead. */
   choiceId?: string;
+  /**
+   * Trace the buyer currently has open in the UI (persisted trace id), when any. "Explain this trace" must explain
+   * THIS trace; the server verifies it belongs to the session and the agent never silently substitutes the active one.
+   */
+  openTraceId?: string;
+}
+
+/**
+ * GET /api/execution (no session needed). Authoritative provider mode for labelling the UI before the first turn and
+ * across tabs/reloads. The client must never label an unknown mode as live.
+ */
+export interface ExecutionInfoResponse {
+  execution: ExecutionLabel;
 }
 export type TurnOutcome =
   | 'answered'            // explanation/knowledge answer, no state change
@@ -219,7 +232,11 @@ export interface TurnResponse {
 
 /** Error codes the turn route may return in `{ error: { code, message } }`. */
 export type TurnErrorCode =
-  | 'TURN_IN_FLIGHT' | 'TURN_TEXT_INVALID' | 'SESSION_EXPIRED' | 'SESSION_ENDED' | 'NOT_FOUND' | 'CONVERSATION_FULL';
+  | 'TURN_IN_FLIGHT' | 'TURN_TEXT_INVALID' | 'SESSION_EXPIRED' | 'SESSION_ENDED' | 'NOT_FOUND' | 'CONVERSATION_FULL'
+  /** Same clientTurnId reused with a different request body. */
+  | 'IDEMPOTENCY_MISMATCH'
+  /** openTraceId does not belong to this session's current dataset. */
+  | 'TRACE_NOT_FOUND';
 
 // ---------------------------------------------------------------------------
 // Agent service seam. Implemented by NIT-272; invoked by the backend route (NIT-273).

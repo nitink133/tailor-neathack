@@ -3,9 +3,12 @@
 
 import type { ProviderErrorKind } from '../agent-contract.ts';
 
-/** Whether retrying the same call can plausibly succeed. Individual errors may override (e.g. a 500). */
+/**
+ * Whether retrying the same call can plausibly succeed within the same turn. Individual errors may override (e.g. a 500).
+ * A timeout is not retried in-turn: a second full-length wait would outlast the turn deadline the buyer is waiting on.
+ */
 const RETRYABLE: Record<ProviderErrorKind, boolean> = {
-  auth: false, permission: false, billing: false, spend_cap: false, rate_limit: true, overloaded: true, timeout: true, network: true,
+  auth: false, permission: false, billing: false, spend_cap: false, rate_limit: true, overloaded: true, timeout: false, network: true,
   invalid_request: false, refusal: false, truncated: false, malformed: true, context_exceeded: false, unknown: false,
 };
 

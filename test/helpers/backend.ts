@@ -31,7 +31,12 @@ export interface StubAgent extends AgentService {
   gate: Promise<void> | null;
   /** When set, handleTurn throws after optionally publishing (truthful-failure tests). */
   throwAfter: 'nothing' | 'publish' | null;
+  /** When set, replaces the default behaviour entirely (fault seams: lie after publish, hang after publish). */
+  script: ((input: AgentTurnInput) => Promise<AgentTurnResult>) | null;
+  lastInput: AgentTurnInput | null;
 }
+/** A promise that never settles: stands in for a process that dies mid-turn. */
+export const never = () => new Promise<never>(() => {});
 
 const message = (r: PublishResult): AgentTurnResult['messages'][number] => r.state === 'committed'
   ? { role: 'tailor', status: 'applied', text: `Saved version ${r.version}: ${r.readback.traceIds.length} trace(s), ${r.readback.spanIds.length} span(s).`, evidence: { version: r.readback.version, traceIds: r.readback.traceIds, spanIds: r.readback.spanIds } }
@@ -40,10 +45,12 @@ const message = (r: PublishResult): AgentTurnResult['messages'][number] => r.sta
 /** Deterministic agent: travel-booking text publishes v1, "retry fail" publishes the v2 edit, anything else answers. */
 export function stubAgent(): StubAgent {
   const agent: StubAgent = {
-    calls: 0, gate: null, throwAfter: null,
+    calls: 0, gate: null, throwAfter: null, script: null, lastInput: null,
     async handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
       agent.calls++;
+      agent.lastInput = input;
       if (agent.gate) await agent.gate;
+      if (agent.script) return agent.script(input);
       const execution = { mode: 'mock' as const, provider: input.provider.name, model: input.provider.model };
       const text = input.request.text.toLowerCase();
       const proposal = /travel-booking/.test(text) ? travelProposalV1 : /retry fail/.test(text) ? travelProposalV2 : null;
@@ -65,18 +72,21 @@ export interface Harness {
   dir: string; path: string; clock: FakeClock; store: Store; server: Server; port: number; agent: StubAgent; telemetry: Telemetry;
   call(path: string, method?: string, data?: unknown, cookie?: string, extra?: Record<string, string>): Promise<{ status: number; data: any; cookie: string; setCookie: string | null }>;
   restart(): Promise<void>;
+  /** Simulates SIGKILL: drops every connection and the in-memory turn lock, then reopens the same DB file. */
+  crash(): Promise<void>;
   close(): Promise<void>;
 }
 export const DEV_KEY = 'local-test-key';
 
-export async function harness(options: { faults?: StoreFaults; telemetry?: TelemetryMode } = {}): Promise<Harness> {
+export async function harness(options: { faults?: StoreFaults; telemetry?: TelemetryMode; provider?: ModelProvider } = {}): Promise<Harness> {
   const dir = mkdtempSync(join(tmpdir(), 'tailor-backend-'));
   const path = join(dir, 'sessions.sqlite');
   const clock = fakeClock();
   const agent = stubAgent();
+  const provider = options.provider ?? stubProvider;
   const telemetry = await createTelemetry({ mode: options.telemetry ?? 'disabled', secret: 'test-secret-for-correlation' });
   const start = async (store: Store) => {
-    const server = appServer(store, { devKey: DEV_KEY, agent, provider: stubProvider, knowledge: stubKnowledge, telemetry, clock });
+    const server = appServer(store, { devKey: DEV_KEY, agent, provider, knowledge: stubKnowledge, telemetry, clock });
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
     return server;
   };
@@ -94,6 +104,14 @@ export async function harness(options: { faults?: StoreFaults; telemetry?: Telem
       return { status: response.status, data: await response.json(), cookie: setCookie?.split(';')[0] ?? cookie, setCookie };
     },
     async restart() {
+      await new Promise<void>(r => h.server.close(() => r()));
+      h.store.close();
+      h.store = new Store(path, { clock });
+      h.server = await start(h.store);
+      h.port = (h.server.address() as { port: number }).port;
+    },
+    async crash() {
+      h.server.closeAllConnections();
       await new Promise<void>(r => h.server.close(() => r()));
       h.store.close();
       h.store = new Store(path, { clock });
