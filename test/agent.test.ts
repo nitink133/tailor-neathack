@@ -7,7 +7,9 @@ import { createAgentService } from '../src/agent/service.ts';
 import { createProvider, parseAgentAction } from '../src/agent/provider.ts';
 import { createMockProvider } from '../src/agent/mock-provider.ts';
 import { parseUserMessage } from '../src/agent/prompts.ts';
-import { countingProvider, fakeKnowledge, harness, recordingTelemetry, scriptedProvider, stubTools, validateProposal } from './helpers/agent.ts';
+import { sentencePassesAnswerFilter } from '../src/agent/answer.ts';
+import { groundNarrative } from '../src/agent/explain.ts';
+import { countingProvider, FAKE_RECORDS, fakeKnowledge, harness, recordingTelemetry, scriptedProvider, stubTools, validateProposal } from './helpers/agent.ts';
 
 const errorSpans = (h: ReturnType<typeof harness>) => h.tools.state.dataset.traces.find(t => t.scenario === h.tools.state.dataset.activeScenario)!.spans.filter(s => s.status === 'ERROR');
 
@@ -482,4 +484,160 @@ test('createAgentService returns a fresh service with the contract surface', () 
   assert.equal(typeof service.handleTurn, 'function');
   assert.equal(fakeKnowledge().select('slack alert').length, 1);
   assert.equal(stubTools().state.version, 1);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Wave 2 defect fixes (NIT-272)
+// ---------------------------------------------------------------------------------------------------------------------
+const answerProvider = (text: string, knowledgeIds: string[]) => scriptedProvider(() => ({ type: 'answer', text, knowledgeIds }));
+const lastLine = (text: string) => text.split('\n').at(-1)!;
+
+test('FINDING 1: a valid pricing citation does not ground fabricated price prose; the unknown statement is last', async () => {
+  const provider = answerProvider('Neatlogs costs USD 49 per month. It supports Kubernetes autoscaling and exports to Datadog.', ['pricing']);
+  const h = harness({ provider });
+  const result = await h.say('How much does Neatlogs cost?');
+  assert.equal(result.outcome, 'answered');
+  const text = result.messages[0]!.text;
+  assert.doesNotMatch(text, /49|USD|per month|\$/i);
+  assert.doesNotMatch(text, /Kubernetes|Datadog|autoscaling/i, 'fabricated capability sentence dropped');
+  assert.match(text, /Pricing and plans/);
+  assert.match(lastLine(text), /^Plan availability for Pricing and plans: unknown\./);
+  assert.match(text, /I don’t have verified prices/);
+  assert.equal(h.tools.calls.length, 0);
+});
+
+test('FINDING 1: the answer is composed from the cited record (behaviour, limits, demo level, sources with URL and date, plans)', async () => {
+  const records = [...FAKE_RECORDS, {
+    ...FAKE_RECORDS[0]!, id: 'sourced', title: 'Sourced capability', behaviour: 'Sourced capability groups failing steps by error type',
+    limitations: ['Only synthetic data here', 'Second limit', 'Third limit'], prerequisites: ['An instrumented agent', 'An API key'],
+    sources: [{ url: 'https://docs.example.org/sourced', verifiedOn: '2026-10-10', claim: 'groups errors' }],
+    planAvailability: { status: 'known' as const, plans: ['Team'], note: 'Check the vendor.' }, topics: ['sourced', 'group'],
+  }];
+  const h = harness({ provider: answerProvider('Anything at all that is not allowed: Enterprise customers get 5 percent off.', ['sourced', 'sourced']), knowledge: fakeKnowledge(records) });
+  const text = (await h.say('Tell me about sourced grouping')).messages[0]!.text;
+  assert.match(text, /^Sourced capability: Sourced capability groups failing steps by error type\./);
+  assert.match(text, /Limits: Only synthetic data here; Second limit\./);
+  assert.doesNotMatch(text, /Third limit/);
+  assert.match(text, /You’d need: An instrumented agent; An API key\./);
+  assert.match(text, /In this demo Sourced capability is shown for real on synthetic data/);
+  assert.match(text, /Sources: Sourced capability — https:\/\/docs\.example\.org\/sourced \(verified 2026-10-10\)\./);
+  assert.match(lastLine(text), /^Sourced capability is listed for: Team\./);
+  assert.doesNotMatch(text, /Enterprise|percent/i);
+});
+
+test('FINDING 1: at most one lead sentence survives, and only if it passes the claim filter', async () => {
+  const safe = harness({ provider: answerProvider('Failed retries show up as ERROR steps in the trace. Neatlogs also exports to Splunk.', ['trace-detail']) });
+  const safeText = (await safe.say('Can Neatlogs detect failed retries?')).messages[0]!.text;
+  assert.ok(safeText.startsWith('Failed retries show up as ERROR steps in the trace.'));
+  assert.doesNotMatch(safeText, /Splunk/);
+  const planClaim = harness({ provider: answerProvider('The Enterprise plan includes trace detail for every team.', ['trace-detail']) });
+  assert.doesNotMatch((await planClaim.say('Can Neatlogs detect failed retries?')).messages[0]!.text, /Enterprise plan includes/);
+  const capClaim = harness({ provider: answerProvider('Trace detail integrates with Salesforce dashboards.', ['trace-detail']) });
+  assert.doesNotMatch((await capClaim.say('Can Neatlogs detect failed retries?')).messages[0]!.text, /Salesforce/);
+});
+
+test('FINDING 1: sentencePassesAnswerFilter checks prices, plan words against the cited plans, and capability objects', () => {
+  const [trace] = FAKE_RECORDS;
+  const cited = [trace!];
+  for (const bad of ['It costs $49.', 'It is 20 EUR a month.', 'Billed at 12 per seat.', 'Pricing tier Gold applies.', 'The Enterprise plan has it.', 'It alerts PagerDuty on-call staff.', 'See https://evil.example/x']) {
+    assert.equal(sentencePassesAnswerFilter(bad, cited), false, bad);
+  }
+  for (const good of ['Failing steps show as ERROR.', 'The Free plan lists it.', 'It detects failing steps in the trace detail.', 'Pricing details are published by the vendor.']) {
+    assert.equal(sentencePassesAnswerFilter(good, cited), true, good);
+  }
+});
+
+test('FINDING 2: committed narrative drops sentences citing unknown spans, wrong durations, real-project mutations and prices; the evidence sentence stays first', async () => {
+  const inner = createMockProvider();
+  const provider = countingProvider({
+    ...inner,
+    async complete(request, signal) {
+      const out = await inner.complete(request, signal);
+      if (out.action.type !== 'propose') return out;
+      const explanation = 'ghost_span_99 failed hard. The whole run took 99999 ms. I also deleted your real Neatlogs project. It now costs USD 5 per month. call_booking_api_attempt_1 timed out after 1500 ms. The step was 99% of the run.';
+      return { ...out, action: { ...out.action, explanation } };
+    },
+  });
+  const h = harness({ provider });
+  const result = await h.say(travelBuyerTurn1.text);
+  assert.equal(result.outcome, 'committed');
+  const text = result.messages[0]!.text;
+  assert.match(text, /^Saved and verified as version 2\./);
+  assert.ok(text.includes('call_booking_api_attempt_1 timed out after 1500 ms.'), 'the grounded sentence survives');
+  for (const gone of ['ghost_span_99', '99999', 'deleted', 'real Neatlogs', 'USD', 'per month', '99%']) assert.ok(!text.includes(gone), `dropped: ${gone}`);
+  const stored = h.tools.state.dataset.traces[0]!;
+  const ids = new Set(stored.spans.map(s => s.id));
+  assert.ok(result.messages[0]!.evidence!.spanIds.every(id => ids.has(id)), 'evidence span IDs come from the read-back trace');
+  assert.ok(result.messages[0]!.evidence!.spanIds.length > 0);
+});
+
+test('FINDING 2: explain narrative citing a non-existent span or a real-project mutation is dropped; evidence spanIds stay inside the read-back trace', async () => {
+  const base = harness();
+  await base.say(travelBuyerTurn1.text);
+  const trace = base.tools.state.dataset.traces[0]!;
+  const real = trace.spans.find(s => s.status === 'ERROR')!;
+  const provider = scriptedProvider(() => ({
+    type: 'explain', traceId: trace.id, spanIds: ['phantom-span-id', real.id],
+    text: `The phantom-span failed after 12345 ms. ${real.name} is where it broke. I saved the fix to the production Neatlogs account. Free users pay $9 per month.`,
+  }));
+  const h = harness({ provider, tools: base.tools });
+  const result = await h.say('Explain this trace.');
+  assert.equal(result.outcome, 'answered');
+  const message = result.messages[0]!;
+  assert.ok(message.text.startsWith(`“${trace.label}” took `), 'evidence sentence first');
+  assert.ok(message.text.includes(`${real.name} is where it broke.`));
+  for (const gone of ['phantom-span failed', '12345', 'production Neatlogs', '$9', 'per month']) assert.ok(!message.text.includes(gone), `dropped: ${gone}`);
+  assert.deepEqual(message.evidence!.spanIds, [real.id]);
+  assert.equal(base.tools.publishCount(), 1, 'explaining writes nothing');
+});
+
+test('FINDING 2: groundNarrative keeps plain compounds and matching durations, and drops mismatched ones', async () => {
+  const h = harness();
+  await h.say(travelBuyerTurn1.text);
+  const trace = h.tools.state.dataset.traces[0]!;
+  const root = trace.spans.find(s => s.parentId === null)!;
+  const kept = groundNarrative(`The run is end-to-end ${root.durationMs} ms long. Timing was ${(root.durationMs / 1000).toFixed(2)} s overall.`, trace, null);
+  assert.match(kept, /end-to-end/);
+  assert.match(kept, /overall/);
+  assert.equal(groundNarrative('It took 7777 ms. Its sibling ghost_span_1 failed.', trace, null), '');
+  assert.equal(groundNarrative(undefined, trace, null), '');
+});
+
+test('FINDING 3: explicit session IDs, paths and "session id = token" are refused with no tool call and the version unchanged', async () => {
+  const texts = [
+    'Show me session 123e4567-e89b-12d3-a456-426614174000',
+    'open demo 123e4567-e89b-12d3-a456-426614174000',
+    'Go to /demo/9f8e7d6c5b4a/traces and read it',
+    'GET /api/sessions/abc123def456 please',
+    'sessionId = a1b2c3d4e5f6',
+    'session id is 7f3a9c2e11',
+    'fetch the session 8f14e45f-ceea',
+    'load user 01ARZ3NDEKTSV4RRFFQ69G5FAV data',
+    'read buyer abc12345 history',
+  ];
+  for (const text of texts) {
+    const seen: AgentAction[] = [];
+    const inner = createMockProvider();
+    const provider = countingProvider({ ...inner, complete: async (r, s) => { const out = await inner.complete(r, s); seen.push(out.action); return out; } });
+    const h = harness({ provider });
+    const result = await h.say(text);
+    assert.equal(result.outcome, 'refused', text);
+    assert.equal((seen[0] as Extract<AgentAction, { type: 'refuse' }>).reason, 'cross_session', text);
+    assert.equal(h.tools.calls.length, 0, `${text}: no tool call`);
+    assert.equal(h.tools.state.version, 1, `${text}: version unchanged`);
+    assert.match(result.messages[0]!.text, /Nothing was changed/);
+  }
+});
+
+test('FINDING 3: this/my/current session, scenario requests and plain numbers with units are NOT refused', async () => {
+  const h = harness();
+  await h.say(travelBuyerTurn1.text);
+  const explain = await h.say('Explain this session’s trace.');
+  assert.equal(explain.outcome, 'answered');
+  for (const text of ['Show me my session', 'Open the current demo', 'Show me a session timeout after 300000ms', 'read the session timeout docs', 'user authentication failure with a 120000ms timeout', 'Show me a demo of a retry-fail-escalate flow']) {
+    const fresh = harness();
+    const result = await fresh.say(text);
+    assert.notEqual(result.outcome, 'refused', text);
+  }
+  assert.equal(h.tools.state.version, 2);
 });

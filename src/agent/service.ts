@@ -13,7 +13,8 @@ import {
 } from '../agent-contract.ts';
 import type { ChatStatus, Clarification, Story, Trace } from '../contracts.ts';
 import { buildContext, clip, resolveTurnText } from './context.ts';
-import { cleanNarrative, citedSpanIds, describeCommit, describeTrace } from './explain.ts';
+import { composeAnswer } from './answer.ts';
+import { cleanNarrative, citedSpanIds, describeCommit, describeTrace, groundNarrative } from './explain.ts';
 import { repairMessage, SYSTEM_PROMPT, userMessage } from './prompts.ts';
 import { validateAgentAction } from './provider.ts';
 
@@ -230,7 +231,7 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
             try { trace = (await step('explain', { traces: readback.traces.length }, () => tools.readTrace(traceId), () => 'Read the saved trace'))?.trace ?? null; }
             catch { trace = null; }
           }
-          const { text, evidence } = describeCommit(readback, trace, cleanNarrative(explanation));
+          const { text, evidence } = describeCommit(readback, trace, groundNarrative(explanation, trace, readback));
           return finish('committed', note(text, 'applied', { evidence }), { evidence: readback, story: sanitiseStory(proposal.story) });
         }
         case 'conflict':
@@ -256,7 +257,7 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
       try { read = await step('explain', { spans: target.spans.length }, () => tools.readTrace(target.id), () => 'Read the saved trace'); }
       catch { read = null; }
       if (!read) return finish('answered', note('I couldn’t read that trace just now, so I won’t describe it from memory. Please try again.', 'failed'));
-      const narrative = cleanNarrative(a.text);
+      const narrative = groundNarrative(a.text, read.trace, null);
       const known = new Set(read.trace.spans.map(s => s.id));
       const chosen = (a.spanIds ?? []).filter(id => known.has(id));
       const evidence = { version: read.version, traceIds: [read.trace.id], spanIds: chosen.length ? chosen : citedSpanIds(read.trace) };
@@ -266,14 +267,8 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
     function actOnAnswer(a: Extract<AgentAction, { type: 'answer' }>): AgentTurnResult {
       const cited = [...new Set(a.knowledgeIds)].map(id => knowledge.get(id)).filter((r): r is NonNullable<typeof r> => r !== undefined).slice(0, LIMITS.maxKnowledgeRecordsPerTurn);
       if (!cited.length) return finish('answered', note('I don’t have a verified record that answers that, so I won’t guess. I can show you a fictional failing workflow or explain the open trace.'));
-      const lines = [cleanNarrative(a.text)];
-      for (const r of cited) {
-        if (r.planAvailability.status === 'unknown') lines.push(`Plan availability for ${r.title}: unknown. ${oneLine(r.planAvailability.note, 200)}`);
-        else lines.push(`${r.title} is listed for: ${r.planAvailability.plans.join(', ') || 'no plans recorded'}.${r.planAvailability.note ? ` ${oneLine(r.planAvailability.note, 160)}` : ''}`);
-        if (r.demonstration.level === 'explain_only' || r.demonstration.level === 'unsupported') lines.push(`In this demo ${r.title} is ${r.demonstration.level === 'explain_only' ? 'explain-only' : 'not available'}.`);
-      }
-      lines.push(`Sources: ${cited.map(r => r.title).join(', ')}.`);
-      return finish('answered', note(lines.filter(Boolean).join('\n')));
+      // The reply is composed by code from the cited records; provider prose can add at most one filtered lead sentence.
+      return finish('answered', note(composeAnswer(cited, resolved.effectiveText, a.text)));
     }
 
     function actOnUnsupported(a: Extract<AgentAction, { type: 'unsupported' }>): AgentTurnResult {
