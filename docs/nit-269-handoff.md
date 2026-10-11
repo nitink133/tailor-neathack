@@ -67,15 +67,17 @@ Per turn: one planning call (interpret, choose a supported action, propose a sce
 
 **Spend guard:** `TAILOR_LIVE_CAP_USD` is required in live mode (0 < cap ≤ 50). Before every call the guard checks a worst-case estimate (prompt chars/4 input tokens + the call's `max_tokens`) against the running total; after every call it records provider-reported usage (input, output, thinking, cache read/write) × list rates into `.local/spend-ledger.json`, which survives restarts. `GET /api/dev/spend` (header `x-tailor-dev-key`) shows the summary. All USD figures are local estimates from reported usage; final Anthropic billing is authoritative and may differ.
 
-**Start:** `npm run dev:live` → `http://127.0.0.1:4321`. The startup line prints provider, model, effort and cap (never the key). `npm run dev` stays mock-only.
+**Start:** `npm run dev:live` → `http://127.0.0.1:4321` (if 4321 is busy: `PORT=4323 npm run dev:live` → `http://127.0.0.1:4323`). The startup line prints provider, model, effort and cap (never the key). `npm run dev` stays mock-only. `TAILOR_PROVIDER_DEBUG=1` additionally logs the API's own error type/message to stderr for 4xx/5xx diagnosis (operator-only; no prompts or keys).
+
+**Verified 2026-10-12** under an approved $5 cap: `npm run smoke:live` 8/8 PASS against `claude-sonnet-5-5` / medium; details, defects found by the first live calls and provider-reported usage are in `docs/nit-269-evidence.md` §9.3. Observed cost: ≈ $0.03 per committed turn, ≈ $0.02 per clarification/unsupported turn (estimates).
 
 **Manual test checklist (invented buyer data only):**
 1. Open `http://127.0.0.1:4321/entry`; the panel shows "Powered by Tailor · synthetic data" and no "Mock-backed" label.
 2. Send: *I'm building a travel-booking agent. Show me a booking API timeout followed by a successful retry.* Expect an applied reply citing a failed `…attempt_1`-style span, "Evidence · v2", and the trace in the list/detail/timeline views.
-3. Send: *Make the retry fail too.* Expect version 3, two traces retained, the new active trace with two ERROR spans, and an explanation that names only spans visible in the trace detail.
+3. Send: *Make the retry fail too.* Expect version 3, two traces retained, the new active trace with two ERROR spans, and an explanation that names only spans visible in the trace detail. Live turns take 12–20 s (planning ≈ 10–15 s, explanation ≈ 3 s).
 4. Reload the page: conversation and version unchanged.
 5. Send: *Show me something failing.* Expect one question with exactly three choices and a free-text hint; pick one.
-6. Send: *Set up Slack alerts for this project.* Expect an "outside this demo" reply with the version unchanged.
+6. Send: *Set up Slack alerts for this project.* Expect an "outside this demo" reply (or a refusal to change real settings) with the version unchanged.
 7. Check `GET /api/dev/spend` (or `npm run smoke:live` for the scripted version of steps 2–6) and compare the estimated USD with the Anthropic Console later.
 
 ## Approval gates (explicit, in order of likely need)

@@ -1,7 +1,7 @@
 // Prompt text and the delimited message framing shared by the service and providers.
 // The framing is one-line JSON (newlines inside strings are escaped), so buyer text can never forge a delimiter line.
 
-import type { ReadbackEvidence, ValidationProblem } from '../agent-contract.ts';
+import { LIMITS, type ReadbackEvidence, type ValidationProblem } from '../agent-contract.ts';
 import type { Story, Trace } from '../contracts.ts';
 import { clip, type AgentContext } from './context.ts';
 
@@ -29,6 +29,7 @@ export const SYSTEM_PROMPT = [
   '- Ask at most one clarification, only when the request is materially ambiguous, with exactly three relevant choices.',
   '- Follow-up changes to a saved scenario ("make the retry fail too", "add a guardrail step"): use mode "edit", KEEP the existing traces (list a key in removeTraceKeys only when the buyer asks to drop it), add the variation as a NEW trace with a new key, and set activeScenario to that new key so the buyer can compare versions. Use mode "new" only for a different workflow or when the buyer asks to start over.',
   '- Code, not you, validates and saves scenarios and reads them back; never claim something was saved.',
+  `- Size limits the validator enforces: story.domain + story.summary + every assumption together at most ${LIMITS.maxStoryChars} characters (keep the summary to two short sentences and at most ${LIMITS.maxAssumptions} brief assumptions; when editing, REWRITE the story concisely instead of appending to it); at most ${LIMITS.maxTracesPerDataset} traces and ${LIMITS.maxSpansPerTrace} spans per trace.`,
 ].join('\n');
 
 export function userMessage(context: AgentContext, buyerText: string): string {

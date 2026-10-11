@@ -171,7 +171,7 @@ The 21-item evaluation suite was executed in-process against the mock-backed age
 
 ---
 
-## 9. Live Provider (Pending Key + Cap)
+## 9. Live Provider (Anthropic, verified 2026-10-12 with an approved $5 cap)
 
 ### 9.1 Live Smoke Sequence (`scripts/live-smoke.ts`)
 A dedicated live verification runner was developed at `scripts/live-smoke.ts` to execute over HTTP against a running server (`TAILOR_URL`, default `http://127.0.0.1:4321`). The script enforces:
@@ -196,11 +196,38 @@ A black-box offline integration test suite was created to assert service-level i
 
 All 6 contract tests pass (`6/6 passed`, 0 failed).
 
-### 9.3 Explicit Verification Boundary: NO Live Calls Made Yet
-- **Zero Live Model Invocations**: No live calls have been made to the Anthropic API in automated test runs or local QA verification.
-- **Offline Guarantee**: All tests and validations run strictly offline against the local SQLite store and deterministic/fake providers.
-- **Credential Protection**: `ANTHROPIC_API_KEY` is never read, printed, logged, or exported.
-- **Approval Gate**: Live model execution remains strictly pending user provision of `ANTHROPIC_API_KEY` in `.env.local` and explicit setting of `TAILOR_LIVE_CAP_USD`.
+### 9.3 Live Results (key entered by the owner in `.env.local`; cap `TAILOR_LIVE_CAP_USD=5` approved in chat)
+
+Server: `PORT=4323 TAILOR_LIVE_CAP_USD=5 TAILOR_DEV_KEY=… npm run dev:live` (4321 was held by a stale `node src/server.ts` from the first build day; nothing was killed). Startup line confirmed `provider=anthropic (live) · model=claude-sonnet-5-5 · effort=medium · cap=$5`. Every turn's `execution` label read `mode=live, provider=anthropic, model=claude-sonnet-5-5, effort=medium`.
+
+**Defects the first live calls exposed (all fixed in 97f377b and the follow-up commit, offline tests extended):**
+
+| # | Symptom | Cause (from the API's own error body via `TAILOR_PROVIDER_DEBUG=1`) | Fix |
+| --- | --- | --- | --- |
+| L1 | Every turn `provider_unavailable`, step detail `invalid_request`, 0 usage | HTTP 400 `The compiled grammar is too large` — six-way `anyOf` of action objects | Flat schema discriminated by `type`, nullable per-action fields; server rebuilds the union |
+| L2 | Same 400 after L1 although the raw schema compiled in a probe | SDK `jsonSchemaOutputFormat` default transform demotes every `enum` and nullable-array `items` to descriptions | `transform: false`; test pins the wire schema to the exported schema |
+| L3 | "Make the retry fail too" replaced the first trace (1 retained) | Prompt never stated edit semantics (the mock had them hard-coded) | Prompt rule: edit keeps saved traces, adds the variation as a new active trace |
+| L4 | Edit turn needed a repair every run (`Story exceeds 600 characters`) | Model appended to the story on edit; the limit was only in `context.limits` | Prompt states the combined story limit and "rewrite, don't append" |
+| L5 | Smoke step 5 got `answered` not `clarification` | With a failing trace saved, "Show me something failing" is not materially ambiguous; model explained the saved trace (correct) | Script runs the clarification path in a fresh session |
+| L6 | Smoke step 6 got `refused` (`real_mutation`) once, `unsupported` twice | "Set up Slack alerts" is both an unsupported capability and a real-settings mutation | Script accepts either, still requires version unchanged |
+
+**Final scripted run (`npm run smoke:live` equivalent, `TAILOR_EXPECT_LIVE=1`): 8/8 PASS.**
+
+| Step | Result | Model time |
+| --- | --- | --- |
+| Travel booking: API timeout + successful retry | committed v2, 7 spans, 1 ERROR span, explanation from read-back cites real span names/durations | plan 13.8 s + explain 3.8 s |
+| Make the retry fail too | committed v3, 2 traces retained, active trace has 2 ERROR spans, validated first time | plan 10.2 s + explain 3.2 s |
+| Trace list / detail / span agreement, cited span ids exist, reload consistent | PASS | — |
+| Fresh session: "Show me something failing." | clarification, exactly 3 choices + free text | 3.4 s |
+| Choice c1 | committed v2 (3 timeouts → escalation) | plan 13.6 s + explain 3.1 s |
+| "Set up Slack alerts for this project." | unsupported, version unchanged | 3.3 s |
+| End session; `GET /api/dev/spend` | PASS | — |
+
+Browser check on the live server: entry page shows "Powered by Tailor · synthetic data" (no mock label); the turn is Applied; footer "Evidence · v2 · open trace · 4 steps cited"; step strip ends "Read back ✓".
+
+**Provider-reported usage, cumulative ledger across all live server runs (5 smoke runs incl. the 3 failing ones, 2 manual turns, 1 browser turn):** 43 calls (28 plan, 15 explain); input 267,696; output 48,297 of which thinking 8,985 (adaptive thinking engaged on planning calls only); cache read 0 / cache creation 0 (no prompt caching configured). **Estimated $1.02 of the $5 cap** at list rates ($0.92 plan, $0.10 explain). Four direct SDK probes outside the guard (schema diagnosis) added roughly 9k input / 0.4k output tokens ≈ $0.02. Per normal successful committed turn: ~8–9k input + ~1.5k output ≈ $0.03; a clarification/unsupported turn ≈ $0.02. These are local estimates from reported usage × list rates; final Anthropic billing is authoritative.
+
+Not observed in these runs (handled by code and offline tests only): `stop_reason: refusal`, `max_tokens` truncation, 401/403/402, 429, 529, timeouts, spend-cap trip. `_request_id` was `undefined` on `messages.parse` results, so `requestId` is absent from live responses; the 400 bodies did carry `request_id`.
 
 ### 9.4 Exact Reporting Fields for Live Execution
 When live calls are authorized and executed, the system reports the following exact fields:
@@ -227,13 +254,10 @@ When live calls are authorized and executed, the system reports the following ex
 
 The following procedures were deliberately **NOT RUN** in local testing, in accordance with workspace boundaries:
 
-1. **Live Model Provider API Calls**:
-   - `TAILOR_PROVIDER=live` was not tested because no external provider API key (OpenAI/Anthropic) is configured or approved for this proof of concept.
-   - All tests used `TAILOR_PROVIDER=mock`.
+1. **Live Model Provider API Calls**: now verified for Anthropic `claude-sonnet-5-5` (section 9.3) under an approved $5 cap. Automated suites (`npm test`, `npm run test:ui`) still run only `TAILOR_PROVIDER=mock`; live verification is manual via `npm run smoke:live`.
 2. **External Neatlogs Telemetry Ingestion**:
-   - `TAILOR_TELEMETRY=live` and `neatlogs doctor --probe` were not executed.
-   - Per `AGENTS.md`, network egress to production Neatlogs projects is strictly prohibited during offline local verification.
-   - All telemetry was validated using the in-memory captured exporter (`mode: 'captured'`).
+   - `TAILOR_TELEMETRY=neatlogs` was not used for any live-model run; the live server ran with the local captured exporter (`telemetry=captured`), so no Tailor turn span, usage attribute or buyer/model content left the machine for Neatlogs.
+   - Hosted ingestion of Tailor runtime spans is therefore **not verified**; it remains a separate approval (destination project/region and payload review first, then one turn looked up by correlation ID in that project). Live-model verification above must not be read as hosted-logging verification.
 
 ---
 
