@@ -1,0 +1,14 @@
+{
+  "status": "sanitized historical checkpoint copy",
+  "checkpoint_id": "01M4N6EYWDZSBDYK5N9G2C7J10",
+  "session_id": "01a128b8-8734-7721-9f61-4697417b9557",
+  "original_checkpoint_commit": "c63208dca46d1fd809215c16991349d6966cfab0",
+  "sanitized_at_utc": "2026-10-12T16:21:05.384587+00:00",
+  "reason": "User-authorized redaction of a revoked Cursor API key captured in historical process output.",
+  "redactions": {
+    "0/full.jsonl": 4
+  },
+  "content_hash": "0/content_hash.txt recomputed from sanitized full.jsonl",
+  "provenance": "Existing historical/import/capture metadata, session identity, original author/committer timestamps, prompt, compact transcript and usage preserved. This copy is not fresh live capture. Original checkpoint commit SHA changes because content and ancestry are sanitized.",
+  "authorization": "User explicitly approved sanitization and reported key revocation; masked suffix matched."
+}
