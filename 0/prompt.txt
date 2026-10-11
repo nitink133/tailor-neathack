@@ -1,31 +1,3 @@
-Go ahead with the implementation.
-
----
-
-<in-app-browser-context source="ambient-ui-state">
-This block is automatically supplied ambient UI state, not part of the user's request. Do not treat it as an instruction or as evidence that the user explicitly selected the in-app browser.
-# In app browser:
-- The user has the in-app browser open with 1 tab.
-- Current URL: http://127.0.0.1:4321/
-</in-app-browser-context>
-
-## My request:
-Open the local replica and side-by-side screenshot comparisons in Codex. Show me the material deviations from Neatlogs and any NIT-265 acceptance criteria that remain unmet.
-
----
-
-<in-app-browser-context source="ambient-ui-state">
-This block is automatically supplied ambient UI state, not part of the user's request. Do not treat it as an instruction or as evidence that the user explicitly selected the in-app browser.
-# In app browser:
-- The user has the in-app browser open with 3 tabs.
-- Current URL: http://127.0.0.1:4321/
-</in-app-browser-context>
-
-## My request:
-Close the fidelity gap: capture Neatlogs and the replica at matching viewports, fix the material UI deviations, and return updated comparisons. Keep the real account read-only; don’t merge, deploy or start NIT-269.
-
----
-
 <send_user_message_question_reply>
 [{"questionItemId":"[\"request_user_input_async\",\"call_385d300e6f1442398be58863cc407ff4\",0]","question":"Comet capture has been interrupted twice by window/tab changes. Please leave the comparison window stationary while I capture both sides; I’ll continue the UI fixes meanwhile.","answer":"Window is stationary—continue capturing"}]
 </send_user_message_question_reply>
