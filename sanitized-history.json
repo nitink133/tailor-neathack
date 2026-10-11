@@ -2,8 +2,8 @@
   "status": "sanitized historical checkpoint copy",
   "checkpoint_id": "01M4N6EYWDZSBDYK5N9G2C7J10",
   "session_id": "01a128b8-8734-7721-9f61-4697417b9557",
-  "original_checkpoint_commit": "c63208dca46d1fd809215c16991349d6966cfab0",
-  "sanitized_at_utc": "2026-10-12T16:21:05.384587+00:00",
+  "original_checkpoint_commit": "b26ef92afe78d1120e65adb90e7ed33268f4abeb",
+  "sanitized_at_utc": "2026-10-12T16:21:05.741417+00:00",
   "reason": "User-authorized redaction of a revoked Cursor API key captured in historical process output.",
   "redactions": {
     "0/full.jsonl": 4
