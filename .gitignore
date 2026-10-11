@@ -25,3 +25,9 @@ playwright/.auth/
 *.pcapng
 
 # Entire keeps its own .entire/.gitignore; .entire/settings.json and .cursor/hooks.json stay tracked.
+
+/.local/
+/dist/
+/test-results/
+/playwright-report/
+/.impeccable/review/

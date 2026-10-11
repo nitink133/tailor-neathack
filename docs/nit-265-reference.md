@@ -1,0 +1,27 @@
+# NIT-265 reference and verification
+
+Reference inspected read-only in Comet on Nitin's personal Mac, 11 October 2026. Public https://neatlogs.com and authenticated Tailor Demo Sandbox trace list, recovered/exhausted detail, errors, graph, timeline, tag search, no-match search and latency filter. No JS injection, response interception, ingestion, model calls or real-account changes. The retained six original preflight references and four later safe crops are outside the repository in the dated Codex visualization review folder for session `01a128b8-8734-7721-9f61-4697417b9557`.
+
+Native reference window was 3440×1410, browser content crop 3430×1318; app-safe crops additionally omit the left account rail. Comet showed 110% zoom. Replica desktop capture uses 3127×1204 CSS pixels, approximately corresponding to that scale; comparison images normalize the reference raster to this frame and explicitly label normalization. This is visual comparison evidence, not independently measured identical CSS viewports or pixel parity. Replica mobile checks use 390×844; a real responsive mobile reference was not inspected. Loading was transient during native navigation; a persistent real backend failure was not induced. Local loading/failure/interruption states are tested separately.
+
+## Observed semantics and structure
+
+- Public: cyan hackathon strip, sparse top navigation, gray first hero sentence above heavy black second sentence, silver San Francisco bridge/city/fog scene, dark setup button and outlined entry CTA.
+- App: narrow pale icon rail, Traces title/tabs and right search/date/refresh controls, capsule filters, daily histogram, dense table, bottom row count/pagination. Columns: selection, Ingested at, Status, Detections, Evals, Input, Output, Comments, Replay.
+- Trace: timestamp/back toolbar; navigator, graph/timeline toggles; right-aligned input bubble over centered expandable parent-linked steps; root output below. Graph occupies the right pane. Timeline occupies a horizontal bottom pane, gray successful bars and red errors. Native graph selection highlighted a node/row without opening inline detail; inline span expansion displayed I/O/error/attributes.
+- Ready indicates processing, not final task success. The 43ms recovered reference has one ERROR child and no Execution Failed detection. The exhausted 50ms header/51ms root reference has two ERROR children and two detections; root output safely escalates. Replica avoids that header/root rounding difference by deriving all durations from the same record.
+- Source tagged list showed 10 baseline traces. Search `timeout-recovered` settled at 2 matching rows with span match chips; `zz-no-fictional-trace` showed “No traces found / Try adjusting your filters or date range.” Latency greater than .045 seconds showed 2 exhausted rows. Counts change with filtering. Optional expansion failures and Analytics were not investigated.
+
+## Bounded differences for review
+
+- Landing reproduces the first-screen composition only, not the full scrolling marketing site. Entry CTA replaces Start free; other marketing links and setup action explicitly announce unavailable scope. Static sourced photographic assets replace the real site's animated layered atmosphere; no motion parity claim.
+- Synthetic/session/version notice is added. There are two controlled order lookup fixtures, not the source catalogue/refund flow. Saved project text never drives fixtures; IDs are session-scoped stable UUID-derived records.
+- Relevant fixture/detection/tag/search/latency controls work; session/user/workflow/eval/metadata/advanced filtering, date selection, display menus and broader app routes are outside scope. Capsule filters are native selectors rather than the incumbent's popover editor. Search uses substring rather than ranked matching/span chips. Evals/comments columns are empty; no evaluation is fabricated.
+- Navigator is a two-trace selector rather than paged reference tabs. Graph preserves root/child relationships in a fixed right pane rather than draggable canvas/splitters. Selection opens the corresponding inline span and marks it; direct links use `?span=`. Timeline has explicit duration labels and is derived from coherent offsets. No live replay, comments, assistant or side effects are offered.
+- Typography/spacing/icon drawings are hand-reconstructed from observation using sourced Geist. Dense tables scroll horizontally on mobile; other content fits 390px. Dark theme is local and approximate, not reference-certified.
+
+## Assets and implementation boundaries
+
+`public/assets/landscape.webp` and `portrait.webp` were fetched 11 October from the public Neatlogs `/hero-silver/mobile-scene-landscape-v1.webp` and `/hero-silver/mobile-scene-portrait-v1.webp`; `geist.woff2` is the public site's Geist font asset. Used only for this local review replica, not a claim of redistribution/licensing or deployment permission. No authenticated cookies/assets were fetched by scripts. Frontend/runtime requests stay local. Node HTTP, native SQLite and strict TypeScript avoid an application framework for this small two-fixture slice; Playwright is development-only.
+
+Existing SDK setup tests and network-free Doctor pass. Real Tailor→Neatlogs execution telemetry remains configured separately and unmodified; authenticated telemetry health was not newly verified. Local synthetic replica data is not proof of that ingestion.
