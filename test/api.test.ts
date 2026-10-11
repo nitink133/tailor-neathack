@@ -88,7 +88,7 @@ test('buyer scenario changes keep the previous fixture on conflict and stay insi
     assert.equal(kept.data.dataset.activeScenario,'exhausted');assert.equal(kept.data.version,2);
     const other=await call('/api/sessions','POST',{description:'Fictional other chat',scenario:'recovered'});
     assert.equal((await call(`/api/sessions/${id}/scenario`,'POST',{expectedVersion:2,scenario:'recovered'},other.cookie)).status,404);
-    const noted=await call(`/api/sessions/${id}/conversation`,'POST',{conversation:[turn,{id:randomUUID(),role:'adapter',text:'Deterministic prototype adapter. Saved.',status:'note',at:new Date().toISOString()}]},created.cookie);
+    const noted=await call(`/api/sessions/${id}/conversation`,'POST',{conversation:[turn,{id:randomUUID(),role:'tailor',text:'Deterministic prototype adapter. Saved.',status:'note',at:new Date().toISOString()}]},created.cookie);
     assert.equal(noted.status,200);assert.equal(noted.data.version,2);assert.equal(noted.data.conversation.length,2);assert.equal(noted.data.dataset.activeScenario,'exhausted');
   } finally {await new Promise<void>(r=>server.close(()=>r()));store.close();rmSync(dir,{recursive:true,force:true});}
 });

@@ -177,7 +177,7 @@ async function createSession(description: string, scenario: Scenario, turns: Cha
     sessionStorage.setItem('creation-payload', payload);
   }
   const s = await request<DemoSession>('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operation }, body: payload }, true);
-  const applied = turns.map(turn => turn.id === buyerId ? { ...turn, status: 'applied' as const } : turn).concat(stamp('adapter', `${ADAPTER_LABEL}. The demo API saved the ${scenario} fixture. The trace list now shows it as the active fixture.`, 'note'));
+  const applied = turns.map(turn => turn.id === buyerId ? { ...turn, status: 'applied' as const } : turn).concat(stamp('tailor', `${ADAPTER_LABEL}. The demo API saved the ${scenario} fixture. The trace list now shows it as the active fixture.`, 'note'));
   let next = s;
   try { next = await request<DemoSession>(`/api/sessions/${s.id}/conversation`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation: applied }) }, true); }
   catch { next = { ...s, conversation: applied }; }
@@ -199,7 +199,7 @@ async function sendChat(text: string) {
   const result = adapt({ text: message, hasSession: !onEntry, activeScenario: onEntry ? null : current!.dataset.activeScenario });
   const changing = result.action === 'create' || result.action === 'switch';
   const buyer = stamp('buyer', message, changing ? 'pending' : 'note');
-  let turns = [...(onEntry ? draft : turnsOf(current)), buyer, stamp('adapter', result.text, 'note')];
+  let turns = [...(onEntry ? draft : turnsOf(current)), buyer, stamp('tailor', result.text, 'note')];
   const show = () => { if (onEntry) { saveDraft(turns); entry(); } else if (current) { current = { ...current, conversation: turns }; repaint(); } };
   show();
   try {
@@ -212,7 +212,7 @@ async function sendChat(text: string) {
       if (saved.dataset.activeScenario !== result.scenario || listed.activeScenario !== result.scenario || listed.version !== saved.version) throw new Error('The traces on screen do not match the saved fixture.');
       current = saved;
       lastList = listed;
-      turns = turns.map(turn => turn.id === buyer.id ? { ...turn, status: 'applied' as const } : turn).concat(stamp('adapter', `${ADAPTER_LABEL}. The demo API saved the ${result.scenario} fixture. The trace list now shows it as the active fixture.`, 'note'));
+      turns = turns.map(turn => turn.id === buyer.id ? { ...turn, status: 'applied' as const } : turn).concat(stamp('tailor', `${ADAPTER_LABEL}. The demo API saved the ${result.scenario} fixture. The trace list now shows it as the active fixture.`, 'note'));
       try { await persist(turns); } catch { current = { ...saved, conversation: turns }; }
       chatBusy = false;
       if (location.pathname.startsWith('/demo/')) repaint();
@@ -223,7 +223,7 @@ async function sendChat(text: string) {
     if (onEntry) entry(); else if (location.pathname.startsWith('/demo/')) repaint();
   } catch (e) {
     const reason = (e as Error).message.replace(/[.\s]+$/, '');
-    turns = turns.map(turn => turn.id === buyer.id && changing ? { ...turn, status: 'failed' as const } : turn).concat(stamp('adapter', `${ADAPTER_LABEL}. ${reason}. The last working fixture is unchanged.`, 'note'));
+    turns = turns.map(turn => turn.id === buyer.id && changing ? { ...turn, status: 'failed' as const } : turn).concat(stamp('tailor', `${ADAPTER_LABEL}. ${reason}. The last working fixture is unchanged.`, 'note'));
     try { await persist(turns); } catch { if (onEntry) saveDraft(turns); else if (current) current = { ...current, conversation: turns }; }
     chatBusy = false;
     if (onEntry) entry(); else if (location.pathname.startsWith('/demo/')) repaint();

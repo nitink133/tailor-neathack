@@ -2,7 +2,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import type { ChatTurn, DemoSession, Proposal, Scenario } from './contracts.ts';
+import type { ChatTurn, DemoSession, FixtureScenario, Proposal } from './contracts.ts';
+import { LIMITS } from './agent-contract.ts';
 import { fixtures, validateDataset } from './fixtures.ts';
 
 export class Failure extends Error {
@@ -36,7 +37,13 @@ export class Store {
         this.db.exec('COMMIT'); return s;
       }
       const id = randomUUID();
-      const s: DemoSession = { id, description: description.trim(), createdAt: new Date().toISOString(), version: 1, dataset: fixtures(id, scenario as Scenario), conversation: turns };
+      const now = Date.now();
+      const s: DemoSession = {
+        id, description: description.trim(), createdAt: new Date(now).toISOString(), version: 1, dataset: fixtures(id, scenario as FixtureScenario), conversation: turns,
+        // NIT-270 contract fields; lifecycle enforcement lands in NIT-273.
+        conversationVersion: 1, conversationTruncated: false, story: null, state: 'active',
+        lastActiveAt: new Date(now).toISOString(), expiresAt: new Date(now + LIMITS.lifetimeMs).toISOString(), lastClientTurnId: null,
+      };
       this.db.prepare('INSERT INTO sessions VALUES (?,?,?)').run(id, operation, JSON.stringify(s));
       this.db.exec('COMMIT'); return s;
     } catch (e) { this.db.exec('ROLLBACK'); throw e; }
@@ -49,6 +56,13 @@ export class Store {
   parse(document: string): DemoSession {
     const session = JSON.parse(document) as DemoSession;
     session.conversation ??= [];
+    session.conversationVersion ??= 1;
+    session.conversationTruncated ??= false;
+    session.story ??= null;
+    session.state ??= 'active';
+    session.lastActiveAt ??= session.createdAt;
+    session.expiresAt ??= new Date(Date.parse(session.createdAt) + LIMITS.lifetimeMs).toISOString();
+    session.lastClientTurnId ??= null;
     return session;
   }
   applyScenario(id: string, scenario: unknown, expectedVersion: unknown): DemoSession {
@@ -95,8 +109,9 @@ export function conversationOf(value: unknown): ChatTurn[] {
   if (!Array.isArray(value) || value.length > 40) throw new Failure(422, 'INVALID_CONVERSATION', 'A conversation can hold at most 40 messages.');
   return value.map(turn => {
     const status = turn?.status;
-    if (!turn || (turn.role !== 'buyer' && turn.role !== 'adapter') || !['pending', 'applied', 'failed', 'note'].includes(status)) throw new Failure(422, 'INVALID_CONVERSATION', 'Each message needs a buyer or adapter role and a known status.');
+    const role = turn?.role === 'adapter' ? 'tailor' : turn?.role; // legacy NIT-265 rows
+    if (!turn || (role !== 'buyer' && role !== 'tailor') || !['pending', 'applied', 'failed', 'uncertain', 'question', 'note'].includes(status)) throw new Failure(422, 'INVALID_CONVERSATION', 'Each message needs a buyer or tailor role and a known status.');
     if (typeof turn.id !== 'string' || !/^[a-zA-Z0-9-]{8,80}$/.test(turn.id) || typeof turn.text !== 'string' || !turn.text.trim() || turn.text.length > 2000 || typeof turn.at !== 'string' || Number.isNaN(Date.parse(turn.at))) throw new Failure(422, 'INVALID_CONVERSATION', 'Each message needs an id, a time, and 1–2000 characters.');
-    return { id: turn.id, role: turn.role, text: turn.text.trim(), status, at: turn.at };
+    return { id: turn.id, role, text: turn.text.trim(), status, at: turn.at };
   });
 }

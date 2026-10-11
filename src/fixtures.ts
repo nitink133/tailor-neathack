@@ -1,6 +1,8 @@
-import type { Dataset, Json, Scenario, Span, Trace } from './contracts.ts';
+import type { Dataset, FixtureScenario, Json, Span, Trace } from './contracts.ts';
 
-export function fixtures(sessionId: string, activeScenario: Scenario = 'recovered'): Dataset {
+// NIT-265 regression fixtures. Kept as baselines; personalised data is validated by the schema/coherence
+// validator (NIT-273), not by equality with these two records.
+export function fixtures(sessionId: string, activeScenario: FixtureScenario = 'recovered'): Dataset {
   const traces = (['recovered', 'exhausted'] as const).map((scenario): Trace => {
     const prefix = `${sessionId}-${scenario}`;
     const rootId = `${prefix}-root`;
@@ -23,7 +25,7 @@ export function fixtures(sessionId: string, activeScenario: Scenario = 'recovere
       ...(recovered ? [step('verify', 'verify_order_result', 'GUARDRAIL', 37, 4, 'OK', { orderId: order }, { verified: true })] : []),
       step('answer', recovered ? 'prepare_order_answer' : 'prepare_escalation', 'CHAIN', recovered ? 42 : 50, 0.37, 'OK', { synthetic: true }, output),
     ];
-    return { id: prefix, sessionId, scenario, name: 'SYNTHETIC Tailor Demo Order Support', ingestedAt: '2026-10-10T18:17:00.000Z', status: 'Ready', outcome: recovered ? 'order_found' : 'escalation_required', tags: ['synthetic', 'tailor-demo', scenario], input, output, spans };
+    return { id: prefix, sessionId, scenario, label: recovered ? 'Retry recovers' : 'Both attempts fail', name: 'SYNTHETIC Tailor Demo Order Support', ingestedAt: '2026-10-10T18:17:00.000Z', status: 'Ready', outcome: recovered ? 'order_found' : 'escalation_required', outcomeKind: recovered ? 'success' : 'escalation', tags: ['synthetic', 'tailor-demo', scenario], input, output, spans };
   });
   return { activeScenario, traces };
 }
@@ -39,5 +41,5 @@ export function validateDataset(id: string, value: unknown): value is Dataset {
     if (v && typeof v === 'object') return `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(',')}}`;
     return JSON.stringify(v) ?? 'undefined';
   };
-  return stable(d) === stable(fixtures(id, d.activeScenario));
+  return stable(d) === stable(fixtures(id, d.activeScenario as FixtureScenario));
 }
