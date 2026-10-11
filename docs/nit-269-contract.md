@@ -29,6 +29,7 @@ Code, never the model, enforces: cookie ownership, session lifecycle, schema, co
 
 | `PublishResult.state` / `TurnOutcome` | Meaning | Buyer-facing rule |
 | --- | --- | --- |
+| `answered` | Explanation or knowledge answer, no state change | Explanations cite span IDs/names from a fresh `readTrace`; unknown pricing stays unknown |
 | `committed` | Saved and independently read back | May say "saved"; cite `evidence.traceIds/spanIds/version` from the readback |
 | `rejected` | Validator refused after bounded repairs; nothing written (verified by re-read) | Say what was invalid; "last good version N is still live" |
 | `save_failed` | Write failed, known unchanged | Same as rejected, with the reason |

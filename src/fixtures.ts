@@ -30,16 +30,4 @@ export function fixtures(sessionId: string, activeScenario: FixtureScenario = 'r
   return { activeScenario, traces };
 }
 
-// A bounded fixture contract, not arbitrary agent-authored data. Exact semantic
-// equality rejects altered I/O, ownership, IDs, parents, timing or status.
-export function validateDataset(id: string, value: unknown): value is Dataset {
-  if (!value || typeof value !== 'object') return false;
-  const d = value as Dataset;
-  if (!['recovered', 'exhausted'].includes(d.activeScenario)) return false;
-  const stable = (v: unknown): string => {
-    if (Array.isArray(v)) return `[${v.map(stable).join(',')}]`;
-    if (v && typeof v === 'object') return `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(',')}}`;
-    return JSON.stringify(v) ?? 'undefined';
-  };
-  return stable(d) === stable(fixtures(id, d.activeScenario as FixtureScenario));
-}
+export { validateDataset } from './validator.ts';

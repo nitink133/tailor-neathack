@@ -59,8 +59,8 @@ export const SCENARIO_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const SPAN_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const SPAN_KINDS: readonly SpanKind[] = ['WORKFLOW', 'GUARDRAIL', 'TOOL', 'RETRIEVAL', 'CHAIN', 'AGENT', 'LLM'];
 export const OUTCOME_KINDS: readonly OutcomeKind[] = ['success', 'degraded', 'failure', 'escalation'];
-/** Hosts allowed inside fictional URLs (RFC 2606/6761 reserved). Anything else with "://" is rejected. */
-export const FICTIONAL_HOST_PATTERN = /^(?:[a-z0-9-]+\.)*(?:example|test|invalid|localhost)(?:\.[a-z]+)?$/i;
+/** Hosts allowed inside fictional URLs (RFC 2606/6761 reserved: .example, example.com/net/org, .test, .invalid, localhost). Anything else with "://" is rejected. */
+export const FICTIONAL_HOST_PATTERN = /^(?:[a-z0-9-]+\.)*(?:example(?:\.(?:com|net|org))?|test|invalid|localhost)$/i;
 
 // ---------------------------------------------------------------------------
 // Scenario proposal: what the model may author. Code assigns IDs and timestamps.
