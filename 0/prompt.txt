@@ -1,0 +1,3 @@
+<send_user_message_question_reply>
+[{"questionItemId":"[\"request_user_input_async\",\"call_385d300e6f1442398be58863cc407ff4\",0]","question":"Comet capture has been interrupted twice by window/tab changes. Please leave the comparison window stationary while I capture both sides; I’ll continue the UI fixes meanwhile.","answer":"Window is stationary—continue capturing"}]
+</send_user_message_question_reply>
