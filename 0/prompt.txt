@@ -1,0 +1,11 @@
+Work in the existing local checkout of [https://github.com/nitink133/tailor-neathack](https://github.com/nitink133/tailor-neathack "Open link"). Do not start the Neatlogs replica, APIs or landing page.
+
+The last report says main is clean and synced at 36c1115d040408ab731f6cc8952cc9cb140b8ebcf. The recovered checkpoint exists locally and remotely, but the Codex session itself was not captured. Verify these facts before acting.
+
+1. Inspect repository instructions, installed Entire version, configuration and hooks. Consult the official documentation for that version. Determine whether this Codex session type is supported, how recording starts, and how Entire handles linked Git worktrees.
+2. Preserve all existing commits, checkpoints, session history and source branches. Do not disable hooks, rewrite history, invent checkpoint markers or claim retrospective capture. Do not change global Git settings or authentication.
+3. If enabling capture needs configuration changes, permissions, credentials or a fresh session, explain the exact action and request approval first. If this Codex session type is unsupported, stop and give me the supported alternative and handoff instructions.
+4. Once configured, verify capture with one small, useful documentation change on a dedicated verification branch. Use an isolated verification worktree if supported; do not disturb an active checkout. Check branch/path collisions before creating anything. Do not put secrets or private transcripts into tracked documentation.
+5. Commit the change and verify its actual session/checkpoint linkage. Use the supported sync workflow and normal pushes. Check whether a fresh linked worktree will require additional setup. Separate local/Git proof from dashboard verification; do not claim dashboard success without inspecting it.
+
+Return the exact evidence: branch/worktree, commit SHA, session and checkpoint IDs, sync status, and instructions needed for a future worktree. Preserve the verification branch/worktree. Do not merge into main, delete refs, begin implementation or launch Prompt 2 automatically. Stop for my review.
