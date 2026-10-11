@@ -2,7 +2,7 @@
 
 Tailor is a candidate project for neatHack (October 2026), currently under validation.
 
-NIT-265 adds a bounded local Neatlogs replica: landing, fictional project entry, trace list, span details, tree and timeline. Every session contains two deterministic order lookup fixtures. Visitor text is saved; it does not generate personalization. No LLM or agent runs.
+NIT-265 adds a bounded local Neatlogs replica: landing, a buyer conversation, trace list, span details, tree and timeline. Every session contains two deterministic order lookup fixtures. Visitor text is saved; it does not generate personalization. The conversation is a labelled deterministic prototype adapter. No LLM or agent runs.
 
 ## Run the replica
 
@@ -65,6 +65,8 @@ Types live in `src/contracts.ts`; all UI projections originate in the session's 
 | GET `/api/sessions/:id/traces/:traceId` | `{version, trace}` including flat parent-linked spans, I/O, errors and timing. |
 | GET `/api/sessions/:id/traces/:traceId/spans/:spanId` | `{version, span}`. |
 | GET `/api/dev/sessions` | Developer key header `x-tailor-dev-key`; inspect all saved local fictional sessions. |
+| POST `/api/sessions/:id/scenario` | Owning cookie. `{expectedVersion, scenario}`; 200 session with the canonical fixture for that scenario. Stale version 409 keeps the previous fixture. |
+| POST `/api/sessions/:id/conversation` | Owning cookie. `{conversation}` replaces that session’s transcript only. It does not change the fixture. |
 | POST `/api/dev/sessions/:id/proposal` | Developer key AND owning cookie. `{expectedVersion, dataset}`; 200 accepted canonical session. Only exact supported fixtures with either active scenario validate. Immutable ownership/input/IDs; no arbitrary personalization. |
 
 Transactions publish a complete validated document or nothing. Invalid fixture 422, stale version 409, unknown/cross-session ID 404, missing developer key 403, unsupported method 405, unsupported filter 400, malformed JSON 400, content type 415 and >32KB body 413. Disconnects retain the last accepted version. Supported browser URLs are `/demo/:id/traces`, `/demo/:id/traces/:traceId` and detail `?span=:spanId`.

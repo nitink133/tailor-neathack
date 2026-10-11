@@ -63,3 +63,32 @@ test('HTTP contract: coherent fixtures, transactional CAS, capability isolation,
     assert.equal((await call('/api/dev/sessions')).data.length,2);
   } finally {await new Promise<void>(r=>server.close(()=>r()));store.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+test('buyer scenario changes keep the previous fixture on conflict and stay inside that session',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'tailor-chat-'));const path=join(dir,'sessions.sqlite');
+  const store=new Store(path);const server=appServer(store,'local-test-key');
+  await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));
+  const port=(server.address() as {port:number}).port;
+  const call=async(path:string,method='GET',data?:unknown,cookie='')=>{
+    const response=await fetch(`http://127.0.0.1:${port}${path}`,{method,headers:{cookie,'content-type':'application/json','idempotency-key':randomUUID()},body:data!==undefined?JSON.stringify(data):undefined});
+    return {status:response.status,data:await response.json(),cookie:response.headers.get('set-cookie')?.split(';')[0] ?? cookie};
+  };
+  try {
+    const turn={id:randomUUID(),role:'buyer',text:'First attempt fails, retry recovers',status:'applied',at:new Date().toISOString()};
+    const created=await call('/api/sessions','POST',{description:'Fictional chat project',scenario:'recovered',conversation:[turn]});
+    assert.equal(created.status,201);assert.equal(created.data.conversation.length,1);assert.equal(created.data.dataset.activeScenario,'recovered');
+    const id=created.data.id;
+    const switched=await call(`/api/sessions/${id}/scenario`,'POST',{expectedVersion:1,scenario:'exhausted'},created.cookie);
+    assert.equal(switched.status,200);assert.equal(switched.data.version,2);assert.equal(switched.data.dataset.activeScenario,'exhausted');assert.equal(switched.data.conversation[0].text,turn.text);
+    const listed=await call(`/api/sessions/${id}/traces`,'GET',undefined,created.cookie);
+    assert.equal(listed.data.activeScenario,'exhausted');assert.equal(listed.data.version,2);assert.equal(listed.data.total,2);
+    const stale=await call(`/api/sessions/${id}/scenario`,'POST',{expectedVersion:1,scenario:'recovered'},created.cookie);
+    assert.equal(stale.status,409);
+    const kept=await call(`/api/sessions/${id}`,'GET',undefined,created.cookie);
+    assert.equal(kept.data.dataset.activeScenario,'exhausted');assert.equal(kept.data.version,2);
+    const other=await call('/api/sessions','POST',{description:'Fictional other chat',scenario:'recovered'});
+    assert.equal((await call(`/api/sessions/${id}/scenario`,'POST',{expectedVersion:2,scenario:'recovered'},other.cookie)).status,404);
+    const noted=await call(`/api/sessions/${id}/conversation`,'POST',{conversation:[turn,{id:randomUUID(),role:'adapter',text:'Deterministic prototype adapter. Saved.',status:'note',at:new Date().toISOString()}]},created.cookie);
+    assert.equal(noted.status,200);assert.equal(noted.data.version,2);assert.equal(noted.data.conversation.length,2);assert.equal(noted.data.dataset.activeScenario,'exhausted');
+  } finally {await new Promise<void>(r=>server.close(()=>r()));store.close();rmSync(dir,{recursive:true,force:true});}
+});

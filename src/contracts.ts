@@ -12,8 +12,16 @@ export interface Trace {
   tags: string[]; input: Json; output: Json; spans: Span[];
 }
 export interface Dataset { activeScenario: Scenario; traces: Trace[] }
+export interface ChatTurn {
+  id: string;
+  role: 'buyer' | 'adapter';
+  text: string;
+  status: 'pending' | 'applied' | 'failed' | 'note';
+  at: string;
+}
 export interface DemoSession {
   id: string; description: string; createdAt: string; version: number; dataset: Dataset;
+  conversation: ChatTurn[];
 }
 export interface CreateSession { description: string; scenario: Scenario }
 export interface Proposal { expectedVersion: number; dataset: Dataset }

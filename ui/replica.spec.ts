@@ -6,10 +6,29 @@ const ed=process.env.TAILOR_SCREENSHOT_DIR ?? 'test-results/evidence';
 mkdirSync(ed,{recursive:true});
 test('both fixtures agree across API, trace tree, timeline, navigation, direct links, reload and session boundaries',async({page,browser})=>{
   await page.goto('/');await expect(page.getByRole('heading',{level:1})).toContainText('Your agent is already running.');
+  await expect(page.locator('.hack')).toHaveCSS('background-color','rgb(2, 141, 194)');
+  await expect(page.locator('.hack')).toHaveCSS('height','32px');
+  await expect(page.locator('.hack-date')).toHaveText('Oct 10–12');
+  await expect(page.locator('.nav-current')).toContainText('Manifesto');
+  await expect(page.locator('.nav-caret')).toContainText('Product');
+  await expect(page.locator('.nav-out')).toContainText('Docs');
+  await expect(page.locator('.nav-rule')).toBeVisible();
+  expect(await page.locator('.public-nav .wordmark').evaluate(el=>getComputedStyle(el).fontFamily)).toContain('GeistMono');
+  expect(await page.evaluate(()=>document.documentElement.scrollHeight<=document.documentElement.clientHeight+1)).toBe(true);
   await page.getByRole('link',{name:'Try with your project ↗'}).first().click();
-  await page.getByLabel('Fictional project description').fill('Fictional order support shop. Saved text is not personalization.');
-  await page.getByRole('button',{name:'Save and explore traces'}).click();
+  await expect(page.getByRole('heading',{name:'hello'})).toBeVisible();
+  await page.getByRole('button',{name:'First attempt fails, retry recovers'}).click();
   await expect(page.locator('[data-count]')).toHaveText('1 – 2 of 2');
+  const barRatio=await page.locator('.day').nth(12).evaluate(el=>{const bar=el.querySelector('.day-bar');if(!bar)return 1;return bar.getBoundingClientRect().height/el.getBoundingClientRect().height;});
+  expect(barRatio).toBeGreaterThan(0.05);expect(barRatio).toBeLessThan(0.5);
+  const noticeBox=await page.locator('.demo-notice').boundingBox();const pagerBox=await page.locator('[data-count]').boundingBox();
+  expect(noticeBox!.y+noticeBox!.height).toBeLessThanOrEqual(pagerBox!.y+1);
+  await page.getByRole('button',{name:'Expand sidebar'}).click();
+  await expect(page.locator('.rail.is-labeled')).toContainText('setup');
+  await expect(page.locator('.rail.is-labeled')).toContainText('1/2');
+  await expect(page.locator('.rail.is-labeled')).toContainText('experiments');
+  await page.getByRole('button',{name:'Collapse sidebar'}).click();
+  await expect(page.locator('.rail.is-labeled')).toHaveCount(0);
   const s:DemoSession=await (await page.request.get('/api/session')).json();
   for(const t of s.dataset.traces) {
     await page.goto(`/demo/${s.id}/traces/${t.id}`);
@@ -18,7 +37,14 @@ test('both fixtures agree across API, trace tree, timeline, navigation, direct l
     await expect(page.locator('.error-text').filter({hasText:'ERROR'})).toHaveCount(t.scenario==='recovered'?1:2);
     await page.getByRole('button',{name:'Toggle timeline'}).click();
     await expect(page.locator('.timeline-row')).toHaveCount(t.spans.length);
+    await expect(page.locator('.span-head time',{hasText:'370µs'})).toHaveCount(1);
+    await expect(page.locator('.timeline-row time',{hasText:'370µs'})).toHaveCount(1);
+    await expect(page.locator('.timeline-row time',{hasText:'0.37'})).toHaveCount(0);
+    await expect(page.locator('.steps header')).toContainText(t.scenario==='exhausted'?'0.051S':'0.043S');
     await page.getByRole('button',{name:'Toggle span tree'}).click();
+    await expect(page.locator('.graph-children a.kind-filled')).toHaveCount(1);
+    await expect(page.locator('.graph-children a.kind-light')).toHaveCount(t.spans.length-2);
+    if(t.scenario==='exhausted'){await expect(page.locator('.span-detection.is-dot')).toHaveCount(2);await expect(page.locator('.span-detection.failure')).toHaveCount(0);}
     await expect(page.getByLabel('Span parent tree').locator('a')).toHaveCount(t.spans.length-1);
     await page.getByLabel('Span parent tree').locator('a').nth(1).click();
     await expect(page.locator('.graph-tree .graph-selected')).toHaveCount(1);
@@ -26,6 +52,7 @@ test('both fixtures agree across API, trace tree, timeline, navigation, direct l
     await page.locator('[data-root]').click();await expect(page.locator('[data-span-id]')).toHaveCount(1);
     await page.locator('[data-root]').click();await expect(page.locator('[data-span-id]')).toHaveCount(t.spans.length);
     await page.getByRole('button',{name:'Toggle span tree'}).click();
+    if(t.scenario==='exhausted'){await expect(page.locator('.span-detection.failure')).toHaveCount(2);await expect(page.locator('.span-detection.is-dot')).toHaveCount(0);}
     await page.getByRole('link',{name:`Select ${t.spans[2]!.name} in timeline`}).click();
     await expect(page.locator('.selected-span')).toHaveAttribute('data-span-id',t.spans[2]!.id);
     await expect(page.locator('.selected-span .error-box')).toContainText('order lookup timed out');
@@ -35,20 +62,30 @@ test('both fixtures agree across API, trace tree, timeline, navigation, direct l
     const direct=await page.request.get(`/api/sessions/${s.id}/traces/${t.id}/spans/${t.spans[2]!.id}`);expect((await direct.json()).span).toEqual(t.spans[2]);
     const otherTrace=s.dataset.traces.find(x=>x.id!==t.id)!;await page.locator('.trace-picker summary').click();await page.locator('.trace-picker nav a').filter({hasText:otherTrace.scenario==='recovered'?'Retry recovers':'Both attempts fail'}).click();await expect(page.locator('.root-output')).toContainText(otherTrace.outcome);
   }
+  await page.goto(`/demo/${s.id}/traces/${s.dataset.traces.find(t=>t.scenario==='exhausted')!.id}`);
+  await page.getByRole('button',{name:'EXPAND ALL'}).click();
+  const exhausted=s.dataset.traces.find(t=>t.scenario==='exhausted')!;
+  await expect(page.locator('.span-content')).toHaveCount(exhausted.spans.filter(x=>x.parentId).length);
+  await expect(page.locator(`[data-span-id="${exhausted.spans[0]!.id}"] .span-content`)).toHaveCount(0);
   await page.goto(`/demo/${s.id}/traces?q=zz-no-match`);await expect(page.getByRole('heading',{name:'No traces found'})).toBeVisible();
+  await expect(page.locator('.empty-mark')).toBeVisible();await expect(page.locator('.empty-clear')).toBeVisible();
   await page.getByRole('link',{name:'Clear filters'}).click();await expect(page.locator('[data-count]')).toHaveText('1 – 2 of 2');
   await page.locator('.filter-popover summary').filter({hasText:'Detections'}).click();await page.getByLabel('Detections',{exact:true}).selectOption('yes');await page.getByRole('button',{name:'Apply filters',exact:true}).click();await expect(page.locator('[data-count]')).toHaveText('1 – 1 of 1');
+  await expect(page.locator('.filter-popover.is-selected')).toHaveCount(1);
   await page.locator('tbody tr a').first().click();await expect(page.locator('.root-output')).toContainText('escalation_required');
   await page.locator('.back-link').click();await expect(page.getByLabel('Detections',{exact:true})).toHaveValue('yes');
-  await page.goBack();await expect(page.locator('.root-output')).toContainText('escalation_required');await page.goForward();await expect(page.locator('[data-count]')).toHaveText('1 – 1 of 1');
-  const foreign=await browser.newContext();const other=await foreign.newPage();await other.goto('/entry');await other.getByLabel('Fictional project description').fill('Fictional other visitor');await other.getByRole('button',{name:'Save and explore traces'}).click();await expect(other.locator('[data-count]')).toHaveText('1 – 2 of 2');
+  await page.goBack();await expect(page.locator('[data-count]')).toHaveText('1 – 2 of 2');
+  await page.goForward();await expect(page.locator('[data-count]')).toHaveText('1 – 1 of 1');
+  await page.goForward();await expect(page.locator('.root-output')).toContainText('escalation_required');
+  await page.goBack();await expect(page.locator('[data-count]')).toHaveText('1 – 1 of 1');
+  const foreign=await browser.newContext();const other=await foreign.newPage();await other.goto('/entry');await other.getByRole('button',{name:'First attempt fails, retry recovers'}).click();await expect(other.locator('[data-count]')).toHaveText('1 – 2 of 2');
   await other.goto(`/demo/${s.id}/traces/${s.dataset.traces[0]!.id}`);await expect(other.getByRole('heading',{name:'Demo unavailable'})).toBeVisible();await expect(other.locator('[role=alert]')).toContainText('NOT_FOUND');await foreign.close();
   await page.goto(`/demo/${s.id}/traces/unknown`);await expect(page.locator('[role=alert]')).toContainText('Trace not found');
 });
 
 test('loading, failure recovery, interrupted navigation, repeated entry and browser version readback',async({page})=>{
-  await page.goto('/entry');await page.getByLabel('Fictional project description').fill('Fictional resilient visit');
-  await page.getByRole('button',{name:'Save and explore traces'}).dblclick();await expect(page.locator('[data-count]')).toHaveText('1 – 2 of 2');
+  await page.goto('/entry');
+  await page.getByRole('button',{name:'First attempt fails, retry recovers'}).dblclick();await expect(page.locator('[data-count]')).toHaveText('1 – 2 of 2');
   const s:DemoSession=await (await page.request.get('/api/session')).json();
   await page.route('**/api/sessions/**',async route=>{await new Promise(r=>setTimeout(r,250));await route.continue();});
   await page.goto(`/demo/${s.id}/traces`);await expect(page.getByRole('status')).toContainText('Loading');
@@ -63,7 +100,7 @@ test('loading, failure recovery, interrupted navigation, repeated entry and brow
 
 test('dated desktop/mobile evidence',async({page})=>{
   await page.setViewportSize({width:1710,height:1318});await page.goto('/');await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:ed+'/replica-public-desktop.png'});
-  await page.goto('/entry');await page.getByLabel('Fictional project description').fill('Fictional review project');await page.getByRole('button',{name:'Save and explore traces'}).click();await expect(page.locator('[data-count]')).toHaveText('1 – 2 of 2');const s:DemoSession=await (await page.request.get('/api/session')).json();
+  await page.goto('/entry');await page.getByRole('button',{name:'First attempt fails, retry recovers'}).click();await expect(page.locator('[data-count]')).toHaveText('1 – 2 of 2');const s:DemoSession=await (await page.request.get('/api/session')).json();
   await page.screenshot({path:ed+'/replica-list-desktop.png'});
   await page.goto(`/demo/${s.id}/traces/${s.dataset.traces[0]!.id}`);await expect(page.locator('.root-output')).toBeVisible();await page.getByRole('button',{name:'Toggle timeline'}).click();await page.screenshot({path:ed+'/replica-recovered-desktop.png'});
   await page.goto(`/demo/${s.id}/traces/${s.dataset.traces[1]!.id}`);await expect(page.locator('.root-output')).toBeVisible();await page.getByRole('button',{name:'Toggle timeline'}).click();await page.screenshot({path:ed+'/replica-exhausted-desktop.png'});
@@ -95,4 +132,45 @@ test('official setup control assets, comet motion and reduced-motion fallback',a
   await expect(page.locator('.setup-border')).toBeHidden();expect(await motion.evaluate(el=>el.getAnimations().length)).toBe(0);
   await page.setViewportSize({width:390,height:844});await expect(button).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+
+test('buyer conversation moves into the trace panel and keeps the last fixture when a save fails',async({page})=>{
+  await page.goto('/entry');
+  await page.getByLabel('Ask anything').fill('a fictional shop');
+  await page.getByRole('button',{name:'Send message'}).click();
+  await expect(page.locator('.chat-thread')).toContainText('Deterministic prototype adapter');
+  await expect(page).toHaveURL(/\/entry$/);
+  await page.reload();
+  await expect(page.locator('.chat-thread')).toContainText('both attempts fail');
+  await page.getByRole('button',{name:'Both attempts fail, safely escalate'}).click();
+  await expect(page.locator('[data-count]')).toHaveText('1 – 2 of 2');
+  await expect(page.locator('.chat-panel')).toContainText('Deterministic prototype adapter');
+  await expect(page.locator('.demo-notice')).toContainText('active fixture: exhausted');
+  await expect(page.locator('tr.is-active-fixture')).toContainText('Active fixture');
+  const traceUrl=page.url();
+  await page.locator('tbody tr a').nth(1).click();
+  await expect(page.locator('.chat-panel')).toContainText('Both attempts fail');
+  await page.goBack();await expect(page).toHaveURL(traceUrl);
+  await page.reload();await expect(page.locator('.chat-panel')).toContainText('Applied');
+  await page.getByRole('button',{name:'Collapse conversation'}).click();
+  await expect(page.locator('.chat-panel')).toHaveCount(0);
+  await page.getByRole('button',{name:'Open conversation'}).click();
+  await expect(page.locator('.chat-panel')).toContainText('Applied');
+  await page.locator('.chat-panel textarea').fill('explain this trace');
+  await page.locator('.chat-panel').getByRole('button',{name:'Send message'}).click();
+  await expect(page.locator('.chat-panel')).toContainText('No model');
+  await expect(page.locator('.demo-notice')).toContainText('exhausted');
+  await page.route('**/scenario',route=>route.abort());
+  await page.locator('.chat-panel textarea').fill('first attempt fails, retry recovers');
+  await page.locator('.chat-panel').getByRole('button',{name:'Send message'}).click();
+  await expect(page.locator('.chat-panel [data-status=failed]')).toBeVisible();
+  await expect(page.locator('.demo-notice')).toContainText('active fixture: exhausted');
+  await page.unrouteAll();
+  await page.locator('.chat-panel textarea').fill('first attempt fails, retry recovers');
+  await page.locator('.chat-panel').getByRole('button',{name:'Send message'}).click();
+  await expect(page.locator('.demo-notice')).toContainText('active fixture: recovered');
+  await expect(page.locator('.chat-panel [data-status=applied]').last()).toBeVisible();
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await expect(page.locator('.chat-panel')).toBeVisible();
 });

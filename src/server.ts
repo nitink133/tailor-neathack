@@ -26,7 +26,7 @@ export function appServer(store: Store, devKey?: string) {
       if (path.startsWith('/api/')) {
         if (path === '/api/sessions' && req.method === 'POST') {
           const data = await body(req);
-          const s = store.create(data?.description, data?.scenario, String(req.headers['idempotency-key'] ?? ''));
+          const s = store.create(data?.description, data?.scenario, String(req.headers['idempotency-key'] ?? ''), data?.conversation);
           res.setHeader('Set-Cookie', `tailor=${s.id}.${store.token(s.id)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800`);
           return send(201, s);
         }
@@ -39,6 +39,18 @@ export function appServer(store: Store, devKey?: string) {
             return send(200, store.publish(match[1]!, await body(req) as Proposal));
           }
           throw new Failure(405, 'UNSUPPORTED_ACTION', 'Unsupported developer action.');
+        }
+        const scenarioRoute = /^\/api\/sessions\/([\w-]+)\/scenario$/.exec(path);
+        if (scenarioRoute && req.method === 'POST') {
+          store.authorize(scenarioRoute[1]!, cookieOf(req));
+          const data = await body(req);
+          return send(200, store.applyScenario(scenarioRoute[1]!, data?.scenario, data?.expectedVersion));
+        }
+        const conversationRoute = /^\/api\/sessions\/([\w-]+)\/conversation$/.exec(path);
+        if (conversationRoute && req.method === 'POST') {
+          store.authorize(conversationRoute[1]!, cookieOf(req));
+          const data = await body(req);
+          return send(200, store.saveConversation(conversationRoute[1]!, data?.conversation));
         }
         if (req.method !== 'GET') throw new Failure(405, 'UNSUPPORTED_ACTION', 'This action is not supported.');
         if (path === '/api/session') {
@@ -79,9 +91,10 @@ export function appServer(store: Store, devKey?: string) {
       if (req.method !== 'GET' && req.method !== 'HEAD') throw new Failure(405,'UNSUPPORTED_ACTION','Unsupported action.');
       let file = '/index.html';
       if (path === '/app.js') file = '../dist/client.js';
+      else if (path === '/adapter.js') file = '../dist/adapter.js';
       else if (path === '/style.css' || /^\/assets\/[a-zA-Z0-9_.-]+$/.test(path)) file = path;
       else if (!(path==='/' || path==='/entry' || /^\/demo\/[^/]+\/traces(?:\/[^/]+)?$/.test(path))) throw new Failure(404,'NOT_FOUND','Page not found.');
-      const full = file === '../dist/client.js' ? resolve('dist/client.js') : resolve('public',file.slice(1));
+      const full = file.startsWith('../dist/') ? resolve('dist', file.slice('../dist/'.length)) : resolve('public',file.slice(1));
       const content = await readFile(full);
       const types:Record<string,string> = {'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.woff2':'font/woff2','.webp':'image/webp'};
       res.writeHead(200,{'content-type':types[extname(full)] ?? 'application/octet-stream'}); res.end(req.method==='HEAD' ? undefined : content);
