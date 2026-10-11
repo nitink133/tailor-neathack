@@ -78,3 +78,21 @@ test('dated desktop/mobile evidence',async({page})=>{
   await page.goto(`/demo/${s.id}/traces`);await expect(page.locator('[data-count]')).toBeVisible();await page.screenshot({path:ed+'/replica-list-mobile.png',fullPage:true});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.goto('/');await page.screenshot({path:ed+'/replica-public-mobile.png',fullPage:true});
 });
+
+// Regression for the annotated public setup control: assets, live motion and fallback.
+test('official setup control assets, comet motion and reduced-motion fallback',async({page})=>{
+  await page.setViewportSize({width:980,height:729});await page.goto('/');await page.evaluate(()=>document.fonts.ready);
+  const button=page.getByRole('button',{name:'Copy setup prompt',exact:true});
+  await expect(button.locator('img')).toHaveCount(3);
+  expect(await button.locator('img').evaluateAll(xs=>xs.every(x=>(x as HTMLImageElement).complete&&(x as HTMLImageElement).naturalWidth>0))).toBe(true);
+  expect(await button.evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBe(360);
+  const motion=page.locator('.setup-comet');
+  expect(await motion.evaluate(el=>el.getAnimations()[0]!.effect!.getTiming())).toMatchObject({duration:2900,easing:'linear',iterations:Infinity});
+  const initial=await motion.evaluate(el=>getComputedStyle(el).transform);
+  await expect.poll(()=>motion.evaluate(el=>getComputedStyle(el).transform)).not.toBe(initial);
+  await page.screenshot({path:ed+'/setup-prompt-980.png'});
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await expect(page.locator('.setup-border')).toBeHidden();expect(await motion.evaluate(el=>el.getAnimations().length)).toBe(0);
+  await page.setViewportSize({width:390,height:844});await expect(button).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});

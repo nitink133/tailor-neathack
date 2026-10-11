@@ -83,7 +83,7 @@ export function appServer(store: Store, devKey?: string) {
       else if (!(path==='/' || path==='/entry' || /^\/demo\/[^/]+\/traces(?:\/[^/]+)?$/.test(path))) throw new Failure(404,'NOT_FOUND','Page not found.');
       const full = file === '../dist/client.js' ? resolve('dist/client.js') : resolve('public',file.slice(1));
       const content = await readFile(full);
-      const types:Record<string,string> = {'.html':'text/html','.js':'text/javascript','.css':'text/css','.woff2':'font/woff2','.webp':'image/webp'};
+      const types:Record<string,string> = {'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.woff2':'font/woff2','.webp':'image/webp'};
       res.writeHead(200,{'content-type':types[extname(full)] ?? 'application/octet-stream'}); res.end(req.method==='HEAD' ? undefined : content);
     } catch(e) {
       const failure = e instanceof Failure ? e : new Failure(500,'SERVER_FAILURE','Local request failed. Retry; previous accepted session state is retained.');

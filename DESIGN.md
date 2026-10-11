@@ -174,3 +174,5 @@ Controls and graph roots use 6px corners, JSON blocks 7px, fields and notes 8px,
 - Don't treat locally sourced public assets as established redistribution or deployment permission; their current use is this local review replica.
 
 The matching-viewport fidelity follow-up uses a 704px trace flow, 40px timeline rows, root collapse, compact trace-choice popover, curved root-to-child graph connectors and public agent SVGs. Native Comet reference and replica captures are both 1720×1410 at 100% zoom; crops use identical coordinates without resampling. See docs/nit-265-reference.md for coverage and remaining differences.
+
+The public setup control uses the inspected agents/carbon/azure/comet variant: locally served agent SVGs and Geist Mono, circular copy icon, radial reflection, and a masked azure border rotating linearly every 2.9 seconds. Reduced motion, small viewports and coarse/no pointers disable the animated border like the reference. The local server must serve SVG assets as image/svg+xml; image decode is covered by the browser regression.
