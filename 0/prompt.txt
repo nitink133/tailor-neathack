@@ -1,0 +1,1 @@
+Approved. Configure Entire for Codex, add the worktree ignore rule, and prepare codex/verify-entire-capture. Keep main unchanged and tell me exactly how to trust the hooks and start the fresh verification session.
