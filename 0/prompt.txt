@@ -1,0 +1,3 @@
+<send_user_message_question_reply>
+[{"questionItemId":"[\"request_user_input_async\",\"call_5efca860097a4108bd827f978f80eec8\",0]","question":"Two branches contain distinct work, so your instruction requires a choice before merging. Which should go into main? `recover/entire-capture` (recommended) contains setup commit c7b80e7 plus recovery note 576b03d, with checkpoint data present locally and on origin. `setup/local` contains c7b80e7 plus capture-check document f8ccc96, whose checkpoint reference currently has no corresponding local or remote ref.","answer":"Merge recover/entire-capture; preserve setup/local separately"}]
+</send_user_message_question_reply>
