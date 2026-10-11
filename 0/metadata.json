@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4PC615VDK105CHSJ2WQH7FA",
+  "session_id": "c3f24fda-b1bf-4af3-8c81-aefce3bff0ce",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-11T20:59:01.060896Z",
+  "branch": "work/nit-269-build-personalised-tailor-agent-proof",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "AGENTS.md",
+    "docs/nit-269-handoff.md"
+  ],
+  "agent": "Cursor",
+  "model": "claude-fable-5-1-thinking-high",
+  "turn_id": "6e96fec440e7",
+  "compact_transcript_start": 0,
+  "session_metrics": {
+    "turn_count": 2,
+    "context_tokens": 292176,
+    "context_window_size": 300000
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-11T20:59:01.014749Z",
+    "agent_lines": 37,
+    "agent_removed": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 37,
+    "total_lines_changed": 41,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
