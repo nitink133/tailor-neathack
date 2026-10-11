@@ -321,8 +321,16 @@ async function runSmoke(): Promise<void> {
     failAndExit(`Trace consistency verification failed: ${msg}`);
   }
 
-  // 5. Turn 3: "Show me something failing." -> clarification with 3 choices, then answer with choiceId
+  // 5. Turn 3: "Show me something failing." -> clarification with 3 choices, then answer with choiceId.
+  // Runs in a FRESH session: once a failing trace is saved, the live model rightly explains it instead of asking
+  // (the prompt is only materially ambiguous when nothing is described yet). The first session is ended first.
   try {
+    const endFirst = await requestJson<{ endedAt: string }>(`/api/sessions/${sessionId}/end`, 'POST');
+    if (endFirst.status !== 200) throw new Error(`Ending the scenario session failed with HTTP ${endFirst.status}`);
+    const freshRes = await requestJson<DemoSession>('/api/sessions', 'POST', { description: 'Live smoke — invented buyer, clarification path' }, { 'idempotency-key': randomUUID() });
+    if (freshRes.status !== 201 || !freshRes.data?.id) throw new Error(`Expected HTTP 201 for the fresh session, got ${freshRes.status}`);
+    sessionId = freshRes.data.id;
+    console.log(`Fresh session for the clarification path: ${sessionId}`);
     const turn3Res = await requestJson<TurnResponse>(
       `/api/sessions/${sessionId}/turns`,
       'POST',
@@ -400,14 +408,16 @@ async function runSmoke(): Promise<void> {
     const t4 = turn4Res.data;
     printTurn('Turn 4: Unsupported feature (Slack alerts)', t4);
 
-    if (t4.outcome !== 'unsupported') {
-      throw new Error(`Expected outcome 'unsupported', got '${t4.outcome}'`);
+    // "Set up Slack alerts" is both an unsupported capability and a request to change real project settings; the
+    // live model may classify it either way. Both are correct as long as nothing is changed.
+    if (t4.outcome !== 'unsupported' && t4.outcome !== 'refused') {
+      throw new Error(`Expected outcome 'unsupported' or 'refused', got '${t4.outcome}'`);
     }
     if (t4.version !== versionBefore) {
       throw new Error(`Expected version to remain unchanged (${versionBefore}), got ${t4.version}`);
     }
 
-    recordResult('6. Turn 4: Unsupported feature', 'PASS', `Outcome 'unsupported', version unchanged at ${t4.version}`);
+    recordResult('6. Turn 4: Unsupported feature', 'PASS', `Outcome '${t4.outcome}', version unchanged at ${t4.version}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     recordResult('6. Turn 4: Unsupported feature', 'FAIL', msg);

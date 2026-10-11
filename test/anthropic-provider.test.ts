@@ -47,20 +47,22 @@ const message = (over: Partial<ParsedMessageLike> = {}): ParsedMessageLike => ({
   parsed_output: null, _request_id: 'req_test_1', ...over,
 });
 
-/** AgentAction -> the structured-output wire shape (JSON text for input/output, nulls for absent optionals). */
-function toWire(action: AgentAction): { action: unknown } {
+/** AgentAction -> the FLAT structured-output wire shape (every field present, nulls for the other variants, JSON text for input/output, no proposal constants). */
+function toWire(action: AgentAction): Record<string, unknown> {
   const text = (v: unknown) => JSON.stringify(v);
+  const base = { type: action.type, text: null, clarification: null, proposal: null, explanation: null, traceId: null, spanIds: null, knowledgeIds: null, capabilityId: null, reason: null };
   switch (action.type) {
+    case 'ask': return { ...base, clarification: action.clarification };
     case 'propose': {
-      const p = action.proposal;
-      return { action: {
-        type: 'propose', explanation: action.explanation,
+      const { kind: _kind, contractVersion: _cv, ...p } = action.proposal;
+      return { ...base, explanation: action.explanation,
         proposal: { ...p, removeTraceKeys: p.removeTraceKeys ?? null, traces: p.traces.map(t => ({ ...t, input: text(t.input), output: text(t.output), spans: t.spans.map(s => ({ ...s, input: text(s.input), output: text(s.output) })) })) },
-      } };
+      };
     }
-    case 'explain': return { action: { type: 'explain', text: action.text, traceId: action.traceId ?? null, spanIds: action.spanIds ?? null } };
-    case 'unsupported': return { action: { type: 'unsupported', text: action.text, capabilityId: action.capabilityId ?? null } };
-    default: return { action };
+    case 'explain': return { ...base, text: action.text, traceId: action.traceId ?? null, spanIds: action.spanIds ?? null };
+    case 'answer': return { ...base, text: action.text, knowledgeIds: action.knowledgeIds };
+    case 'unsupported': return { ...base, text: action.text, capabilityId: action.capabilityId ?? null };
+    case 'refuse': return { ...base, text: action.text, reason: action.reason };
   }
 }
 
@@ -93,6 +95,8 @@ test('request shape: model, adaptive thinking (no budget_tokens, no disabled), e
   assert.equal(params.output_config.format.type, 'json_schema');
   assert.deepEqual(Object.keys(params.output_config.format.schema.properties as object), Object.keys(AGENT_ACTION_SCHEMA.properties));
   assert.equal(params.output_config.format.schema.additionalProperties, false);
+  // The SDK helper's default transform demotes enums/items to descriptions; that looser schema failed to compile live.
+  assert.equal(JSON.stringify(params.output_config.format.schema), JSON.stringify(AGENT_ACTION_SCHEMA), 'the schema goes on the wire untransformed');
   assert.equal(params.max_tokens, LIMITS.maxOutputTokens, 'bounded by LIMITS.maxOutputTokens');
   const wire = JSON.stringify(params);
   for (const forbidden of ['budget_tokens', '"disabled"', '"enabled"', 'tool_choice', '"tools"', 'temperature', 'top_p', 'top_k']) assert.ok(!wire.includes(forbidden), `must not send ${forbidden}`);
@@ -221,19 +225,23 @@ test('max_tokens -> truncated, model_context_window_exceeded -> context_exceeded
 });
 
 test('malformed: null parsed_output, schema-invalid actions, undecodable or oversized JSON text, unknown type', async () => {
-  const proposalWire = toWire({ type: 'propose', proposal: travelProposalV1, explanation: 'e' }) as { action: { proposal: { traces: { input: string; spans: { input: string }[] }[] } } };
+  const proposalWire = toWire({ type: 'propose', proposal: travelProposalV1, explanation: 'e' }) as { proposal: { traces: { input: string; spans: { input: string }[] }[] } };
   const withTrace = (mutate: (w: typeof proposalWire) => void) => { const w = structuredClone(proposalWire); mutate(w); return w; };
+  const flat = (over: Record<string, unknown>) => ({ type: 'answer', text: null, clarification: null, proposal: null, explanation: null, traceId: null, spanIds: null, knowledgeIds: null, capabilityId: null, reason: null, ...over });
   const cases: [string, unknown][] = [
     ['null parsed_output', null],
     ['not an object', 'text'],
-    ['missing action', {}],
-    ['unknown type', { action: { type: 'dance' } }],
-    ['ask with two choices', { action: { type: 'ask', clarification: { question: 'q', choices: [{ id: 'c1', label: 'a' }, { id: 'c2', label: 'b' }], allowFreeText: true } } }],
-    ['answer without ids', { action: { type: 'answer', text: 't' } }],
-    ['trace input not JSON', withTrace(w => { w.action.proposal.traces[0]!.input = '{not json'; })],
-    ['span input empty string', withTrace(w => { w.action.proposal.traces[0]!.spans[0]!.input = ''; })],
-    ['span input over the byte bound', withTrace(w => { w.action.proposal.traces[0]!.spans[0]!.input = JSON.stringify({ blob: 'x'.repeat(LIMITS.maxSpanJsonBytes) }); })],
-    ['wrong contract version', withTrace(w => { (w.action.proposal as unknown as { contractVersion: string }).contractVersion = 'v0'; })],
+    ['missing type', {}],
+    ['old wrapped shape', { action: flat({ text: 't', knowledgeIds: [] }) }],
+    ['unknown type', flat({ type: 'dance' })],
+    ['ask with two choices', flat({ type: 'ask', clarification: { question: 'q', choices: [{ id: 'c1', label: 'a' }, { id: 'c2', label: 'b' }], allowFreeText: true } })],
+    ['ask without clarification', flat({ type: 'ask' })],
+    ['propose without proposal', flat({ type: 'propose', explanation: 'e' })],
+    ['refuse with unknown reason', flat({ type: 'refuse', text: 't', reason: 'because' })],
+    ['trace input not JSON', withTrace(w => { w.proposal.traces[0]!.input = '{not json'; })],
+    ['span input empty string', withTrace(w => { w.proposal.traces[0]!.spans[0]!.input = ''; })],
+    ['span input over the byte bound', withTrace(w => { w.proposal.traces[0]!.spans[0]!.input = JSON.stringify({ blob: 'x'.repeat(LIMITS.maxSpanJsonBytes) }); })],
+    ['expectedVersion not an integer', withTrace(w => { (w.proposal as unknown as { expectedVersion: unknown }).expectedVersion = 'one'; })],
   ];
   for (const [label, parsed] of cases) {
     const error = await rejection(provider(fakeClient(() => message({ parsed_output: parsed })).client).complete(planRequest()));
@@ -361,7 +369,7 @@ test('spend guard: the ledger persists the running total across two guard instan
 // ---------------------------------------------------------------------------------------------------------------------
 // (h) service integration with the live provider over a fake client
 // ---------------------------------------------------------------------------------------------------------------------
-const isExplainCall = (params: AnthropicMessageParams) => !('action' in (params.output_config.format.schema.properties as Record<string, unknown>));
+const isExplainCall = (params: AnthropicMessageParams) => !('proposal' in (params.output_config.format.schema.properties as Record<string, unknown>));
 const withCalls = <T extends object>(p: T) => Object.assign(p, { calls: [] });
 
 function scenarioClient(opts: { explain?: (h: { errorSpanId: string }) => Reply; planning?: Reply } = {}) {
@@ -472,7 +480,7 @@ test('service + live provider: retryable failures are retried inside the budget 
   assert.equal(r1.outcome, 'answered');
   assert.equal(flaky.calls.length, 2);
 
-  const garbage = fakeClient(() => message({ parsed_output: { action: { type: 'dance' } } }));
+  const garbage = fakeClient(() => message({ parsed_output: { type: 'dance' } }));
   const h2 = harness({ provider: withCalls(provider(garbage.client)) as never });
   const r2 = await h2.say(travelBuyerTurn1.text);
   assert.equal(r2.outcome, 'provider_unavailable');
@@ -518,22 +526,32 @@ test('schemas obey the structured-output rules: additionalProperties:false every
   assert.equal(JSON.stringify(AGENT_ACTION_SCHEMA).includes('"oneOf"'), false);
 });
 
-test('AGENT_ACTION_SCHEMA mirrors the AgentAction union: six variants, contract enums and field names', () => {
-  const variants = AGENT_ACTION_SCHEMA.properties.action.anyOf as unknown as readonly { properties: Record<string, { enum?: readonly string[] }>; required: readonly string[] }[];
-  assert.deepEqual(variants.map(v => v.properties.type!.enum![0]), ['ask', 'propose', 'explain', 'answer', 'unsupported', 'refuse']);
+test('AGENT_ACTION_SCHEMA is the flat union (no anyOf of six objects: the grammar compiler rejects that), with contract enums and field names', () => {
+  const props = AGENT_ACTION_SCHEMA.properties as unknown as Record<string, { type?: unknown; enum?: readonly string[]; anyOf?: unknown[] }>;
+  assert.deepEqual(props.type!.enum, ['ask', 'propose', 'explain', 'answer', 'unsupported', 'refuse']);
+  assert.deepEqual(Object.keys(props), ['type', 'text', 'clarification', 'proposal', 'explanation', 'traceId', 'spanIds', 'knowledgeIds', 'capabilityId', 'reason']);
   const text = JSON.stringify(AGENT_ACTION_SCHEMA);
+  assert.equal((text.match(/"anyOf":\[\{"type":"object"/g) ?? []).length, 2, 'only clarification and proposal are object-or-null');
   const enumOf = (key: string) => { const m = new RegExp(`"${key}":\\{"type":"string","enum":(\\[[^\\]]*\\])`).exec(text); return m ? (JSON.parse(m[1]!) as string[]) : null; };
-  const kindEnums = [...text.matchAll(/"kind":\{"type":"string","enum":(\[[^\]]*\])/g)].map(m => JSON.parse(m[1]!) as string[]);
-  assert.ok(kindEnums.some(e => JSON.stringify(e) === JSON.stringify([...SPAN_KINDS])), 'span kinds match SPAN_KINDS');
-  assert.ok(kindEnums.some(e => JSON.stringify(e) === JSON.stringify(['scenario_proposal'])));
+  assert.deepEqual(enumOf('kind'), [...SPAN_KINDS], 'span kinds match SPAN_KINDS');
   assert.deepEqual(enumOf('outcomeKind'), [...OUTCOME_KINDS]);
-  assert.deepEqual(enumOf('contractVersion'), [CONTRACT_VERSION]);
   assert.deepEqual(enumOf('status'), ['OK', 'ERROR']);
   assert.deepEqual(enumOf('mode'), ['new', 'edit']);
-  assert.deepEqual(enumOf('reason'), ['injection', 'arbitrary_code', 'cross_session', 'real_mutation', 'off_topic']);
-  const proposal = (variants[1]!.properties.proposal as unknown as { properties: Record<string, unknown>; required: string[] });
-  assert.deepEqual(Object.keys(proposal.properties), ['kind', 'contractVersion', 'expectedVersion', 'mode', 'removeTraceKeys', 'story', 'activeScenario', 'traces']);
+  assert.ok(text.includes('"enum":["injection","arbitrary_code","cross_session","real_mutation","off_topic"]'));
+  // The proposal constants are injected server-side, never asked of the model.
+  assert.ok(!text.includes('scenario_proposal') && !text.includes(CONTRACT_VERSION));
+  const proposal = (props.proposal!.anyOf![0] as { properties: Record<string, unknown> });
+  assert.deepEqual(Object.keys(proposal.properties), ['expectedVersion', 'mode', 'removeTraceKeys', 'story', 'activeScenario', 'traces']);
   assert.deepEqual(Object.keys(EVIDENCE_EXPLANATION_SCHEMA.properties), ['text', 'spanIds']);
+});
+
+test('normaliseWireAction rebuilds the union from the flat wire object and rejects unknown types', () => {
+  assert.equal(normaliseWireAction({ type: 'nonsense', text: 'x' }), null);
+  assert.equal(normaliseWireAction({ action: { type: 'answer', text: 'x', knowledgeIds: [] } }), null, 'the old wrapped shape is not accepted');
+  assert.deepEqual(normaliseWireAction({ type: 'answer', text: 'x', knowledgeIds: null }), { type: 'answer', text: 'x', knowledgeIds: [] });
+  const injected = normaliseWireAction(toWire({ type: 'propose', proposal: travelProposalV1, explanation: 'e' })) as { proposal: Record<string, unknown> };
+  assert.equal(injected.proposal.kind, 'scenario_proposal');
+  assert.equal(injected.proposal.contractVersion, CONTRACT_VERSION);
 });
 
 test('round trip: the contract example proposals survive wire encoding (JSON text, nulls) and validateAgentAction unchanged', () => {

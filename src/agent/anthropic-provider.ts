@@ -74,14 +74,16 @@ const PROPOSED_TRACE = {
   additionalProperties: false,
 } as const;
 
+/**
+ * Scenario proposal on the wire. `kind` and `contractVersion` are constants the server injects after decoding;
+ * the model never emits them (fewer grammar symbols, nothing to get wrong).
+ */
 const SCENARIO_PROPOSAL = {
   type: 'object',
   properties: {
-    kind: { type: 'string', enum: ['scenario_proposal'] },
-    contractVersion: { type: 'string', enum: [CONTRACT_VERSION] },
-    expectedVersion: { type: 'integer' },
+    expectedVersion: { type: 'integer', description: 'The session version this proposal was planned against' },
     mode: { type: 'string', enum: ['new', 'edit'] },
-    removeTraceKeys: { anyOf: [strArray, { type: 'null' }], description: 'Trace keys to drop in an edit; null when none' },
+    removeTraceKeys: { type: ['array', 'null'], items: { type: 'string' }, description: 'Trace keys to drop in an edit; null when none' },
     story: {
       type: 'object',
       properties: { domain: str(), summary: str(), assumptions: strArray },
@@ -91,64 +93,46 @@ const SCENARIO_PROPOSAL = {
     activeScenario: str('Key of one proposed trace'),
     traces: { type: 'array', items: PROPOSED_TRACE },
   },
-  required: ['kind', 'contractVersion', 'expectedVersion', 'mode', 'removeTraceKeys', 'story', 'activeScenario', 'traces'],
+  required: ['expectedVersion', 'mode', 'removeTraceKeys', 'story', 'activeScenario', 'traces'],
   additionalProperties: false,
 } as const;
 
-const ACTION_ASK = {
+const CLARIFICATION = {
   type: 'object',
   properties: {
-    type: { type: 'string', enum: ['ask'] },
-    clarification: {
-      type: 'object',
-      properties: {
-        question: str(),
-        choices: { type: 'array', description: 'Exactly three distinct choices with ids c1, c2, c3', items: { type: 'object', properties: { id: str(), label: str() }, required: ['id', 'label'], additionalProperties: false } },
-        allowFreeText: { type: 'boolean', enum: [true] },
-      },
-      required: ['question', 'choices', 'allowFreeText'],
-      additionalProperties: false,
-    },
+    question: str(),
+    choices: { type: 'array', description: 'Exactly three distinct choices with ids c1, c2, c3', items: { type: 'object', properties: { id: str(), label: str() }, required: ['id', 'label'], additionalProperties: false } },
+    allowFreeText: { type: 'boolean', description: 'Always true' },
   },
-  required: ['type', 'clarification'],
-  additionalProperties: false,
-} as const;
-const ACTION_PROPOSE = {
-  type: 'object',
-  properties: { type: { type: 'string', enum: ['propose'] }, proposal: SCENARIO_PROPOSAL, explanation: str() },
-  required: ['type', 'proposal', 'explanation'],
-  additionalProperties: false,
-} as const;
-const ACTION_EXPLAIN = {
-  type: 'object',
-  properties: { type: { type: 'string', enum: ['explain'] }, text: str(), traceId: nullableStr(), spanIds: { anyOf: [strArray, { type: 'null' }] } },
-  required: ['type', 'text', 'traceId', 'spanIds'],
-  additionalProperties: false,
-} as const;
-const ACTION_ANSWER = {
-  type: 'object',
-  properties: { type: { type: 'string', enum: ['answer'] }, text: str(), knowledgeIds: strArray },
-  required: ['type', 'text', 'knowledgeIds'],
-  additionalProperties: false,
-} as const;
-const ACTION_UNSUPPORTED = {
-  type: 'object',
-  properties: { type: { type: 'string', enum: ['unsupported'] }, text: str(), capabilityId: nullableStr() },
-  required: ['type', 'text', 'capabilityId'],
-  additionalProperties: false,
-} as const;
-const ACTION_REFUSE = {
-  type: 'object',
-  properties: { type: { type: 'string', enum: ['refuse'] }, text: str(), reason: { type: 'string', enum: ['injection', 'arbitrary_code', 'cross_session', 'real_mutation', 'off_topic'] } },
-  required: ['type', 'text', 'reason'],
+  required: ['question', 'choices', 'allowFreeText'],
   additionalProperties: false,
 } as const;
 
-/** Wire schema for a planning call: `{ action: <one of six AgentAction shapes> }`. */
+export const ACTION_TYPES = ['ask', 'propose', 'explain', 'answer', 'unsupported', 'refuse'] as const;
+export const REFUSAL_REASONS = ['injection', 'arbitrary_code', 'cross_session', 'real_mutation', 'off_topic'] as const;
+
+/**
+ * Wire schema for a planning call. The six AgentAction variants are FLATTENED into one object discriminated by
+ * `type`, with every variant-specific field nullable: Anthropic's structured-output grammar compiler rejected the
+ * natural `anyOf` of six objects as too large ("The compiled grammar is too large"), while this shape compiles.
+ * `normaliseWireAction` rebuilds the union and `validateAgentAction` enforces the contract afterwards.
+ */
 export const AGENT_ACTION_SCHEMA = {
   type: 'object',
-  properties: { action: { anyOf: [ACTION_ASK, ACTION_PROPOSE, ACTION_EXPLAIN, ACTION_ANSWER, ACTION_UNSUPPORTED, ACTION_REFUSE] } },
-  required: ['action'],
+  description: 'Exactly one action. Fill only the fields that belong to that action type; every other field must be null.',
+  properties: {
+    type: { type: 'string', enum: ACTION_TYPES },
+    text: nullableStr('Buyer-facing text for explain, answer, unsupported and refuse; null for ask and propose'),
+    clarification: { anyOf: [CLARIFICATION, { type: 'null' }], description: 'ask only' },
+    proposal: { anyOf: [SCENARIO_PROPOSAL, { type: 'null' }], description: 'propose only' },
+    explanation: nullableStr('propose only: one to three sentences on what the proposal shows'),
+    traceId: nullableStr('explain only: id of the saved trace being explained, when known'),
+    spanIds: { type: ['array', 'null'], items: { type: 'string' }, description: 'explain only: ids of saved spans the text relies on' },
+    knowledgeIds: { type: ['array', 'null'], items: { type: 'string' }, description: 'answer only: ids of the knowledge records used' },
+    capabilityId: nullableStr('unsupported only: id of the requested capability, when it matches one'),
+    reason: { anyOf: [{ type: 'string', enum: REFUSAL_REASONS }, { type: 'null' }], description: 'refuse only' },
+  },
+  required: ['type', 'text', 'clarification', 'proposal', 'explanation', 'traceId', 'spanIds', 'knowledgeIds', 'capabilityId', 'reason'],
   additionalProperties: false,
 } as const;
 
@@ -165,10 +149,11 @@ export const EVIDENCE_EXPLANATION_SCHEMA = {
 
 /** Appended to the system prompt: the wire format differs from the prose shapes in SYSTEM_PROMPT in these ways only. */
 export const WIRE_FORMAT_NOTES = [
-  'WIRE FORMAT (structured output): return {"action": <AgentAction>}.',
+  'WIRE FORMAT (structured output): return ONE flat object with `type` set to the action and every field that does not belong to that action set to null.',
+  '- ask: `clarification` (question, exactly three choices c1/c2/c3, allowFreeText true). propose: `proposal` + `explanation`. explain: `text` (+ `traceId`, `spanIds` when known). answer: `text` + `knowledgeIds`. unsupported: `text` (+ `capabilityId`). refuse: `text` + `reason`.',
+  '- The proposal omits `kind` and `contractVersion`; the server adds them. `expectedVersion` is the current session version.',
   '- Every `input` and `output` (trace and span level) is a JSON-ENCODED STRING, at most 4096 bytes. The trace `output` string must encode exactly the root span output.',
-  '- Optional fields are always present: use null for absent `removeTraceKeys`, `traceId`, `spanIds`, `capabilityId`, and `error` on OK spans; `parentKey` is null only on the root span.',
-  '- `detection` is a boolean (true only on ERROR spans).',
+  '- Use null for absent `removeTraceKeys` and for `error` on OK spans; `parentKey` is null only on the root span. `detection` is a boolean (true only on ERROR spans).',
 ].join('\n');
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -213,8 +198,12 @@ export interface AnthropicProviderOptions {
 
 // The helper is typed for literal schemas; the wire schemas are checked at runtime by the API and by our own validators.
 type ObjectSchema = { type: 'object' };
-const PLAN_FORMAT = jsonSchemaOutputFormat(AGENT_ACTION_SCHEMA as unknown as ObjectSchema) as unknown as OutputFormatLike;
-const EXPLAIN_FORMAT = jsonSchemaOutputFormat(EVIDENCE_EXPLANATION_SCHEMA as unknown as ObjectSchema) as unknown as OutputFormatLike;
+// `transform: false`: the helper's default transform rewrites the schema for "compatibility" (every `enum` and the
+// `items` of nullable arrays are demoted to description text). Against the live API that looser schema failed to
+// compile ("The compiled grammar is too large") while the untransformed one compiles; our schemas already follow the
+// structured-output rules (enforced by test), so nothing needs transforming.
+const PLAN_FORMAT = jsonSchemaOutputFormat(AGENT_ACTION_SCHEMA as unknown as ObjectSchema, { transform: false }) as unknown as OutputFormatLike;
+const EXPLAIN_FORMAT = jsonSchemaOutputFormat(EVIDENCE_EXPLANATION_SCHEMA as unknown as ObjectSchema, { transform: false }) as unknown as OutputFormatLike;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Wire <-> AgentAction
@@ -248,28 +237,35 @@ function decodeTrace(trace: unknown): Obj | null {
   return { ...trace, input, output, spans };
 }
 
-/** Normalise a wire action into the shape `validateAgentAction` expects: JSON text decoded, nulls dropped. Null = undecodable. */
+/**
+ * Rebuild an AgentAction from the flat wire object: pick the fields that belong to `type`, decode JSON text,
+ * drop nulls, inject the proposal constants. Null = undecodable. `validateAgentAction` does the contract checks.
+ */
 export function normaliseWireAction(parsed: unknown): unknown | null {
-  if (!isObj(parsed) || !isObj(parsed.action)) return null;
-  const action: Obj = { ...parsed.action };
-  switch (action.type) {
+  if (!isObj(parsed)) return null;
+  const w = parsed;
+  const opt = (key: string): Obj => (w[key] === null || w[key] === undefined ? {} : { [key]: w[key] });
+  switch (w.type) {
+    case 'ask':
+      return { type: 'ask', clarification: w.clarification };
     case 'propose': {
-      if (!isObj(action.proposal) || !Array.isArray(action.proposal.traces)) return null;
-      const traces = action.proposal.traces.map(decodeTrace);
+      if (!isObj(w.proposal) || !Array.isArray(w.proposal.traces)) return null;
+      const traces = w.proposal.traces.map(decodeTrace);
       if (traces.some(t => t === null)) return null;
-      const proposal: Obj = { ...action.proposal, traces };
-      if (proposal.removeTraceKeys === null) delete proposal.removeTraceKeys;
-      return { ...action, proposal };
+      const { removeTraceKeys, ...rest } = w.proposal;
+      const proposal: Obj = { kind: 'scenario_proposal', contractVersion: CONTRACT_VERSION, ...rest, ...(removeTraceKeys === null || removeTraceKeys === undefined ? {} : { removeTraceKeys }), traces };
+      return { type: 'propose', proposal, explanation: w.explanation };
     }
     case 'explain':
-      if (action.traceId === null) delete action.traceId;
-      if (action.spanIds === null) delete action.spanIds;
-      return action;
+      return { type: 'explain', text: w.text, ...opt('traceId'), ...opt('spanIds') };
+    case 'answer':
+      return { type: 'answer', text: w.text, knowledgeIds: w.knowledgeIds ?? [] };
     case 'unsupported':
-      if (action.capabilityId === null) delete action.capabilityId;
-      return action;
+      return { type: 'unsupported', text: w.text, ...opt('capabilityId') };
+    case 'refuse':
+      return { type: 'refuse', text: w.text, reason: w.reason };
     default:
-      return action;
+      return null;
   }
 }
 
@@ -314,6 +310,9 @@ export function mapSdkError(error: unknown): ProviderError {
   if (error instanceof Anthropic.APIError) {
     const status = error.status;
     const message = `${typeof error.message === 'string' ? error.message : ''} ${bodyText(error.error)}`;
+    // Opt-in operator diagnostics: the API's own error type/message (parameter and schema diagnostics; no prompt
+    // content or credentials are included by the API). Off by default; never reaches telemetry or buyers.
+    if (process.env.TAILOR_PROVIDER_DEBUG === '1') console.error(`[tailor provider] HTTP ${status ?? '?'} ${requestId ?? ''}: ${message.slice(0, 400)}`);
     if (status === 401) return make('auth', status);
     if (status === 403) return make('permission', status);
     if (status === 402) return make('billing', status);
