@@ -16,7 +16,7 @@
     "smoke:trace": "node --env-file-if-exists=.env.local scripts/smoke-trace.ts",
     "env:check": "node --env-file-if-exists=.env.local -e \"const v=process.env.NEATLOGS_API_KEY;console.log('NEATLOGS_API_KEY:',typeof v,v?'set':'empty-or-missing')\"",
     "build": "tsc -p tsconfig.browser.json",
-    "dev": "npm run build && node src/server.ts",
+    "dev": "npm run build && node src/main.ts",
     "test:ui": "playwright test",
     "fixture": "node scripts/fixture.ts"
   },

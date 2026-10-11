@@ -1,5 +1,5 @@
-import { ADAPTER_LABEL, adapt } from './adapter.ts';
-import type { ChatTurn, DemoSession, Json, Scenario, Span, Trace, TraceList } from './contracts.ts';
+import type { ChatTurn, DemoSession, Json, Span, Trace, TraceList } from './contracts.ts';
+import type { ExecutionLabel, TurnOutcome, TurnRequest, TurnResponse, TurnStep } from './agent-contract.ts';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -17,6 +17,13 @@ let railOpen = false;
 let chatOpen = true;
 let chatBusy = false;
 let draft: ChatTurn[] = loadDraft();
+/** Buyer turn shown as Pending while its request is in flight (or failed on the network and can be retried). */
+let pendingTurn: { turn: ChatTurn; request: TurnRequest } | undefined;
+let lastResult: { steps: TurnStep[]; outcome: TurnOutcome } | undefined;
+let turnNote = '';
+let entryNotice = '';
+let ended = false;
+let restoreText = '';
 let lastList: TraceList | undefined;
 const collapsedRoots = new Set<string>();
 const expanded = new Set<string>();
@@ -28,7 +35,7 @@ function historyDepth() {
   const state = history.state as { tailor?: unknown } | null;
   return state && typeof state.tailor === 'number' ? state.tailor : 0;
 }
-function navigate(path: string) { history.pushState({ tailor: historyDepth() + 1 },'',path); void render(); }
+function navigate(path: string): Promise<void> { history.pushState({ tailor: historyDepth() + 1 },'',path); return render(); }
 function durationLabel(ms: number) { return ms < 1 ? `${Math.round(ms * 1000)}µs` : `${ms}ms`; }
 function ingested(iso: string) {
   const d = new Date(iso);
@@ -41,16 +48,41 @@ function ingested(iso: string) {
 }
 const kindMark = (kind: Span['kind']) => kind === 'CHAIN' ? 'chain' : kind === 'GUARDRAIL' ? 'shield' : kind === 'RETRIEVAL' ? 'retrieval' : kind === 'WORKFLOW' ? 'tree' : 'tool';
 const kindClass = (kind: Span['kind']) => kind === 'WORKFLOW' || kind === 'CHAIN' ? 'kind-filled' : 'kind-light';
+class ApiFailure extends Error {
+  code: string; status: number;
+  constructor(code: string, status: number, message: string) { super(`${code}: ${message}`); this.code = code; this.status = status; }
+}
+const isEnded = (e: unknown) => e instanceof ApiFailure && (e.code === 'SESSION_EXPIRED' || e.code === 'SESSION_ENDED' || e.status === 410);
+const SESSION_KEYS = ['tailor-draft-chat', 'creation-operation', 'creation-payload', 'creation-turn-id', 'tailor-pending-turn'];
+function clearLocalState() {
+  for (const key of SESSION_KEYS) sessionStorage.removeItem(key);
+  for (const key of Object.keys(sessionStorage)) if (key.startsWith('tailor-chat-collapsed:') || key.startsWith('tailor-exec:')) sessionStorage.removeItem(key);
+  draft = []; pendingTurn = undefined; lastResult = undefined; turnNote = ''; chatBusy = false; current = undefined; lastList = undefined;
+}
+function showEnded() {
+  ended = true; generation++; controller?.abort();
+  clearLocalState();
+  document.documentElement.classList.remove('chat-dock', 'rail-open');
+  root.innerHTML = `<main class="ended" role="alert"><h1>This demo has ended</h1><p>Your conversation and demo data were deleted. Nothing from this session is kept.</p>${link('/entry','Start a new demo','solid')}</main>`;
+}
 async function request<T>(path: string, init: RequestInit = {}, durable = false): Promise<T> {
   const response = await fetch(path, durable ? init : {...init,signal:controller?.signal});
-  const data = await response.json();
-  if (!response.ok) throw new Error(`${data.error?.code ?? response.status}: ${data.error?.message ?? 'Request failed.'}`);
+  let data: any = null;
+  try { data = await response.json(); } catch { /* non-JSON error body */ }
+  if (!response.ok) {
+    const failure = new ApiFailure(data?.error?.code ?? String(response.status), response.status, data?.error?.message ?? 'Request failed.');
+    if (isEnded(failure)) showEnded();
+    throw failure;
+  }
   return data as T;
 }
 const io = (value: Json) => value && typeof value==='object' && !Array.isArray(value)
   ? Object.entries(value).map(([k,v])=>`${esc(k)}: ${esc(typeof v==='object' ? JSON.stringify(v) : v)}`).join('<br>') : esc(JSON.stringify(value));
+function activeLabel(s: DemoSession) {
+  return s.dataset.traces.find(t => t.scenario === s.dataset.activeScenario)?.label ?? s.dataset.activeScenario;
+}
 function notice(s: DemoSession) {
-  return `<div class="demo-notice">Synthetic local demo · two deterministic fixtures · text is saved, not personalized <span>v${s.version} · active fixture: ${s.dataset.activeScenario}</span></div>`;
+  return `<div class="demo-notice">Synthetic demo · Powered by Tailor · v${s.version} · ${esc(activeLabel(s))}</div>`;
 }
 function loadDraft(): ChatTurn[] {
   try { const parsed = JSON.parse(sessionStorage.getItem('tailor-draft-chat') ?? '[]') as ChatTurn[]; return Array.isArray(parsed) ? parsed : []; }
@@ -58,7 +90,21 @@ function loadDraft(): ChatTurn[] {
 }
 function saveDraft(turns: ChatTurn[]) { draft = turns; sessionStorage.setItem('tailor-draft-chat', JSON.stringify(turns)); }
 function chatKey(id: string) { return `tailor-chat-collapsed:${id}`; }
-function turnsOf(s?: DemoSession) { return s?.conversation?.length ? s.conversation : s ? [] : draft; }
+function turnsOf(s?: DemoSession): ChatTurn[] {
+  const base = s ? s.conversation : draft;
+  if (!s || !pendingTurn) return base;
+  if (base.some(t => t.id === pendingTurn!.turn.id)) return base;
+  const last = base[base.length - 1];
+  // The server may already hold this buyer turn (a read during the request); show our status, not a second bubble.
+  if (last && last.role === 'buyer' && last.text === pendingTurn.turn.text) return base.map((t, i) => i === base.length - 1 ? { ...t, status: pendingTurn!.turn.status } : t);
+  return [...base, pendingTurn.turn];
+}
+const execKey = (id: string) => `tailor-exec:${id}`;
+function isMock(s?: DemoSession) {
+  if (!s) return false;
+  try { return (JSON.parse(sessionStorage.getItem(execKey(s.id)) ?? 'null') as ExecutionLabel | null)?.mode === 'mock'; }
+  catch { return false; }
+}
 function shell(s: DemoSession,content: string) {
   document.documentElement.classList.toggle('rail-open', railOpen);
   document.documentElement.classList.toggle('chat-dock', chatOpen);
@@ -67,21 +113,59 @@ function shell(s: DemoSession,content: string) {
   const traces = link(base(s.id), `${icon('list')}<span class="rail-label">traces</span>`, 'rail-button selected');
   const collapsed = `${['message','tree','home','tool'].map(quiet).join('')}${link(base(s.id), icon('list'), 'rail-button selected')}${['search','bell'].map(quiet).join('')}`;
   const expanded = `<div class="rail-switch"><button type="button" data-unavailable>console</button><button type="button" data-chat-open>chats</button></div><div class="rail-project"><span>Synthetic demo</span></div>${labeled('rocket','setup','<em>1/2</em>')}<nav class="rail-menu" aria-label="Project">${labeled('home','home')}${labeled('bell','incidents')}${traces}${labeled('tool','detections')}${labeled('bell','alerts')}${labeled('tree','analytics')}${labeled('search','evals')}${labeled('tool','experiments','<em>beta</em>')}</nav>`;
-  const opener = chatOpen ? '' : `<button type="button" data-chat-open class="chat-reopen">Open conversation</button>`;
+  const opener = chatOpen ? '' : `<div class="chat-reopen"><button type="button" data-chat-open>Open conversation</button><button type="button" data-end-demo class="end-demo">End demo</button></div>`;
   return `<aside class="rail${railOpen?' is-labeled':''}"><a data-nav href="/" class="mark" aria-label="Landing page">n</a><button type="button" class="rail-toggle" data-rail aria-expanded="${railOpen}" aria-label="${railOpen?'Collapse sidebar':'Expand sidebar'}">${icon(railOpen?'back':'chevron')}</button><div class="rail-collapsed-only">${collapsed}</div>${railOpen?expanded:''}<div class="rail-bottom"><button data-theme aria-label="Toggle local theme">${icon('sun')}</button></div></aside><div class="workspace">${opener}${content}</div>${chatOpen ? chatPanel(s) : ''}`;
 }
-function chatThread(turns: ChatTurn[]) {
-  return turns.map(turn => `<article class="chat-turn is-${turn.role}" data-status="${turn.status}"><p>${esc(turn.text)}</p>${turn.role==='buyer' && turn.status!=='note' ? `<small>${turn.status==='pending'?'Pending':turn.status==='applied'?'Applied':'Failed'}</small>` : ''}</article>`).join('');
+const STATUS_LABEL: Record<string, string> = { pending: 'Pending', applied: 'Applied', failed: 'Failed', uncertain: 'Uncertain', question: 'Question' };
+function statusLabel(turn: ChatTurn) {
+  if (turn.role === 'buyer') return STATUS_LABEL[turn.status] ?? '';
+  return turn.status === 'question' || turn.status === 'uncertain' ? STATUS_LABEL[turn.status]! : '';
 }
-function composer(busy: boolean) {
-  return `<form id="chat-form" class="chat-composer"><textarea name="message" aria-label="Ask anything" placeholder="Ask anything..." maxlength="2000" rows="2" ${busy?'disabled':''}></textarea><div class="chat-tools"><span class="chat-chip">Two fixtures</span><span class="chat-chip">${ADAPTER_LABEL}</span><button type="submit" aria-label="Send message" ${busy?'disabled':''}>${icon('chevron')}</button></div></form>`;
+function chatThread(turns: ChatTurn[], s?: DemoSession) {
+  const trimmed = s?.conversationTruncated ? `<p class="chat-trimmed" role="note">Older messages were trimmed</p>` : '';
+  const lastIndex = turns.length - 1;
+  return trimmed + turns.map((turn, i) => {
+    const label = statusLabel(turn);
+    const evidence = turn.evidence && s ? `<small class="chat-evidence">Evidence · v${turn.evidence.version} · ${turn.evidence.traceIds.slice(0, 2).map(id => link(`${base(s.id)}/${id}`, 'open trace')).join(' · ')}${turn.evidence.spanIds.length ? ` · ${turn.evidence.spanIds.length} ${turn.evidence.spanIds.length === 1 ? 'step' : 'steps'} cited` : ''}</small>` : '';
+    const choices = turn.clarification && i === lastIndex ? `<div class="chat-choices" role="group" aria-label="Choose one">${turn.clarification.choices.map(c => `<button type="button" data-choice="${esc(c.id)}" ${chatBusy ? 'disabled' : ''}>${esc(c.label)}</button>`).join('')}</div><small>or type your own answer below</small>` : '';
+    const retry = pendingTurn && pendingTurn.turn.id === turn.id && turn.status === 'failed' && !chatBusy ? `<button type="button" class="chat-retry" data-retry-turn>Retry</button>` : '';
+    return `<article class="chat-turn is-${turn.role}${turn.status === 'uncertain' ? ' is-uncertain' : ''}" data-status="${turn.status}"><p>${esc(turn.text)}</p>${label ? `<small class="turn-status">${label}</small>` : ''}${retry}${evidence}${choices}</article>`;
+  }).join('');
 }
-function examples() {
-  return `<div class="chat-examples"><button type="button" data-example="First attempt fails, retry recovers">First attempt fails, retry recovers</button><button type="button" data-example="Both attempts fail, safely escalate">Both attempts fail, safely escalate</button></div>`;
+const STEP_LABEL: Record<string, string> = { load_context: 'Checked context', retrieve_knowledge: 'Checked knowledge', model: 'Planned', validate: 'Validated', save: 'Saved', readback: 'Read back', explain: 'Read the trace', repair: 'Fixed a problem', escalate: 'Asked for a second opinion' };
+function stepsLine(steps: TurnStep[], outcome?: TurnOutcome) {
+  const parts: string[] = [];
+  for (const step of steps) {
+    if (step.status === 'skipped') continue;
+    const name = STEP_LABEL[step.name] ?? step.name;
+    const failed = step.name === 'save' ? (outcome === 'readback_uncertain' ? 'Save not confirmed ✕' : 'Not saved ✕') : step.name === 'validate' ? 'Checks failed ✕' : `${name} ✕`;
+    const text = step.status === 'failed' ? failed : step.name === 'readback' ? `${name} ✓` : name;
+    if (parts[parts.length - 1] !== text) parts.push(text);
+  }
+  return parts.join(' · ');
+}
+function progress() {
+  if (chatBusy) return `<p class="chat-steps" role="status">Working on it…</p>`;
+  const line = lastResult ? stepsLine(lastResult.steps, lastResult.outcome) : '';
+  const uncertain = lastResult?.outcome === 'readback_uncertain';
+  return `${turnNote ? `<p class="chat-note${uncertain ? ' is-uncertain' : ''}" role="status">${esc(turnNote)}</p>` : ''}${line ? `<p class="chat-steps" aria-label="What I did">${esc(line)}</p>` : ''}`;
+}
+function composer(busy: boolean, mock = false) {
+  const text = restoreText; restoreText = '';
+  return `<form id="chat-form" class="chat-composer"><textarea name="message" aria-label="Ask anything" placeholder="Describe your agent or ask a question…" maxlength="2000" rows="2" ${busy?'disabled':''}>${esc(text)}</textarea><div class="chat-tools"><span class="chat-chip">Synthetic data</span>${mock ? '<span class="chat-chip">Mock-backed</span>' : ''}<button type="submit" aria-label="Send message" ${busy?'disabled':''}>${icon('chevron')}</button></div></form>`;
+}
+function examples(onEntry: boolean) {
+  const items = onEntry
+    ? ['I’m building a customer-support agent. Show a refund lookup that times out, then a retry that succeeds.', 'I’m building an insurance claims bot. The OCR tool returns bad data and a guardrail blocks the payout.']
+    : ['Explain this trace', 'Make the retry fail too'];
+  return `<div class="chat-examples">${items.map(x => `<button type="button" data-example="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
+}
+function honestLines(s?: DemoSession) {
+  return `<p class="chat-label">Powered by Tailor · synthetic data</p>${isMock(s) ? `<p class="chat-label chat-mock">Mock-backed prototype — no live model yet</p>` : ''}`;
 }
 function chatPanel(s: DemoSession) {
   const turns = turnsOf(s);
-  return `<aside class="chat-panel" aria-label="Conversation"><header><strong>chats</strong><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></header><p class="chat-label">${ADAPTER_LABEL} — not an agent</p><div class="chat-thread">${turns.length?chatThread(turns):`<p class="chat-empty">The same conversation continues here. Ask to switch fixture or explain the open trace.</p>`}</div>${examples()}${composer(chatBusy)}</aside>`;
+  return `<aside class="chat-panel" aria-label="Conversation"><header><strong>chats</strong><span class="chat-actions"><button type="button" data-end-demo class="end-demo">End demo</button><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></span></header>${honestLines(s)}<div class="chat-thread">${turns.length?chatThread(turns, s):`<p class="chat-empty">Describe the agent you’re building, or ask me to explain the open trace.</p>`}</div>${progress()}${examples(false)}${composer(chatBusy, isMock(s))}</aside>`;
 }
 function landing() {
   document.documentElement.classList.remove('chat-dock', 'rail-open');
@@ -90,27 +174,29 @@ function landing() {
     : n === 'Product' ? `<button data-unavailable class="nav-caret">${n}</button>`
     : n === 'Docs' ? `<button data-unavailable class="nav-out">${n}</button>`
     : `<button data-unavailable>${n}</button>`;
-  root.innerHTML = `<div class="landing"><div class="hack"><span class="hack-date">Oct 10–12</span> Join neatHack · $19,000 in prizes & credits ↗</div><header class="public-nav">${link('/','neatlogs','wordmark')}<nav>${['Manifesto','Product','Pricing','Docs','Blog','Changelog','Careers'].map(item).join('')}<span class="nav-rule" aria-hidden="true"></span>${link('/entry','Try with your project ↗','solid')}</nav></header><main class="hero"><picture><source media="(max-width:600px)" srcset="/assets/portrait.webp"><img src="/assets/landscape.webp" alt="San Francisco skyline and bridge in silver fog"></picture><div class="hero-copy"><h1><span>Your agent is already running.</span><br>That’s not the same as working</h1><p>neatlogs finds what’s failing, works out why, and hands you a fix.</p><div class="hero-actions"><button class="setup" data-unavailable><span class="setup-border" aria-hidden="true"><span class="setup-comet"></span></span><span class="agent-symbols" aria-hidden="true"><img src="/assets/claude-color.svg" alt="" title="Claude Code"><img src="/assets/codex-symbol.svg" alt="" title="Codex"><img src="/assets/cursor-symbol.svg" alt="" title="Cursor"></span><span class="setup-label">Copy setup prompt</span><svg class="setup-copy" viewBox="0 0 256 256" aria-hidden="true"><path d="M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96H160Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z"/></svg></button>${link('/entry','Try with your project ↗','outline')}</div></div></main><footer class="landing-foot">Tailor proof of concept · limited Neatlogs replica · fictional projects only. ${link('/entry','Explore the deterministic demo')}</footer></div>`;
+  root.innerHTML = `<div class="landing"><div class="hack"><span class="hack-date">Oct 10–12</span> Join neatHack · $19,000 in prizes & credits ↗</div><header class="public-nav">${link('/','neatlogs','wordmark')}<nav>${['Manifesto','Product','Pricing','Docs','Blog','Changelog','Careers'].map(item).join('')}<span class="nav-rule" aria-hidden="true"></span>${link('/entry','Try with your project ↗','solid')}</nav></header><main class="hero"><picture><source media="(max-width:600px)" srcset="/assets/portrait.webp"><img src="/assets/landscape.webp" alt="San Francisco skyline and bridge in silver fog"></picture><div class="hero-copy"><h1><span>Your agent is already running.</span><br>That’s not the same as working</h1><p>neatlogs finds what’s failing, works out why, and hands you a fix.</p><div class="hero-actions"><button class="setup" data-unavailable><span class="setup-border" aria-hidden="true"><span class="setup-comet"></span></span><span class="agent-symbols" aria-hidden="true"><img src="/assets/claude-color.svg" alt="" title="Claude Code"><img src="/assets/codex-symbol.svg" alt="" title="Codex"><img src="/assets/cursor-symbol.svg" alt="" title="Cursor"></span><span class="setup-label">Copy setup prompt</span><svg class="setup-copy" viewBox="0 0 256 256" aria-hidden="true"><path d="M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96H160Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z"/></svg></button>${link('/entry','Try with your project ↗','outline')}</div></div></main><footer class="landing-foot">Tailor proof of concept · limited Neatlogs replica · fictional projects only. ${link('/entry','Explore the demo')}</footer></div>`;
 }
 function entry() {
   document.documentElement.classList.remove('chat-dock', 'rail-open');
   const turns = draft;
   const started = turns.length > 0;
-  root.innerHTML = `<div class="chat-home"><header class="entry-nav">${link('/','neatlogs','wordmark')}${link('/','← Back to landing')}</header><div class="chat-stage"><p class="chat-label">${ADAPTER_LABEL} — not an agent</p>${started?`<div class="chat-thread">${chatThread(turns)}</div>`:`<h1>hello</h1><p>What fictional failure should this demo explore?</p>`}${composer(chatBusy)}${examples()}${started?`<button type="button" data-discard-draft>Discard draft</button>`:`<button type="button" id="resume">Resume this browser’s saved session</button>`}<p class="form-error" role="alert"></p></div></div>`;
+  const banner = entryNotice ? `<p class="entry-notice" role="status">${esc(entryNotice)}</p>` : '';
+  root.innerHTML = `<div class="chat-home"><header class="entry-nav">${link('/','neatlogs','wordmark')}${link('/','← Back to landing')}</header><div class="chat-stage">${banner}<p class="chat-label">Powered by Tailor · synthetic data</p>${started?`<div class="chat-thread">${chatThread(turns)}</div>`:`<h1>hello</h1><p>Describe the agent or workflow you’re building. I’ll show you a fictional failure for it.</p>`}${chatBusy?`<p class="chat-steps" role="status">Setting up your demo…</p>`:''}${composer(chatBusy)}${examples(true)}${started?`${turns[turns.length-1]!.status==='failed'?`<button type="button" data-retry-draft>Retry</button> `:''}<button type="button" data-discard-draft>Discard draft</button>`:`<button type="button" id="resume">Resume this browser’s saved session</button>`}<p class="form-error" role="alert"></p></div></div>`;
 }
 function list(s: DemoSession,data: TraceList) {
   lastList = data;
   const query = new URLSearchParams(location.search);
   const chip = (key: string) => query.get(key) ? `<button type="button" class="chip-remove" data-clear-filter="${key}" aria-label="Remove ${key} filter">×</button>` : '';
-  const select = (key:string,label:string,options:string[][])=>`<details class="filter-popover${query.get(key)?' is-selected':''}"><summary>${label==='Fixture'?'Workflow':label}${query.get(key)?` · ${esc(options.find(([v])=>v===query.get(key))?.[1] ?? query.get(key))}`:''}${chip(key)}⌄</summary><div class="filter-editor"><label>${label==='Fixture'?'Synthetic fixture':label}<select name="${key}" aria-label="${label}"><option value="">All</option>${options.map(([v,l])=>`<option value="${v}" ${query.get(key)===v?'selected':''}>${l}</option>`).join('')}</select></label><button type="submit">Apply filters</button></div></details>`;
+  const select = (key:string,label:string,options:string[][])=>`<details class="filter-popover${query.get(key)?' is-selected':''}"><summary>${label}${query.get(key)?` · ${esc(options.find(([v])=>v===query.get(key))?.[1] ?? query.get(key))}`:''}${chip(key)}⌄</summary><div class="filter-editor"><label>${label}<select name="${key}" aria-label="${label}"><option value="">All</option>${options.map(([v,l])=>`<option value="${v}" ${query.get(key)===v?'selected':''}>${l}</option>`).join('')}</select></label><button type="submit">Apply filters</button></div></details>`;
   const rows = data.traces.map(t=>{
     const when = ingested(t.ingestedAt);
     const found = t.spans.filter(span => span.detection).length;
-    const active = t.scenario === data.activeScenario ? ' is-active-fixture' : '';
-    return `<tr class="${active.trim()}" data-trace="${t.id}"><td><input type="checkbox" aria-label="Select ${t.scenario}" data-select></td><td class="mono">${link(traceLink(t),`<span>${esc(when.time)}</span> <small>${esc(when.date)}</small><span class="mobile-fixture">${t.scenario==='recovered'?'Retry recovers':'Both attempts fail'}</span>`)}</td><td><span class="ready" title="Ready means processed; task outcome is separate">${icon('check')}<span class="sr">Ready</span></span></td><td>${found?`<span class="failure">Execution Failed &nbsp; ${found}</span>`:'–'}</td><td>—</td><td>${link(traceLink(t),`Scenario: ${t.scenario} · Order lookup · Synthetic: true${t.scenario===data.activeScenario?' · Active fixture':''}`)}</td><td>${link(traceLink(t),io(t.output).replace(/<br>/g,' '))}</td><td>—</td><td><button data-unavailable aria-label="Replay is outside this demo">${icon('clock')}</button></td></tr>`;
+    const isActive = t.scenario === data.activeScenario;
+    const active = isActive ? ' is-active-fixture' : '';
+    return `<tr class="${active.trim()}" data-trace="${t.id}"><td><input type="checkbox" aria-label="Select ${t.scenario}" data-select></td><td class="mono">${link(traceLink(t),`<span>${esc(when.time)}</span> <small>${esc(when.date)}</small><span class="mobile-fixture">${esc(t.label)}</span>`)}</td><td><span class="ready" title="Ready means processed; task outcome is separate">${icon('check')}<span class="sr">Ready</span></span></td><td>${found?`<span class="failure">Execution Failed &nbsp; ${found}</span>`:'–'}</td><td>—</td><td>${link(traceLink(t),`${esc(t.label)} · ${esc(s.story?.domain ?? 'sample workflow')}${isActive?'<span class="active-tag">Active</span>':''}`)}</td><td>${link(traceLink(t),io(t.output).replace(/<br>/g,' '))}</td><td>—</td><td><button data-unavailable aria-label="Replay is outside this demo">${icon('clock')}</button></td></tr>`;
   }).join('');
   const days = ['Sep 28','','Sep 30','','Oct 2','','','Oct 5','','Oct 7','','Oct 9','','Oct 11'];
-  root.innerHTML = shell(s,`<header class="list-header"><h1>${icon('list')}Traces</h1><div class="header-controls"><button class="active">Traces</button><button data-unavailable>Sessions</button><button data-unavailable>Users</button><details class="search-popover" ${query.get('q')?'open':''}><summary aria-label="Search traces">${icon('search')}</summary><form id="search-form"><input name="q" aria-label="Search traces" placeholder="Search traces…" value="${esc(query.get('q') ?? '')}"></form></details><button data-unavailable>Last 14 days⌄</button><button data-refresh aria-label="Refresh traces">${icon('refresh')}</button></div></header><form id="filters" class="filters">${['Session ID','User ID'].map(n=>`<button type="button" data-unavailable class="filter">${n}⌄</button>`).join('')}${select('scenario','Fixture',[['recovered','Retry recovers'],['exhausted','Both attempts fail']])}${select('detection','Detections',[['yes','Execution Failed'],['no','No detections']])}<button type="button" data-unavailable class="filter">Evals⌄</button>${select('tag','Tags',[['synthetic','synthetic'],['recovered','recovered'],['exhausted','exhausted']])}<details class="filter-popover${query.get('minMs')?' is-selected':''}"><summary>Latency${query.get('minMs')?` ≥ ${esc(query.get('minMs'))}ms`:''}${chip('minMs')}⌄</summary><div class="filter-editor"><label>Minimum latency in milliseconds<input name="minMs" type="number" min="0" step="0.1" aria-label="Minimum latency in milliseconds" value="${esc(query.get('minMs') ?? '')}" placeholder="ms"></label><button type="submit">Apply filters</button></div></details><button type="button" data-unavailable class="filter">Metadata⌄</button><button type="button" data-unavailable class="filter">More filters⌄</button><button type="button" data-unavailable class="filter">＋ Advanced</button>${link(base(s.id),'Clear')}</form><div class="histogram" aria-label="${data.filtered} filtered traces on Oct 10">${days.map((label,i)=>{const count=i===12?data.filtered:0;return `<div class="day" style="--count:${count}" title="${count} traces">${count?`<i class="day-bar" style="--count:${count}"></i>`:''}<span>${label}</span></div>`;}).join('')}</div><div class="table-scroll"><table><thead><tr><th><input type="checkbox" aria-label="Select all traces" id="select-all"></th>${['Ingested at','Status','Detections','Evals','Input','Output','Comments','Replay'].map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="9" class="empty"><div class="empty-mark">${icon('doc')}</div><h2>No traces found</h2><p>Try adjusting your filters or date range.</p>${link(base(s.id),'Clear filters','empty-clear')}</td></tr>`}</tbody></table></div>${notice(s)}<footer class="pagination"><label>Rows per page <select aria-label="Rows per page"><option>25</option></select></label><span data-count>${data.filtered?`1 – ${data.filtered}`:'0'} of ${data.filtered}</span><button disabled aria-label="Previous page">‹</button><button class="active">1</button><button disabled aria-label="Next page">›</button></footer>`);
+  root.innerHTML = shell(s,`<header class="list-header"><h1>${icon('list')}Traces</h1><div class="header-controls"><button class="active">Traces</button><button data-unavailable>Sessions</button><button data-unavailable>Users</button><details class="search-popover" ${query.get('q')?'open':''}><summary aria-label="Search traces">${icon('search')}</summary><form id="search-form"><input name="q" aria-label="Search traces" placeholder="Search traces…" value="${esc(query.get('q') ?? '')}"></form></details><button data-unavailable>Last 14 days⌄</button><button data-refresh aria-label="Refresh traces">${icon('refresh')}</button></div></header><form id="filters" class="filters">${['Session ID','User ID'].map(n=>`<button type="button" data-unavailable class="filter">${n}⌄</button>`).join('')}${select('scenario','Scenario',s.dataset.traces.map(t=>[t.scenario,t.label]))}${select('detection','Detections',[['yes','Execution Failed'],['no','No detections']])}<button type="button" data-unavailable class="filter">Evals⌄</button>${select('tag','Tags',[...new Set(s.dataset.traces.flatMap(t=>t.tags))].map(x=>[x,x]))}<details class="filter-popover${query.get('minMs')?' is-selected':''}"><summary>Latency${query.get('minMs')?` ≥ ${esc(query.get('minMs'))}ms`:''}${chip('minMs')}⌄</summary><div class="filter-editor"><label>Minimum latency in milliseconds<input name="minMs" type="number" min="0" step="0.1" aria-label="Minimum latency in milliseconds" value="${esc(query.get('minMs') ?? '')}" placeholder="ms"></label><button type="submit">Apply filters</button></div></details><button type="button" data-unavailable class="filter">Metadata⌄</button><button type="button" data-unavailable class="filter">More filters⌄</button><button type="button" data-unavailable class="filter">＋ Advanced</button>${link(base(s.id),'Clear')}</form><div class="histogram" aria-label="${data.filtered} filtered traces on Oct 10">${days.map((label,i)=>{const count=i===12?data.filtered:0;return `<div class="day" style="--count:${count}" title="${count} traces">${count?`<i class="day-bar" style="--count:${count}"></i>`:''}<span>${label}</span></div>`;}).join('')}</div><div class="table-scroll"><table><thead><tr><th><input type="checkbox" aria-label="Select all traces" id="select-all"></th>${['Ingested at','Status','Detections','Evals','Input','Output','Comments','Replay'].map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="9" class="empty"><div class="empty-mark">${icon('doc')}</div><h2>No traces found</h2><p>Try adjusting your filters or date range.</p>${link(base(s.id),'Clear filters','empty-clear')}</td></tr>`}</tbody></table></div>${notice(s)}<footer class="pagination"><label>Rows per page <select aria-label="Rows per page"><option>25</option></select></label><span data-count>${data.filtered?`1 – ${data.filtered}`:'0'} of ${data.filtered}</span><button disabled aria-label="Previous page">‹</button><button class="active">1</button><button disabled aria-label="Next page">›</button></footer>`);
 }
 function spanRow(t:Trace,s:Span,selected:string|null):string {
   const open = expanded.has(s.id) || s.id===selected;
@@ -123,10 +209,10 @@ function detail(s:DemoSession,t:Trace) {
   const path = traceLink(t);
   const back = returnTo.startsWith(base(s.id)) && !returnTo.slice(base(s.id).length).startsWith('/') ? returnTo : base(s.id);
   const graphNode = (x: Span) => `<a href="${path}?span=${x.id}" data-graph-select="${x.id}" class="${kindClass(x.kind)} ${graphSelection===x.id?'graph-selected':''}">${icon(kindMark(x.kind))}${x.status==='ERROR'?`<span class="error-x">${icon('close')}</span>`:''}${esc(x.name)}</a>`;
-  root.innerHTML=shell(s,`<header class="detail-header">${link(back,icon('back'),'back-link')}<span>${esc(ingested(t.ingestedAt).heading)}</span><div><button data-unavailable aria-label="Search this trace">${icon('search')}</button><button data-unavailable aria-label="Replay unavailable">${icon('clock')}</button><button data-unavailable aria-label="Comments unavailable">${icon('message')}</button><button data-tags>${t.tags.length} tags</button><button data-unavailable>Ask neat AI</button></div></header><div class="trace-toolbar"><details class="trace-picker"><summary aria-label="Trace navigator">${icon('list')}<span>${esc(t.name)}</span><small>${t.spans.length}</small>${icon('chevron')}</summary><nav aria-label="Synthetic trace choices">${s.dataset.traces.map(x=>link(traceLink(x),`${x.scenario==='recovered'?'Retry recovers':'Both attempts fail'} · ${x.spans[0]!.durationMs}ms · ${x.spans.length} spans`,x.id===t.id?'active':'')).join('')}</nav></details><button data-graph aria-pressed="${graph}" aria-label="Toggle span tree">${icon('tree')}</button><button data-timeline aria-pressed="${timeline}" aria-label="Toggle timeline">${icon('list')}</button><span class="trace-identity">${esc(t.name)} · ${t.spans.length} spans</span></div><main class="trace-canvas ${timeline?'with-timeline':''}">${graph?`<div class="graph-tree" aria-label="Span parent tree"><div class="graph-nodes"><svg class="graph-connectors" viewBox="0 0 360 360" preserveAspectRatio="none" aria-hidden="true">${t.spans.slice(1).map((_,i)=>`<path d="M140 32 C175 32 175 ${32+i*64} 205 ${32+i*64}"/>`).join('')}</svg><strong class="${kindClass(t.spans[0]!.kind)}">${icon(kindMark(t.spans[0]!.kind))}${esc(t.spans[0]!.name)}</strong><div class="graph-children">${t.spans.slice(1).map(graphNode).join('')}</div></div></div>`:''}<section class="trace-flow"><div class="root-input"><label>INPUT</label><div class="input-bubble">${io(t.input)}</div></div><div class="steps"><header><span>${t.spans.length} STEPS · ${t.spans[0]!.durationMs/1000}S</span><button data-expand-all>EXPAND ALL</button></header>${t.spans.filter(x=>!x.parentId||!collapsedRoots.has(x.parentId)).map(x=>spanRow(t,x,selected)).join('')}</div><div class="root-output"><label>OUTPUT</label><p>${io(t.output)}</p></div></section></main>${timeline?`<section class="timeline" aria-label="Trace timeline"><header>TIMELINE · ${t.spans[0]!.durationMs} ms</header>${t.spans.map(x=>`<div class="timeline-row ${graphSelection===x.id?'graph-selected':''}"><a data-nav href="${path}?span=${x.id}">${esc(x.name)}</a><div class="time-track"><a data-nav aria-label="Select ${esc(x.name)} in timeline" href="${path}?span=${x.id}" class="time-bar ${x.status==='ERROR'?'bad':''}" style="left:${x.startMs/t.spans[0]!.durationMs*100}%;width:${Math.max(0.5,x.durationMs/t.spans[0]!.durationMs*100)}%"></a></div><time>${durationLabel(x.durationMs)}</time></div>`).join('')}</section>`:''}${notice(s)}`);
+  root.innerHTML=shell(s,`<header class="detail-header">${link(back,icon('back'),'back-link')}<span>${esc(ingested(t.ingestedAt).heading)}</span><div><button data-unavailable aria-label="Search this trace">${icon('search')}</button><button data-unavailable aria-label="Replay unavailable">${icon('clock')}</button><button data-unavailable aria-label="Comments unavailable">${icon('message')}</button><button data-tags>${t.tags.length} tags</button><button data-unavailable>Ask neat AI</button></div></header><div class="trace-toolbar"><details class="trace-picker"><summary aria-label="Trace navigator">${icon('list')}<span>${esc(t.name)}</span><small>${t.spans.length}</small>${icon('chevron')}</summary><nav aria-label="Synthetic trace choices">${s.dataset.traces.map(x=>link(traceLink(x),`${esc(x.label)} · ${x.spans[0]!.durationMs}ms · ${x.spans.length} spans`,x.id===t.id?'active':'')).join('')}</nav></details><button data-graph aria-pressed="${graph}" aria-label="Toggle span tree">${icon('tree')}</button><button data-timeline aria-pressed="${timeline}" aria-label="Toggle timeline">${icon('list')}</button><span class="trace-identity">${esc(t.name)} · ${t.spans.length} spans</span></div><main class="trace-canvas ${timeline?'with-timeline':''}">${graph?`<div class="graph-tree" aria-label="Span parent tree"><div class="graph-nodes"><svg class="graph-connectors" viewBox="0 0 360 360" preserveAspectRatio="none" aria-hidden="true">${t.spans.slice(1).map((_,i)=>`<path d="M140 32 C175 32 175 ${32+i*64} 205 ${32+i*64}"/>`).join('')}</svg><strong class="${kindClass(t.spans[0]!.kind)}">${icon(kindMark(t.spans[0]!.kind))}${esc(t.spans[0]!.name)}</strong><div class="graph-children">${t.spans.slice(1).map(graphNode).join('')}</div></div></div>`:''}<section class="trace-flow"><div class="root-input"><label>INPUT</label><div class="input-bubble">${io(t.input)}</div></div><div class="steps"><header><span>${t.spans.length} STEPS · ${t.spans[0]!.durationMs/1000}S</span><button data-expand-all>EXPAND ALL</button></header>${t.spans.filter(x=>!x.parentId||!collapsedRoots.has(x.parentId)).map(x=>spanRow(t,x,selected)).join('')}</div><div class="root-output"><label>OUTPUT</label><p>${io(t.output)}</p></div></section></main>${timeline?`<section class="timeline" aria-label="Trace timeline"><header>TIMELINE · ${t.spans[0]!.durationMs} ms</header>${t.spans.map(x=>`<div class="timeline-row ${graphSelection===x.id?'graph-selected':''}"><a data-nav href="${path}?span=${x.id}">${esc(x.name)}</a><div class="time-track"><a data-nav aria-label="Select ${esc(x.name)} in timeline" href="${path}?span=${x.id}" class="time-bar ${x.status==='ERROR'?'bad':''}" style="left:${x.startMs/t.spans[0]!.durationMs*100}%;width:${Math.max(0.5,x.durationMs/t.spans[0]!.durationMs*100)}%"></a></div><time>${durationLabel(x.durationMs)}</time></div>`).join('')}</section>`:''}${notice(s)}`);
 }
 async function render() {
-  const run = ++generation; controller?.abort(); controller = new AbortController();
+  const run = ++generation; controller?.abort(); controller = new AbortController(); ended = false;
   if (location.pathname==='/') { landing(); return; }
   if (location.pathname==='/entry') { entry(); return; }
   document.documentElement.classList.remove('chat-dock');
@@ -136,6 +222,7 @@ async function render() {
     if (!route) throw new Error('NOT_FOUND: Page not found.');
     const s = await request<DemoSession>(`/api/sessions/${route[1]}`);
     if (run!==generation) return; current=s; chatOpen = sessionStorage.getItem(chatKey(s.id)) !== '1';
+    restorePending(s);
     if (route[2]) {
       const t=s.dataset.traces.find(t=>t.id===route[2]); if (!t) throw new Error('NOT_FOUND: Trace not found in this session.');
       detail(s,t);
@@ -152,83 +239,182 @@ async function render() {
     root.innerHTML=`<main class="request-error"><h1>Demo unavailable</h1><p role="alert">${esc((e as Error).message)}</p><button data-refresh>Retry</button> ${link('/entry','Create a fictional session')}</main>`;
   }
 }
+/** A request that never got an answer (reload, network drop) is offered again with the SAME clientTurnId. */
+function restorePending(s: DemoSession) {
+  if (pendingTurn || chatBusy) return;
+  try {
+    const stored = JSON.parse(sessionStorage.getItem('tailor-pending-turn') ?? 'null') as (TurnRequest & { sessionId: string }) | null;
+    const last = s.conversation[s.conversation.length - 1];
+    if (!stored || stored.sessionId !== s.id || (last && last.role === 'tailor')) return;
+    const { sessionId: _ignored, ...req } = stored;
+    pendingTurn = { turn: stamp('buyer', req.text, 'failed'), request: req };
+    turnNote = 'Your last message didn’t get an answer. Retrying sends it again without duplicating it.';
+  } catch { sessionStorage.removeItem('tailor-pending-turn'); }
+}
 function stamp(role: ChatTurn['role'], text: string, status: ChatTurn['status']): ChatTurn {
   return { id: crypto.randomUUID(), role, text, status, at: new Date().toISOString() };
 }
 function repaint() {
+  if (ended) return;
   if (!current || location.pathname === '/entry' || location.pathname === '/') { entry(); return; }
-  const trace = current.dataset.traces.find(t => location.pathname.endsWith(`/${t.id}`));
-  if (trace) detail(current, trace);
-  else if (lastList) list(current, { ...lastList, version: current.version, activeScenario: current.dataset.activeScenario });
+  if (/\/traces\/[^/]+$/.test(location.pathname)) {
+    const trace = current.dataset.traces.find(t => location.pathname.endsWith(`/${t.id}`));
+    if (trace) detail(current, trace); else navigate(base(current.id));
+    return;
+  }
+  if (lastList) list(current, { ...lastList, version: current.version, activeScenario: current.dataset.activeScenario });
   else void render();
 }
-async function persist(turns: ChatTurn[]) {
-  if (!current || location.pathname === '/entry') { saveDraft(turns); return null; }
-  const saved = await request<DemoSession>(`/api/sessions/${current.id}/conversation`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation: turns }) }, true);
-  current = saved;
-  return saved;
+const impliedStatus = (outcome: TurnOutcome): ChatTurn['status'] =>
+  outcome === 'committed' ? 'applied'
+  : outcome === 'rejected' || outcome === 'save_failed' || outcome === 'conflict' || outcome === 'provider_unavailable' ? 'failed'
+  : outcome === 'readback_uncertain' ? 'uncertain' : 'note';
+/** Re-read the session (and the trace list when it is on screen) so the page only ever shows what the server holds. */
+async function refresh(): Promise<boolean> {
+  if (!current) return false;
+  const id = current.id;
+  try {
+    const onList = location.pathname === base(id);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const fresh = await request<DemoSession>(`/api/sessions/${id}`, {}, true);
+      const listed = onList ? await request<TraceList>(`/api/sessions/${id}/traces${location.search}`, {}, true) : undefined;
+      if (listed && listed.version !== fresh.version) continue;
+      current = fresh;
+      if (listed) lastList = listed;
+      return true;
+    }
+    return false;
+  } catch { return false; }
 }
-async function createSession(description: string, scenario: Scenario, turns: ChatTurn[], buyerId: string) {
-  const payload = JSON.stringify({ description, scenario, conversation: turns });
+function mergeMessages(conversation: ChatTurn[], messages: ChatTurn[]): ChatTurn[] {
+  const next = [...conversation];
+  for (const message of messages) {
+    const at = next.findIndex(t => t.id === message.id);
+    if (at >= 0) next[at] = message; else next.push(message);
+  }
+  return next;
+}
+async function applyResponse(response: TurnResponse) {
+  if (!current) return;
+  const echoed = response.messages.some(m => m.role === 'buyer');
+  const stillOpen = pendingTurn;
+  const reread = response.outcome === 'committed' || response.outcome === 'readback_uncertain' || response.outcome === 'conflict' || response.outcome === 'save_failed';
+  if (response.outcome === 'expired') { showEnded(); return; }
+  let refreshed = false;
+  if (reread) {
+    // The thread keeps the buyer turn Pending until the saved version has been read again.
+    refreshed = await refresh();
+    if (ended) return;
+  }
+  if (!current) return;
+  let conversation = current.conversation;
+  if (!echoed && stillOpen) {
+    const at = conversation.findIndex(t => t.role === 'buyer' && t.text === stillOpen.turn.text && (t.status === 'pending' || t.status === 'note'));
+    const buyer = { ...stillOpen.turn, status: impliedStatus(response.outcome) };
+    if (at >= 0) conversation = conversation.map((t, i) => i === at ? { ...t, status: buyer.status } : t);
+    else if (!conversation.some(t => t.id === buyer.id)) conversation = [...conversation, buyer];
+  }
+  conversation = mergeMessages(conversation, response.messages);
+  current = { ...current, conversation, conversationVersion: Math.max(current.conversationVersion, response.conversationVersion), version: refreshed ? current.version : response.version };
+  pendingTurn = undefined;
+  sessionStorage.removeItem('tailor-pending-turn');
+  turnNote = '';
+  if (response.outcome === 'readback_uncertain') turnNote = refreshed ? `Not confirmed. I re-read your demo: the version that is actually live is v${current.version}.` : 'Not confirmed. Reload the page to see which version is actually live.';
+  else if (reread && !refreshed) turnNote = 'I couldn’t refresh the view just now. Reload the page to see the latest version.';
+  else if (response.outcome === 'committed' && current.version < response.version) turnNote = `The view shows v${current.version} but the last save was v${response.version}. Reload if this looks wrong.`;
+  chatBusy = false;
+  repaint();
+}
+async function runTurn(req: TurnRequest) {
+  const s = current;
+  if (!s) return;
+  chatBusy = true; turnNote = '';
+  if (pendingTurn) pendingTurn = { ...pendingTurn, turn: { ...pendingTurn.turn, status: 'pending' } };
+  sessionStorage.setItem('tailor-pending-turn', JSON.stringify({ sessionId: s.id, ...req }));
+  repaint();
+  let response: TurnResponse;
+  try {
+    response = await request<TurnResponse>(`/api/sessions/${s.id}/turns`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req) }, true);
+  } catch (e) {
+    chatBusy = false;
+    if (isEnded(e) || ended) return;
+    if (e instanceof ApiFailure && e.code === 'TURN_IN_FLIGHT') {
+      pendingTurn = undefined; sessionStorage.removeItem('tailor-pending-turn'); restoreText = req.text;
+      turnNote = 'Still working on your last message. Try again in a moment.';
+    } else if (e instanceof ApiFailure) {
+      // The server answered with an error: it did not accept this turn.
+      if (pendingTurn) pendingTurn = { ...pendingTurn, turn: { ...pendingTurn.turn, status: 'failed' } };
+      sessionStorage.removeItem('tailor-pending-turn');
+      turnNote = `${e.message.replace(/^[A-Z_]+: /, '')} Nothing was changed.`;
+    } else {
+      // No response at all: keep the request so a retry reuses the same clientTurnId (the server dedupes it).
+      if (pendingTurn) pendingTurn = { ...pendingTurn, turn: { ...pendingTurn.turn, status: 'failed' } };
+      turnNote = 'I couldn’t reach the demo. Retrying sends the same message again without duplicating it.';
+    }
+    repaint();
+    return;
+  }
+  if (ended) return;
+  sessionStorage.setItem(execKey(s.id), JSON.stringify(response.execution));
+  lastResult = { steps: response.steps, outcome: response.outcome };
+  await applyResponse(response);
+}
+async function sendTurn(text: string, choiceId?: string) {
+  if (!current || chatBusy) return;
+  const kept = pendingTurn && pendingTurn.turn.status === 'failed' && pendingTurn.request.text === text && pendingTurn.request.choiceId === choiceId ? pendingTurn.request : undefined;
+  const req: TurnRequest = kept ?? { text, clientTurnId: crypto.randomUUID(), ...(choiceId ? { choiceId } : {}) };
+  pendingTurn = { turn: stamp('buyer', text, 'pending'), request: req };
+  await runTurn(req);
+}
+async function startSession(text: string) {
+  chatBusy = true;
+  const payload = JSON.stringify({ description: text, conversation: [] });
   let operation = sessionStorage.getItem('creation-operation');
-  if (!operation || sessionStorage.getItem('creation-payload') !== payload) {
-    operation = crypto.randomUUID();
+  let firstTurnId = sessionStorage.getItem('creation-turn-id');
+  if (!operation || !firstTurnId || sessionStorage.getItem('creation-payload') !== payload) {
+    operation = crypto.randomUUID(); firstTurnId = crypto.randomUUID();
     sessionStorage.setItem('creation-operation', operation);
+    sessionStorage.setItem('creation-turn-id', firstTurnId);
     sessionStorage.setItem('creation-payload', payload);
   }
-  const s = await request<DemoSession>('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operation }, body: payload }, true);
-  const applied = turns.map(turn => turn.id === buyerId ? { ...turn, status: 'applied' as const } : turn).concat(stamp('tailor', `${ADAPTER_LABEL}. The demo API saved the ${scenario} fixture. The trace list now shows it as the active fixture.`, 'note'));
-  let next = s;
-  try { next = await request<DemoSession>(`/api/sessions/${s.id}/conversation`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation: applied }) }, true); }
-  catch { next = { ...s, conversation: applied }; }
-  sessionStorage.removeItem('creation-operation');
-  sessionStorage.removeItem('creation-payload');
-  sessionStorage.removeItem('tailor-draft-chat');
+  saveDraft([stamp('buyer', text, 'pending')]);
+  entry();
+  let created: DemoSession;
+  try {
+    created = await request<DemoSession>('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operation }, body: payload }, true);
+  } catch (e) {
+    chatBusy = false;
+    if (isEnded(e) || ended) return;
+    saveDraft(draft.map(t => ({ ...t, status: 'failed' as const })));
+    entry();
+    document.querySelector('.form-error')?.replaceChildren(document.createTextNode(`${(e as Error).message.replace(/^[A-Z_]+: /, '')} Nothing was created. Send again to retry.`));
+    return;
+  }
+  for (const key of ['creation-operation', 'creation-payload', 'creation-turn-id', 'tailor-draft-chat']) sessionStorage.removeItem(key);
   draft = [];
-  current = next;
-  chatOpen = true;
-  sessionStorage.removeItem(chatKey(s.id));
-  chatBusy = false;
-  navigate(base(s.id));
+  current = created; lastList = undefined; lastResult = undefined; turnNote = '';
+  chatOpen = true; sessionStorage.removeItem(chatKey(created.id));
+  const req: TurnRequest = { text, clientTurnId: firstTurnId };
+  pendingTurn = { turn: stamp('buyer', text, 'pending'), request: req };
+  chatBusy = true;
+  await navigate(base(created.id));
+  await runTurn(req);
 }
-async function sendChat(text: string) {
+async function sendChat(text: string, choiceId?: string) {
   const message = text.trim();
   if (!message || chatBusy) return;
-  chatBusy = true;
-  const onEntry = location.pathname === '/entry' || !current;
-  const result = adapt({ text: message, hasSession: !onEntry, activeScenario: onEntry ? null : current!.dataset.activeScenario });
-  const changing = result.action === 'create' || result.action === 'switch';
-  const buyer = stamp('buyer', message, changing ? 'pending' : 'note');
-  let turns = [...(onEntry ? draft : turnsOf(current)), buyer, stamp('tailor', result.text, 'note')];
-  const show = () => { if (onEntry) { saveDraft(turns); entry(); } else if (current) { current = { ...current, conversation: turns }; repaint(); } };
-  show();
-  try {
-    if (result.action === 'create' && result.scenario) { await createSession(result.description, result.scenario, turns, buyer.id); return; }
-    if (result.action === 'switch' && current && result.scenario) {
-      await persist(turns);
-      const version = current.version;
-      const saved = await request<DemoSession>(`/api/sessions/${current.id}/scenario`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedVersion: version, scenario: result.scenario }) }, true);
-      const listed = await request<TraceList>(`/api/sessions/${current.id}/traces${location.pathname.includes('/traces/') ? '' : location.search}`, {}, true);
-      if (saved.dataset.activeScenario !== result.scenario || listed.activeScenario !== result.scenario || listed.version !== saved.version) throw new Error('The traces on screen do not match the saved fixture.');
-      current = saved;
-      lastList = listed;
-      turns = turns.map(turn => turn.id === buyer.id ? { ...turn, status: 'applied' as const } : turn).concat(stamp('tailor', `${ADAPTER_LABEL}. The demo API saved the ${result.scenario} fixture. The trace list now shows it as the active fixture.`, 'note'));
-      try { await persist(turns); } catch { current = { ...saved, conversation: turns }; }
-      chatBusy = false;
-      if (location.pathname.startsWith('/demo/')) repaint();
-      return;
-    }
-    await persist(turns);
-    chatBusy = false;
-    if (onEntry) entry(); else if (location.pathname.startsWith('/demo/')) repaint();
-  } catch (e) {
-    const reason = (e as Error).message.replace(/[.\s]+$/, '');
-    turns = turns.map(turn => turn.id === buyer.id && changing ? { ...turn, status: 'failed' as const } : turn).concat(stamp('tailor', `${ADAPTER_LABEL}. ${reason}. The last working fixture is unchanged.`, 'note'));
-    try { await persist(turns); } catch { if (onEntry) saveDraft(turns); else if (current) current = { ...current, conversation: turns }; }
-    chatBusy = false;
-    if (onEntry) entry(); else if (location.pathname.startsWith('/demo/')) repaint();
-    document.querySelector('.form-error')?.replaceChildren(document.createTextNode((e as Error).message));
-  }
+  entryNotice = '';
+  if (location.pathname === '/entry' || !current) await startSession(message);
+  else await sendTurn(message, choiceId);
+}
+async function endDemo() {
+  if (!current) return;
+  const id = current.id;
+  try { await request(`/api/sessions/${id}/end`, { method: 'POST' }, true); }
+  catch (e) { if (isEnded(e)) return; toast('Couldn’t end the demo just now. Nothing was deleted; try again.'); return; }
+  clearLocalState();
+  entryNotice = 'Demo ended. Your conversation and demo data were deleted.';
+  navigate('/entry');
 }
 document.addEventListener('click', event => {
   const clear = (event.target as Element).closest<HTMLElement>('[data-clear-filter]');
@@ -242,7 +428,11 @@ document.addEventListener('click', event => {
 document.addEventListener('click',async event=>{
   const el=(event.target as Element).closest<HTMLElement>('a,button'); if (!el || el.hasAttribute('data-clear-filter')) return;
   if (el.hasAttribute('data-example')) { void sendChat(el.dataset.example ?? ''); return; }
-  if (el.hasAttribute('data-discard-draft')) { saveDraft([]); chatBusy = false; entry(); return; }
+  if (el.hasAttribute('data-choice')) { void sendChat(el.textContent ?? '', el.dataset.choice); return; }
+  if (el.hasAttribute('data-retry-draft')) { void sendChat(draft[0]?.text ?? ''); return; }
+  if (el.hasAttribute('data-retry-turn')) { if (pendingTurn && !chatBusy) void runTurn(pendingTurn.request); return; }
+  if (el.hasAttribute('data-end-demo')) { void endDemo(); return; }
+  if (el.hasAttribute('data-discard-draft')) { saveDraft([]); for (const key of ['creation-operation','creation-payload','creation-turn-id']) sessionStorage.removeItem(key); chatBusy = false; entry(); return; }
   if (el.hasAttribute('data-chat-collapse') && current) { sessionStorage.setItem(chatKey(current.id), '1'); chatOpen = false; repaint(); return; }
   if (el.hasAttribute('data-chat-open')) { if (current) sessionStorage.removeItem(chatKey(current.id)); chatOpen = true; if (current && location.pathname.startsWith('/demo/')) repaint(); return; }
   if (el.matches('a[data-nav]') && !(event as MouseEvent).metaKey && !(event as MouseEvent).ctrlKey) {
@@ -294,6 +484,8 @@ document.addEventListener('change',event=>{
   if(el.id==='trace-navigator' && current)navigate(`${base(current.id)}/${el.value}`);
   if(el.id==='select-all')document.querySelectorAll<HTMLInputElement>('[data-select]').forEach(x=>x.checked=el.checked);
 });
+// Keep the newest message (and any clarification buttons) in view after every repaint.
+new MutationObserver(() => { const thread = document.querySelector<HTMLElement>('.chat-panel .chat-thread'); if (thread) thread.scrollTop = thread.scrollHeight; }).observe(root, { childList: true });
 window.addEventListener('popstate',()=>void render());
 if (!history.state || typeof (history.state as {tailor?: unknown}).tailor !== 'number') history.replaceState({ tailor: 0 }, '');
 void render();
