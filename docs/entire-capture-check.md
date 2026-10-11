@@ -1,5 +1,16 @@
 # Entire capture check
 
+## Verification limit
+
+This preserves the historical `setup/local` report from commit
+`f8ccc96b454dc3d5e029065662fb2cf3e4b61b5b`; its reported observations
+below have not been re-tested during consolidation. That commit references
+checkpoint `01M4KAJT289SESENV3GP98AQVX`, which is absent from the local and
+origin checkpoint refs inspected on 2026-10-11. Its checkpoint linkage and
+remote continuity therefore remain **unverified**. No checkpoint was fabricated
+or imported to fill that gap. For the later Codex worktree procedure, see
+[Entire capture in Codex worktrees](entire-codex-worktrees.md).
+
 ## Purpose
 
 Verify that Entire (CLI 0.11.4) captures a real Cursor agent session in this

@@ -24,3 +24,11 @@ Tailor is a neatHack (October 2026) candidate. No application features yet.
 - `neatlogs` is pinned to an exact version; upgrade deliberately, never downgrade.
 - Do not run `neatlogs doctor --probe` until the Neatlogs project and region are confirmed and the key is set.
 - Entire captures Cursor sessions via `.cursor/hooks.json` and git hooks; keep `.entire/settings.json` and `.cursor/hooks.json` tracked and preserve unrelated hooks.
+
+## Entire session and checkpoint continuity
+
+- At task start and before claiming checkpoint continuity, use `$entire-continuity` from the maintained personal skill at `/Users/nitinkhanna/.codex/skills/entire-continuity/SKILL.md`. If discovery does not list it, read that file directly; the absolute path also works from this repository's linked worktrees. If unavailable on another machine, report that boundary and use `docs/entire-codex-worktrees.md` without claiming the skill was run. Do not create a conflicting repo-local copy.
+- Verify the actual caller's session, worktree, state and fresh lifecycle evidence. Hook discovery/trust and an existing session ID alone do not prove live capture. The skill guides checks; it cannot guarantee hook execution or authorize mutations.
+- After authorized commits, match exact commit, checkpoint and session IDs; after authorized pushes, verify the relevant local and remote checkpoint ref SHAs. Preserve commit identities, checkpoint refs and unrelated work.
+- Distinguish local checkpoint linkage, historical/imported records, live session capture, remote sync and dashboard ingestion. Missing usage is unavailable, not zero; aggregate Analytics is not the success gate.
+- For an on-demand weekly review, invoke the same skill on this repository's authorized work and report coverage limits. Do not create scheduled checks, import/attach history, amend, force-push, upload transcripts or change hooks/trust/authentication without the appropriate explicit authorization.
