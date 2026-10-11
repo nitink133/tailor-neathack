@@ -1,0 +1,92 @@
+Pause live testing and perform an evidence-based peer review of the current Tailor implementation. Do not restart the build or assume earlier passing tests prove the latest changes are correct.
+Use Fable 5.1 as orchestrator and explicitly launch parallel review subagents. Assign strong reasoning models to security, provider correctness and independent verification; use faster capable models for inventories and test coverage. Report the actual available models and assignments. Reviewers should challenge the implementation independently, not just summarise its handoff.
+BASELINE
+Read AGENTS.md, the project-local Entire skill, NIT-269 and its children, plus the latest handoff/evidence documents. Identify the exact current branch, commit and uncommitted changes. Review a stable snapshot without overwriting active work. Preserve all existing changes.
+PARALLEL REVIEW LANES
+1. Live Claude provider
+   Verify the actual SDK/model ID and thinking configuration against official documentation. Review structured outputs, tool schemas, refusal/truncation handling, timeouts, rate limits, bounded retries and error propagation. Confirm live mode cannot silently fall back to mock replies. Check that explanations use saved evidence and cannot invent pricing or capabilities.
+2. Tools, state and security
+   Review session ownership, isolation, personalised-data validation, transactional updates, version/concurrency checks, idempotency and source validation. Verify the 60-minute idle/4-hour maximum lifetime and End demo deletion. Check prompt-injection resistance and ensure buyer content cannot expand tool permissions or expose another session.
+3. Neatlogs runtime logging
+   The Tailor project currently appears empty to me. Trace the complete path from agent turn → spans → exporter → configured destination. Determine whether production export is implemented and enabled, or whether events only enter a local captured exporter. Check project/region/endpoint selection, batching, flushing, shutdown handling, retries and swallowed errors. Inspect configuration presence without printing secrets. Distinguish fictional replica traces from actual Tailor execution telemetry. Don’t infer the cause from an empty dashboard alone.
+Use existing evidence or read-only dashboard access where available. Do not send new logs, make model calls or change credentials/settings during this audit. Report the exact reason hosted delivery is unverified and the smallest safe verification step.
+4. Budget, privacy and reliability
+   Check the spend guard, concurrency reservations, actual usage reconciliation, thinking-token accounting and limits on input, output and tool iterations. Verify secrets and raw buyer/model content are redacted before telemetry export. Check what happens when a save succeeds but readback fails; the UI must not falsely claim nothing changed. Review transcript limits and recovery after interrupted turns.
+5. Buyer UI and independent QA
+   Test the local mock-backed flow and review existing tests for blind spots. Check chat entry, Powered by Tailor attribution, three-choice clarification with free text, personalised scenario changes, trace/span explanations, navigation/reload and End demo. Confirm visible provider status is accurate and internal engineering jargon isn’t presented as product behaviour. Use an independent reviewer to reproduce important findings.
+COORDINATION
+Use disjoint review ownership and separate finding files, then consolidate duplicates. Share browser reference captures rather than letting multiple agents control the same tab. Keep the implementation unchanged during this first pass. Local offline tests and temporary test artifacts are allowed; don’t install new dependencies or alter production data.
+ENTIRE
+Audit actual checkpoint evidence separately from Git commits and Analytics totals. Check whether the previously reported Cursor transcript-path mismatch remains. A commit trailer alone does not prove a stored or synced checkpoint. Don’t fabricate trailers, import transcripts or change hooks as part of this review.
+DELIVERABLE
+Write one concise peer-review report with:
+- Exact reviewed revision and working-tree state.
+- Prioritised findings with file/line references, reproduction steps, impact and recommended correction.
+- Tests actually rerun versus historical reports or untested claims.
+- A readiness verdict: ready for a capped live test, or blocked, with exact reasons.
+- Separate status for live Claude inference, hosted Tailor Neatlogs traces and Entire checkpoints.
+- A minimal parallel fix plan with file ownership and acceptance tests.
+Do not mark missing live evidence as a demonstrated code defect, and do not call untested behaviour correct. No paid API calls, new telemetry exports, credential changes, fixes, main merges or deployment. Present the findings for my review before implementing corrections or starting the end-to-end live test.
+
+Also assign a separate subagent to audit Entire checkpoint coverage. Read AGENTS.md and the project-local Entire skill first. Use Fable 5.1 as orchestrator if available, with other available models matched to task complexity; report any substitution.
+1. Record the repository, worktree, branch, HEAD and current reviewer session ID. Verify the reviewer’s actual Entire session association and lifecycle evidence. Hook discovery alone is insufficient. If reviewer capture is unavailable, report it before proceeding under the project’s capture gate.
+2. Inspect all implementation commits since the agreed base, covering both the mock-backed implementation and live Claude integration. For each commit, identify its session/checkpoint linkage, local checkpoint ref and matching remote ref. A trailer alone is not proof of a stored or synced checkpoint.
+3. Check the reported gaps for commits 97f377b and 8dd4b9d, plus earlier implementation gaps. Treat the handoff as a claim to verify, not proof. Resolve abbreviated SHAs against the repository.
+4. Where dashboard access is already available, verify session transcript and checkpoint visibility. Report Git/ref evidence separately from dashboard evidence. The known Analytics totals discrepancy should not block the review if underlying evidence is intact.
+5. Distinguish live capture, historical import and missing coverage. Do not claim this new review session retroactively records earlier implementation work.
+6. Return a compact coverage table: commit, session, checkpoint, local ref, remote match, dashboard verified, gap/action needed. Never expose transcript secrets.
+7. Audit only. Do not amend commits, manufacture trailers, import transcripts, alter hooks or credentials, push refs, or repair capture automatically. Propose the smallest repair for each verified gap and request approval before changing anything.
+In the overall review, also verify that every paid model-call path uses the spending guard, including schema probes and retries. Check whether Tailor telemetry uses a local captured exporter or actually sends to hosted Neatlogs. An empty hosted project does not prove ingestion failed if export was never enabled. Do not run paid calls or export new telemetry during this audit.
+
+---
+
+Continue from your completed Tailor peer review. Implement the audit fixes, then the minimal reusable-core refactor and reliable hosted Neatlogs observability. Use the audit evidence already available in this session, including /tmp/tailor-peer-review/PEER-REVIEW.md, its lane reports, verification probes and §7 ownership plan. If these files are unavailable, report that rather than inventing their contents.
+Working rules
+- Use Fable 5.1 as orchestrator with an explicit swarm of subagents. Delegate bounded implementation tasks to suitable available models and difficult correctness/security reviews to stronger reasoning models. Report actual model assignments and any unavailable-model substitutions. Coding models are separate from Tailor’s runtime model.
+- Reuse the seven-owner plan where appropriate. Give each agent explicit files and acceptance tests; prevent concurrent edits to shared files. Parallelise independent work, but integrate in the order below. Use fresh independent reviewers after implementation.
+- Read AGENTS.md and the project-local Entire skill. Verify the actual worktree, branch, HEAD and dirty state. The audited baseline was 8dd4b9d on work/nit-269-build-personalised-tailor-agent-proof. Preserve unrelated work. Do not reset or overwrite newer changes.
+- Keep one repository, one Node service and one browser build. No deployment, main merge, history rewriting, force push, new dependencies/frameworks solely for repo organisation, or unrelated feature expansion.
+- No paid model calls during implementation or offline verification. Before any live call, request a fresh explicit total spending cap and confirm the repaired guard covers every call path. Existing historical caps are not new authorisation.
+Phase 1: lock in regressions and fix the audit findings
+Add reproducing tests first, using the real SDK with scripted fetch where needed rather than mocking away its parsing behaviour. Preserve the audit’s qualified findings and resolve every finding explicitly.
+A. Provider and spending
+- L1-01: capture and account for available usage even when truncated/refusal text causes structured parsing to throw. Preserve stop_reason and useful error classification. Never report an unaccounted call as zero cost. When billing is unknown, retain a conservative reservation and flag reconciliation.
+- Fix budget check/reservation races across sessions and concurrent calls. Reserve atomically before dispatch, reconcile actual usage afterwards, and handle retries, restarts and uncertain outcomes safely. Reproduce the six-call/$0.10-cap failure and demonstrate the repaired invariant.
+- Fix the 60-second timeout/retry interaction. Bound total turn duration, support cancellation, classify timeouts correctly and ensure every attempt passes through the guard. Setting SDK maxRetries to zero alone is insufficient.
+- Preserve fail-closed key/cap validation, no silent mock fallback and correct token accounting without double-counting thinking.
+B. Truthfulness and UI
+- L1-03: enforce grounded product/pricing claims on unsupported and refusal responses too. No invented plans, prices or capabilities through any response path.
+- Address invented counts, duration, status codes, names and capability statements in explanations. Ground claims in verified knowledge and authoritative saved-state evidence; use safe deterministic wording when verification fails.
+- L5-01: establish authoritative mock/live mode before the first turn and consistently across /entry, reloads and additional tabs. Unknown mode must not be labelled live.
+- L5-02: “Explain this trace” must carry and explain the trace currently open, with server-side session ownership checks. Never silently substitute a different active trace.
+- Escape the trace-label HTML injection sink and test relevant rendering paths without relying on CSP alone.
+C. Persistence
+- Make turn idempotency durable across a crash after publication. Retrying the same turn must not republish a new version or leave a permanently pending message.
+- Ensure post-commit failures cannot claim that nothing changed. Preserve distinct committed, rejected, conflict, save_failed, readback_uncertain and expired outcomes.
+- Preserve session isolation, CAS transactions, lifecycle/End demo behaviour and save → independent readback → grounded explanation.
+Phase 2: minimal architecture refactor
+Keep behaviour and public demo routes stable while establishing these internal responsibilities:
+- src/tailor: reusable orchestration, provider transport/accounting, buyer-session lifecycle and generic chat behaviour.
+- src/clients/neatlogs: product knowledge, prompts, scenario schemas/codecs, tools, synthetic data rules, validation, evidence projection and cloned product UI.
+- src/infrastructure: SQLite/HTTP assembly and real Neatlogs telemetry export.
+  Adapt folder names to the code if needed; dependency boundaries matter more than literal paths. Do not introduce separate deployable apps, workspace packages, a plugin marketplace or a universal SaaS data model.
+Inject a typed product adapter into the core. The adapter supplies bounded schemas, context, permitted tools, domain validation, authoritative readback and grounded evidence. The core owns sequencing, permissions, budgets and truthful execution outcomes. Product capability/tool permissions must be enforced in code, not only described in retrieved knowledge.
+Remove trace/span assumptions from reusable core and provider transport. Keep Neatlogs-specific schemas and the currently working provider wire-format constraints in the adapter/codec boundary. Keep real telemetry independent of the Neatlogs demo adapter.
+Add a small test-only in-memory CRM adapter, with a different entity and tool, proving the same core handles valid edits, invalid actions, stale versions, save/readback failures and invented citations without Neatlogs imports. Do not build a second UI or product.
+Phase 3: deep, trustworthy Neatlogs instrumentation
+Instrument the real Tailor execution, separately from fictional buyer-demo data. Each turn must be correlatable across context retrieval, model attempts, validation, tool execution, commit, readback and final response, including clarification, unsupported requests, refusals, retries and errors.
+Record safe structured evidence: adapter/knowledge/prompt versions, retrieved source IDs, selected action, validated arguments, tool results, state versions, evidence references, stop reasons, errors, timings, model/effort, token categories and actual/unknown cost. Record concise decision summaries, never private chain-of-thought. Use exact synthetic inputs and buyer-visible outputs for controlled test fixtures; redact credentials and personal data before export. Do not send full environment variables, raw private logs or arbitrary transcripts.
+Fix the reproduced exporter diagnostics failure: SDK export failures must reach Tailor’s diagnostics; flush must not falsely imply successful delivery. Add bounded retry/flush behaviour and clear delivery states. Do not turn a telemetry failure into a false claim that a committed demo action failed or never happened.
+Target the existing real Tailor Neatlogs project, expected ID 18c4b4b6-0b1e-4d41-9405-7960fc2d0aa8, after verifying configured identity. Do not send runtime evidence to the learning sandbox a35a7334-258e-441c-b2e1-b8198a263f21. Never print keys. If credentials are missing or require new persistent configuration, request the appropriate user setup rather than changing authentication yourself.
+After offline checks pass, you may verify hosted delivery using a small synthetic, clearly labelled fixture through the real Tailor orchestration with a scripted provider, using already configured credentials. This must not call a paid model or be presented as live Claude evidence. Confirm real hosted trace readback and provide exact trace IDs/links; a local capture, HTTP acceptance or flush return is insufficient. Show success and failure paths. If access, configuration or readback is blocked, report the precise blocker and stop that verification lane.
+Phase 4: Entire continuity and evidence
+Check current-session capture under the project skill before implementation. If it cannot be established without a repair outside this scope, report the exact action needing approval. Do not manufacture trailers, amend commits, import old sessions or alter security/credential settings.
+Preserve the historical audit finding: only 4 of 19 implementation commits had synced checkpoints, with five trailer-only and ten without trailers. Verify future commits using actual session/checkpoint refs and remote matches; dashboard evidence is separate. Do not claim future capture repairs historic gaps. Keep older transcripts/worktrees intact. Analytics totals are not the source of truth.
+Phase 5: independent verification and handoff
+- Run typecheck, build, full offline tests, browser tests and all new regression probes against the integrated final revision. Include multi-tab mode, correct open-trace explanation, crash/retry, concurrency, expiry and failure paths.
+- Have reviewers who did not implement the fixes check the final changes and rerun critical probes.
+- Correct stale documentation: historical ledger was 45 calls, estimated $1.062646; the 43/$1.02 snapshot is older. Do not treat “eval 21/21” as reproduced evidence without a runnable evaluator. Label historical live smoke separately from newly run tests.
+- Keep prompt caching deferred. Make token accounting ready for uncached input, cache writes by TTL, reads and output, but do not enable caching or change its policy in this run.
+- Commit coherent changes on the feature branch and push normally after secret checks and verification. Verify the remote revision and checkpoint evidence. Do not merge main or deploy.
+- Report each audit ID as fixed/tested, unresolved or deferred with a reason; actual subagent/model assignments; architecture changes; final commit; test results; hosted telemetry IDs; Entire coverage; and remaining approvals.
+Stop before paid live E2E. Finish with a short readiness verdict and the exact steps I should use to test the buyer journey myself. Clearly distinguish scripted-provider hosted traces from genuine live Claude execution.
