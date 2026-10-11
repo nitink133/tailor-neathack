@@ -143,7 +143,7 @@ The 21-item evaluation suite was executed in-process against the mock-backed age
 
 ## 7. Open Defects
 
-**0 open defects.** All previously identified defects from initial mock eval set execution (eval-06 Q&A keyword classification and eval-09 unsupported capability regex) were fixed in commit `309fb22` and verified passing at commit `0846722`.
+**0 open defects.** All previously identified defects from initial mock eval set execution (eval-06 Q&A keyword classification and eval-09 unsupported capability regex) were fixed in commit `0846722` (the review findings were fixed earlier in `309fb22`) and verified passing at `0846722`.
 
 ### 7.1 Security & Grounding Review
 - **Security Review (`34eeb76`)**: Passed requirements 1–3 and 7–9. Identified 3 defects:
