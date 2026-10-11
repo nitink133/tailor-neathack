@@ -29,8 +29,9 @@ test('every generated scenario agrees across API, trace tree, timeline, navigati
   await expect(page.getByRole('heading',{name:'hello'})).toBeVisible();
   await page.getByLabel('Ask anything').fill(BUILD);await page.getByRole('button',{name:'Send message'}).click();
   await expect(page.locator('[data-count]')).toBeVisible();
-  const barRatio=await page.locator('.day').nth(12).evaluate(el=>{const bar=el.querySelector('.day-bar');if(!bar)return 1;return bar.getBoundingClientRect().height/el.getBoundingClientRect().height;});
-  expect(barRatio).toBeGreaterThan(0.05);expect(barRatio).toBeLessThan(0.5);
+  // The list repaints when the turn's applied status arrives; wait for that, then measure in one poll so a mid-repaint read (0/0 = NaN) retries.
+  await expect(page.locator('.chat-panel [data-status=applied]').first()).toBeVisible();
+  await expect.poll(()=>page.locator('.day').nth(12).evaluate(el=>{const bar=el.querySelector('.day-bar');const h=el.getBoundingClientRect().height;if(!bar||!h)return false;const r=bar.getBoundingClientRect().height/h;return r>0.05&&r<0.5;})).toBe(true);
   const noticeBox=await page.locator('.demo-notice').boundingBox();const pagerBox=await page.locator('[data-count]').boundingBox();
   expect(noticeBox!.y+noticeBox!.height).toBeLessThanOrEqual(pagerBox!.y+1);
   await page.getByRole('button',{name:'Expand sidebar'}).click();
