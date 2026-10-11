@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 .DS_Store
+/.claude/worktrees/
 
 # Secrets and local config (keep only the credential-free template)
 .env
