@@ -1,0 +1,32 @@
+Prepare the existing Tailor repository for implementation by safely merging the current completed setup work into main while preserving Entire checkpoints and session history.
+
+Repository: [https://github.com/nitink133/tailor-neathack](https://github.com/nitink133/tailor-neathack "Open link")\
+Expected local checkout: \~/Desktop/tailor-neathack. Verify the path and Git remote before acting. Work only in this personal project. Do not change GitHub authentication, global Git settings, or StockGro repositories.
+
+The future Neatlogs demo replica and its basic APIs will live in this same repository. Do not create another repository, start cloning the UI, implement APIs, or reorganise the project during this task.
+
+1. Inspect before changing anything\
+   Read repository instructions. Inspect the working tree, current branch, tracking branches, remotes, recent commits and the diff against remote main. Fetch normally without pruning or deleting refs. Identify the actual setup/testing branch; do not guess its name from this prompt. Check for ongoing work in this checkout. If multiple branches contain distinct work, or ownership of uncommitted changes is unclear, show the findings and ask before combining them.
+
+Do not reset, clean, auto-stash, discard files or overwrite work. If the tree is dirty, explain which files need handling before the merge. Do not commit everything indiscriminately. Check that secrets, local environment files and private session data are not being added to Git.
+
+2. Verify Entire continuity\
+   Inspect the installed Entire CLI version, repository configuration and hooks using supported read-only commands. Consult the official documentation for that version before using checkpoint or sync commands. Confirm which commits reference checkpoints and how the checkpoint data is stored and synced. Record the relevant commit SHAs, checkpoint IDs and session references without exposing prompts containing secrets.
+
+Do not assume ordinary code pushes also sync Entire metadata. Verify the documented procedure. Do not disable hooks, fabricate checkpoint markers, or recreate session history. If the current Codex session needs an additional configuration or permission step for recording, explain it before changing configuration. Do not claim this session was recorded retroactively.
+
+3. Validate the changes\
+   Run the existing relevant tests, type checks, lint and build commands supported by the repository. Record failures and distinguish existing failures from changes on the setup branch. Do not make unrelated fixes. Stop before merging if checks fail materially or the diff contains unexpected work.
+4. Merge without rewriting history\
+   For the single verified setup branch, merge into an up-to-date main while retaining all existing commit identities. Prefer a normal non-squash merge, using a merge commit when appropriate. Do not squash, rebase, amend published commits or force-push. If conflicts occur, report them and ask before resolving ambiguous changes. Do not delete the source branch or any Entire refs.
+
+Respect branch protection. If direct main updates are prohibited or the repository requires a PR, push the source branch normally, open the required PR and report the remaining review/merge requirement; do not bypass protection.
+
+When the merge is valid and normal pushes are permitted, push main to origin. Sync any required Entire checkpoint data only through the verified supported workflow. Do not alter remote access or create credentials.
+
+5. Verify the result\
+   Confirm local main and origin/main agree, the intended source commits are reachable from main, and the working tree is clean. Verify relevant checkpoint references and remote checkpoint data are retained. If dashboard access is available, confirm the corresponding commit/session/checkpoint linkage there. If not, explicitly separate local/Git verification from dashboard verification still needed.
+6. Return a concise handoff\
+   Report the source branch, previous and resulting main SHAs, merge/PR link, checks run and results, checkpoint IDs and sync evidence, and any unresolved issue. State whether this Codex session itself was captured. Leave the repository ready for the next task, without starting implementation.
+
+The next task, after this report is reviewed, will be a visually faithful, limited Neatlogs demo replica plus basic APIs in this same repository. No deployment or modification of the real Neatlogs account is authorised by this prompt.
