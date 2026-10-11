@@ -2,15 +2,16 @@
 // `mock` is the deterministic offline provider. `anthropic` is the live provider: the caller supplies the API key and a
 // spend guard (this module never reads the environment) and never falls back to the mock.
 
-import { CONTRACT_VERSION, OUTCOME_KINDS, SPAN_KINDS, type AgentAction, type EvidenceExplanation, type ModelProvider, type ProposedSpan, type ProposedTrace, type ScenarioProposal } from '../agent-contract.ts';
-import type { Json } from '../contracts.ts';
+import { CONTRACT_VERSION, OUTCOME_KINDS, SPAN_KINDS, type AgentAction, type EvidenceExplanation, type ModelProvider, type ProposedSpan, type ProposedTrace, type ScenarioProposal } from './agent-contract.ts';
+import { isJson } from '../../tailor/json.ts';
 import { createAnthropicProvider, type AnthropicProviderOptions, type Effort } from './anthropic-provider.ts';
 import { createMockProvider } from './mock-provider.ts';
-import type { SpendGuard } from './spend.ts';
+import type { SpendGuard } from '../../tailor/spend.ts';
 
 export type { Effort } from './anthropic-provider.ts';
 export { maxOutputTokensFor } from './anthropic-provider.ts';
-export { hasRatesFor } from './spend.ts';
+export { hasRatesFor } from '../../tailor/spend.ts';
+export { isJson };
 /** No `maxRetries`: the SDK never retries; the service's bounded loop owns retries so every attempt is reserved and settled. */
 export type ProviderConfig =
   | { kind: 'mock' }
@@ -30,18 +31,6 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-
-export function isJson(value: unknown, depth = 0): value is Json {
-  if (depth > 12) return false;
-  if (value === null || typeof value === 'boolean' || typeof value === 'string') return true;
-  if (typeof value === 'number') return Number.isFinite(value);
-  if (Array.isArray(value)) return value.length <= 500 && value.every(v => isJson(v, depth + 1));
-  if (isObj(value)) {
-    const keys = Object.keys(value);
-    return keys.length <= 200 && keys.every(k => isJson(value[k], depth + 1));
-  }
-  return false;
-}
 
 function strings(v: unknown): string[] | null {
   return Array.isArray(v) && v.every(isStr) ? [...v] : null;

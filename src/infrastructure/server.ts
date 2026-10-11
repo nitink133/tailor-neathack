@@ -3,15 +3,15 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Store, Failure, findSpan, findTrace, isGone, traceList, traceQuery, type StoredTurn } from './store.ts';
-import { createSessionTools } from './session-tools.ts';
-import { storyProblems } from './validator.ts';
+import { createSessionTools } from '../clients/neatlogs/session-tools.ts';
+import { storyProblems } from '../clients/neatlogs/validator.ts';
 import type { Telemetry } from './telemetry.ts';
-import type { ChatStatus, ChatTurn } from './contracts.ts';
+import { BUYER_STATUS, createTurnGate, reconcileTurnResult, requestFingerprint, unfinishedTurnResult } from '../tailor/lifecycle.ts';
 import {
   LIMITS,
   type AgentService, type AgentTurnResult, type Clock, type ExecutionInfoResponse, type ExecutionLabel, type KnowledgeIndex, type ModelProvider,
-  type TurnOutcome, type TurnRequest, type TurnResponse, type TurnTelemetry,
-} from './agent-contract.ts';
+  type TurnRequest, type TurnResponse, type TurnTelemetry,
+} from '../clients/neatlogs/agent-contract.ts';
 
 export interface AppServerOptions {
   devKey?: string;
@@ -27,13 +27,6 @@ export interface AppServerOptions {
 }
 
 const COOKIE_MAX_AGE_S = LIMITS.lifetimeMs / 1000;
-const TURN_OUTCOMES: readonly TurnOutcome[] = ['answered', 'clarification', 'committed', 'rejected', 'save_failed', 'readback_uncertain', 'conflict', 'unsupported', 'refused', 'expired', 'provider_unavailable'];
-const CHAT_STATUSES: readonly ChatStatus[] = ['pending', 'applied', 'failed', 'uncertain', 'question', 'note'];
-const BUYER_STATUS: Record<TurnOutcome, ChatStatus> = {
-  committed: 'applied', readback_uncertain: 'uncertain',
-  rejected: 'failed', save_failed: 'failed', conflict: 'failed', provider_unavailable: 'failed', expired: 'failed', refused: 'failed',
-  answered: 'note', clarification: 'note', unsupported: 'note',
-};
 
 const MAX_BODY_BYTES = 32000;
 const cookieOf = (req: IncomingMessage) => /(?:^|;\s*)tailor=([^;]+)/.exec(req.headers.cookie ?? '')?.[1] ?? '';
@@ -60,62 +53,17 @@ function turnRequestOf(data: any): TurnRequest {
   return { text: text.trim(), clientTurnId: data.clientTurnId, ...(data.choiceId !== undefined ? { choiceId: data.choiceId } : {}), ...(openTraceId !== undefined ? { openTraceId } : {}) };
 }
 /** Idempotency fingerprint: a reused clientTurnId must carry the same request. */
-const requestHash = (r: TurnRequest) => createHash('sha256').update(JSON.stringify([r.text, r.choiceId ?? null, r.openTraceId ?? null])).digest('hex');
-const uncertainText = (current: number) => `Tailor could not confirm whether this request was saved. The demo now reports version ${current}; reload it before relying on the change.`;
+const requestHash = (r: TurnRequest) => requestFingerprint([r.text, r.choiceId ?? null, r.openTraceId ?? null]);
 
 export function appServer(store: Store, options: AppServerOptions) {
   const { devKey, agent, provider, escalationProvider, knowledge, telemetry } = options;
   const clock = options.clock ?? store.clock;
-  const inFlight = new Set<string>();
+  const gate = createTurnGate();
   const execution = (): ExecutionLabel => ({ mode: provider.mode, provider: provider.name, model: provider.model, effort: provider.effort ?? null });
   const withExecution = <T extends object>(data: T): T & ExecutionInfoResponse => ({ ...data, execution: execution() });
   const devKeyHash = devKey ? createHash('sha256').update(devKey).digest() : null;
   const devAllowed = (given: unknown) => devKeyHash !== null && typeof given === 'string' && timingSafeEqual(createHash('sha256').update(given).digest(), devKeyHash);
 
-  /** Normalises an agent result so only truthful, bounded tailor turns reach the transcript. */
-  function sanitise(result: AgentTurnResult, before: number, current: number): AgentTurnResult {
-    if (!result || !TURN_OUTCOMES.includes(result.outcome)) throw new Error('Agent returned an unknown outcome.');
-    // A success claim requires the authoritative version to have moved and match the readback evidence; any other
-    // claim (which implies "unchanged") is untrue once the version moved. Both become uncertain with uncertain copy.
-    const unverifiedCommit = result.outcome === 'committed' && !(current > before && result.evidence?.version === current);
-    const movedUnderClaim = current > before && !['committed', 'readback_uncertain', 'expired'].includes(result.outcome);
-    if (unverifiedCommit || movedUnderClaim) {
-      return {
-        outcome: 'readback_uncertain', messages: [{ role: 'tailor', status: 'uncertain', text: uncertainText(current) }],
-        steps: Array.isArray(result.steps) ? result.steps.slice(0, 24) : [], execution: result.execution ?? execution(),
-      };
-    }
-    const outcome = result.outcome;
-    const messages = (Array.isArray(result.messages) ? result.messages : []).flatMap(m => {
-      const text = typeof m?.text === 'string' ? m.text.trim().slice(0, LIMITS.maxTurnTextChars) : '';
-      if (!text) return [];
-      let status: ChatStatus = CHAT_STATUSES.includes(m.status) && m.status !== 'pending' ? m.status : 'note';
-      if (status === 'applied' && outcome !== 'committed') status = outcome === 'readback_uncertain' ? 'uncertain' : 'failed';
-      const turn: Omit<ChatTurn, 'id' | 'at'> = { role: 'tailor', text, status };
-      if (status === 'question' && m.clarification) turn.clarification = m.clarification;
-      if (outcome === 'committed' && m.evidence) turn.evidence = m.evidence;
-      return [turn];
-    }).slice(0, 8);
-    return {
-      outcome, messages,
-      ...(result.clarification ? { clarification: result.clarification } : {}),
-      ...(outcome === 'committed' && result.evidence ? { evidence: result.evidence } : {}),
-      steps: Array.isArray(result.steps) ? result.steps.slice(0, 24) : [],
-      execution: result.execution ?? execution(),
-      ...(outcome === 'committed' && result.story ? { story: result.story } : {}),
-    };
-  }
-  function failure(current: number, before: number): AgentTurnResult {
-    const unchanged = current === before;
-    return {
-      outcome: unchanged ? 'provider_unavailable' : 'readback_uncertain',
-      messages: [unchanged
-        ? { role: 'tailor', status: 'failed', text: `Tailor could not finish this request, so nothing changed. Version ${current} is still live.` }
-        : { role: 'tailor', status: 'uncertain', text: uncertainText(current) }],
-      steps: [{ name: 'model', status: 'failed', detail: 'The agent stopped before finishing this turn.' }],
-      execution: execution(),
-    };
-  }
   async function runTurn(id: string, request: TurnRequest, hash: string, turnId: string, tt: TurnTelemetry): Promise<TurnResponse> {
     // Transaction 1: pending buyer turn + durable running record. The publish transaction marks it published; the
     // final append settles it with the response. A crash in between is settled on retry or by the sweep, never re-run.
@@ -125,10 +73,10 @@ export function appServer(store: Store, options: AppServerOptions) {
     let result: AgentTurnResult;
     try {
       const raw = await agent.handleTurn({ session: store.snapshot(id), request, tools, knowledge, telemetry: tt, clock, provider, ...(escalationProvider ? { escalationProvider } : {}) });
-      result = sanitise(raw, before, store.read(id).version);
+      result = reconcileTurnResult(raw, before, store.read(id).version, execution());
     } catch (e) {
       if (isGone(e)) throw e;
-      result = failure(store.read(id).version, before);
+      result = unfinishedTurnResult(store.read(id).version, before, execution());
     }
     const status = BUYER_STATUS[result.outcome];
     const story = result.story && storyProblems(result.story).length === 0 ? result.story : undefined;
@@ -207,7 +155,7 @@ export function appServer(store: Store, options: AppServerOptions) {
             store.touch(id);
             const prior = store.findRun(id, request.clientTurnId, hash);
             if (prior?.state === 'settled' && prior.response) { tt.event('turn.replayed', { version: prior.response.version }); return prior.response; }
-            if (inFlight.has(id)) throw new Failure(409, 'TURN_IN_FLIGHT', 'Tailor is still working on your previous message.');
+            if (gate.busy(id)) throw new Failure(409, 'TURN_IN_FLIGHT', 'Tailor is still working on your previous message.');
             // A durable run that no live request holds was interrupted (crash/restart): settle it, never run it again.
             if (prior) {
               const response = store.recoverRun(id, request.clientTurnId);
@@ -215,12 +163,11 @@ export function appServer(store: Store, options: AppServerOptions) {
               return response;
             }
             if (request.openTraceId !== undefined && !findTrace(store.read(id), request.openTraceId)) throw traceNotFound();
-            inFlight.add(id);
-            try {
+            return gate.run(id, async () => {
               const response = await runTurn(id, request, hash, turnId, tt);
               tt.event('turn.result', { outcome: response.outcome, version: response.version, conversationVersion: response.conversationVersion, latencyMs: Math.round(performance.now() - started) });
               return response;
-            } finally { inFlight.delete(id); }
+            });
           });
           return send(200, result);
         }
@@ -266,7 +213,7 @@ export function appServer(store: Store, options: AppServerOptions) {
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') throw new Failure(405,'UNSUPPORTED_ACTION','Unsupported action.');
       let file = '/index.html';
-      if (path === '/app.js') file = '../dist/client.js';
+      if (path === '/app.js') file = '../dist/clients/neatlogs/client.js';
       else if (path === '/adapter.js') file = '../dist/adapter.js';
       else if (path === '/agent.js') file = '../dist/agent.js';
       else if (path === '/style.css' || /^\/assets\/[a-zA-Z0-9_.-]+$/.test(path)) file = path;

@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LIMITS, type ScenarioProposal, type ValidationCode } from '../src/agent-contract.ts';
-import { travelProposalV1, travelProposalV2 } from '../src/examples/travel-booking.ts';
-import { fixtures } from '../src/fixtures.ts';
-import { datasetProblems, validateDataset, validateProposal } from '../src/validator.ts';
+import { travelProposalV1, travelProposalV2 } from '../src/clients/neatlogs/examples/travel-booking.ts';
+import { fixtures } from '../src/clients/neatlogs/fixtures.ts';
+import { datasetProblems, validateDataset, validateProposal } from '../src/clients/neatlogs/validator.ts';
 import { fakeClock } from './helpers/backend.ts';
 
 const SID = '0b7c4a52-3f1e-4d8a-9c6b-2e5f7a9d1c30';

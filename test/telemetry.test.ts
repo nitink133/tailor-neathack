@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTelemetry, correlationIdFor, maskSpanData, cleanAttributes } from '../src/telemetry.ts';
+import { createTelemetry, correlationIdFor, maskSpanData, cleanAttributes } from '../src/infrastructure/telemetry.ts';
 
 const SECRET = 'test-secret-for-correlation';
 const SESSION = '7d1e2f30-4a5b-4c6d-8e9f-0a1b2c3d4e5f';

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { LIMITS } from '../src/agent-contract.ts';
-import { travelBuyerTurn1, travelBuyerTurn2, travelProposalV1 } from '../src/examples/travel-booking.ts';
-import { TURN_DEADLINE_MS, TURN_RUNS_PER_SESSION } from '../src/store.ts';
+import { travelBuyerTurn1, travelBuyerTurn2, travelProposalV1 } from '../src/clients/neatlogs/examples/travel-booking.ts';
+import { TURN_DEADLINE_MS, TURN_RUNS_PER_SESSION } from '../src/infrastructure/store.ts';
 import { harness, MINUTE, never, type Harness } from './helpers/backend.ts';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));

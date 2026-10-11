@@ -462,7 +462,7 @@ async function runSmoke(): Promise<void> {
       const s = spendRes.data;
       console.log(`Spend Guard Status: available=${s.available ?? false}`);
       if (s.available) {
-        // Field names follow SpendSummary in src/agent/spend.ts.
+        // Field names follow SpendSummary in src/tailor/spend.ts.
         console.log(`  Estimated Total Cost:  $${Number(s.spentUsd ?? 0).toFixed(4)} of cap $${s.capUsd ?? '?'} (remaining $${Number(s.remainingUsd ?? 0).toFixed(4)}) (ESTIMATED)`);
         console.log(`  Model Calls:           ${s.calls ?? 0}`);
         console.log(`  Input Tokens:          ${s.inputTokens ?? 0}`);

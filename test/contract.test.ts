@@ -3,8 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CONTRACT_VERSION, LIMITS, SCENARIO_KEY_PATTERN, SPAN_KEY_PATTERN, FICTIONAL_HOST_PATTERN, type ScenarioProposal } from '../src/agent-contract.ts';
-import { travelProposalV1, travelProposalV2, nonProposalRequests, travelBuyerTurn1, travelBuyerTurn2 } from '../src/examples/travel-booking.ts';
-import { fixtures } from '../src/fixtures.ts';
+import { travelProposalV1, travelProposalV2, nonProposalRequests, travelBuyerTurn1, travelBuyerTurn2 } from '../src/clients/neatlogs/examples/travel-booking.ts';
+import { fixtures } from '../src/clients/neatlogs/fixtures.ts';
 
 function coherent(p: ScenarioProposal) {
   assert.equal(p.kind, 'scenario_proposal');

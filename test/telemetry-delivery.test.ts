@@ -7,7 +7,7 @@ import { createServer, type Server } from 'node:http';
 import type { Socket } from 'node:net';
 import { gunzipSync } from 'node:zlib';
 import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
-import { createTelemetry, type Telemetry } from '../src/telemetry.ts';
+import { createTelemetry, type Telemetry } from '../src/infrastructure/telemetry.ts';
 
 const FAKE_KEY = 'nl_fake_test_key';
 const HOST = '127.0.0.1';

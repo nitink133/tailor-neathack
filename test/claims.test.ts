@@ -3,10 +3,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ReadbackEvidence } from '../src/agent-contract.ts';
 import type { Trace } from '../src/contracts.ts';
-import { loadKnowledge } from '../src/knowledge.ts';
-import { filteredLead, composeAnswer } from '../src/agent/answer.ts';
-import { groundNarrative, groundNarrativeOrFallback, safeNarrative } from '../src/agent/explain.ts';
-import { hasPricingClaim, sanitiseClarificationText, splitSentences, stripUngroundedClaims, allWordsGroundedIn } from '../src/agent/claims.ts';
+import { loadKnowledge } from '../src/clients/neatlogs/knowledge.ts';
+import { filteredLead, composeAnswer } from '../src/clients/neatlogs/answer.ts';
+import { groundNarrative, groundNarrativeOrFallback, safeNarrative } from '../src/clients/neatlogs/explain.ts';
+import { hasPricingClaim, sanitiseClarificationText, splitSentences, stripUngroundedClaims, allWordsGroundedIn } from '../src/clients/neatlogs/claims.ts';
 
 // -- L1-03: refuse / unsupported text -------------------------------------------------------------------------------
 test('L1-03: the audit probe sentences for unsupported/refuse replies are removed', () => {

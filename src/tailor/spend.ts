@@ -13,7 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { LIMITS, systemClock, type Clock, type ProviderUsage } from '../agent-contract.ts';
+import { CORE_LIMITS as LIMITS, systemClock, type Clock, type ProviderUsage } from './contract.ts';
 import { ProviderError } from './provider-error.ts';
 
 export interface SpendRates {

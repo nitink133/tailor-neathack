@@ -5,10 +5,10 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import Anthropic from '@anthropic-ai/sdk';
 import { systemClock, type AgentTurnResult, type ProviderRequest, type SessionSnapshot } from '../src/agent-contract.ts';
-import { travelBuyerTurn1 } from '../src/examples/travel-booking.ts';
-import { ProviderError, createAnthropicProvider, maxOutputTokensFor, type MessagesClientLike } from '../src/agent/anthropic-provider.ts';
-import { AGENT_LIMITS, createAgentService } from '../src/agent/service.ts';
-import { createSpendGuard } from '../src/agent/spend.ts';
+import { travelBuyerTurn1 } from '../src/clients/neatlogs/examples/travel-booking.ts';
+import { ProviderError, createAnthropicProvider, maxOutputTokensFor, type MessagesClientLike } from '../src/clients/neatlogs/anthropic-provider.ts';
+import { AGENT_LIMITS, createAgentService } from '../src/clients/neatlogs/service.ts';
+import { createSpendGuard } from '../src/tailor/spend.ts';
 import { fakeKnowledge, recordingTelemetry, stubTools } from './helpers/agent.ts';
 
 const PLACEHOLDER_KEY = 'placeholder-not-a-key';

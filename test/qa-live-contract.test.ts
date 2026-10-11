@@ -24,14 +24,14 @@ import {
   type TurnResponse,
   LIMITS,
 } from '../src/agent-contract.ts';
-import { ProviderError } from '../src/agent/provider-error.ts';
-import { travelProposalV1 } from '../src/examples/travel-booking.ts';
+import { ProviderError } from '../src/tailor/provider-error.ts';
+import { travelProposalV1 } from '../src/clients/neatlogs/examples/travel-booking.ts';
 
-import { Store } from '../src/store.ts';
-import { appServer } from '../src/server.ts';
-import { createAgentService } from '../src/agent/service.ts';
-import { loadKnowledge } from '../src/knowledge.ts';
-import { createTelemetry, type Telemetry } from '../src/telemetry.ts';
+import { Store } from '../src/infrastructure/store.ts';
+import { appServer } from '../src/infrastructure/server.ts';
+import { createAgentService } from '../src/clients/neatlogs/service.ts';
+import { loadKnowledge } from '../src/clients/neatlogs/knowledge.ts';
+import { createTelemetry, type Telemetry } from '../src/infrastructure/telemetry.ts';
 
 // ---------------------------------------------------------------------------
 // Scripted Fake ModelProvider for contract assertions

@@ -6,27 +6,19 @@
 import {
   CONTRACT_VERSION, FICTIONAL_HOST_PATTERN, LIMITS,
   type AgentAction, type ModelProvider, type ProposedSpan, type ProposedTrace, type ProviderRequest, type ProviderResponse, type ScenarioProposal, type ValidationProblem,
-} from '../agent-contract.ts';
-import type { Json, Story } from '../contracts.ts';
+} from './agent-contract.ts';
+import type { Json, Story } from './contracts.ts';
+import { createOfflineProvider } from '../../tailor/mock-provider.ts';
 import type { ActiveTraceDetail, AgentContext, KnowledgeSummary } from './context.ts';
 import { parseUserMessage } from './prompts.ts';
 import { parseAgentAction } from './provider.ts';
 
 export function createMockProvider(): ModelProvider {
-  return {
-    name: 'tailor-mock',
-    model: null,
-    mode: 'mock',
-    effort: null,
-    async complete(request: ProviderRequest): Promise<ProviderResponse> {
-      const started = performance.now();
-      const action = decide(request);
-      // Round-trip through the strict parser: the mock is held to the same contract as a live provider.
-      const checked = parseAgentAction(JSON.stringify(action));
-      if (!checked) throw new Error('Mock provider produced an invalid action');
-      return { action: checked, usage: null, latencyMs: Math.max(0, Math.round(performance.now() - started)) };
-    },
-  };
+  // Round-trip through the strict parser: the mock is held to the same contract as a live provider.
+  return createOfflineProvider<AgentAction>({
+    decide: request => decide(request as ProviderRequest),
+    check: action => parseAgentAction(JSON.stringify(action)),
+  });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -1,20 +1,12 @@
 // Deterministic, evidence-grounded explanations. Every number, name and ID here comes from a saved/read-back
 // trace, never from the model. The model's narrative (if any) is appended AFTER the evidence.
 
-import type { Evidence, Span, Trace } from '../contracts.ts';
-import type { ReadbackEvidence } from '../agent-contract.ts';
-import { clip } from './context.ts';
+import type { Evidence, Span, Trace } from './contracts.ts';
+import type { ReadbackEvidence } from './agent-contract.ts';
+import { clip, cleanNarrative } from '../../tailor/text.ts';
 import { hasPricingClaim, isUngroundedClaim, splitSentences } from './claims.ts';
 
-const MAX_NARRATIVE_CHARS = 700;
-
-/** Model text is data: flatten, strip code fences/backticks, bound the length. */
-export function cleanNarrative(text: string | undefined): string {
-  if (!text) return '';
-  return clip(text.replace(/```[\s\S]*?```/g, ' ').replace(/`/g, ''), MAX_NARRATIVE_CHARS);
-}
-
-export { splitSentences, hasPricingClaim };
+export { cleanNarrative, splitSentences, hasPricingClaim };
 
 const IDENTIFIER = /[A-Za-z0-9]+(?:[_-][A-Za-z0-9]+)+/g;
 const PLAIN_COMPOUNDS = new Set(['end-to-end', 'follow-up', 'built-in', 'read-only', 'explain-only', 'mock-backed', 'real-time', 'one-off', 'step-by-step', 'fail-safe', 'non-blocking', 'time-out', 'back-off', 'well-known', 'so-called', 'on-call', 'drop-in', 'trade-off', 'e-commerce', 'check-in', 'sign-in', 'log-in', 'run-time', 'high-level', 'low-level']);

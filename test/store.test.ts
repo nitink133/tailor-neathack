@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { LIMITS } from '../src/agent-contract.ts';
-import { travelProposalV1, travelProposalV2 } from '../src/examples/travel-booking.ts';
-import { Store, Failure, TOMBSTONE_TTL_MS } from '../src/store.ts';
-import { createSessionTools } from '../src/session-tools.ts';
+import { travelProposalV1, travelProposalV2 } from '../src/clients/neatlogs/examples/travel-booking.ts';
+import { Store, Failure, TOMBSTONE_TTL_MS } from '../src/infrastructure/store.ts';
+import { createSessionTools } from '../src/clients/neatlogs/session-tools.ts';
 import { MINUTE, op, tempStore } from './helpers/backend.ts';
 
 const failureCode = (fn: () => unknown) => { try { fn(); } catch (e) { return e instanceof Failure ? `${e.status} ${e.code}` : String(e); } return 'no error'; };

@@ -1,7 +1,7 @@
 // The one error type live providers throw. The message is operator-safe: it never contains buyer text, prompts,
 // model output or credentials. The service maps `kind` to telemetry and a short step detail; buyer copy stays generic.
 
-import type { ProviderErrorKind } from '../agent-contract.ts';
+import type { ProviderErrorKind } from './contract.ts';
 
 /**
  * Whether retrying the same call can plausibly succeed within the same turn. Individual errors may override (e.g. a 500).

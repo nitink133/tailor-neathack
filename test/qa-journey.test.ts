@@ -27,19 +27,19 @@ import {
   travelBuyerTurn1,
   travelBuyerTurn2,
   nonProposalRequests,
-} from '../src/examples/travel-booking.ts';
+} from '../src/clients/neatlogs/examples/travel-booking.ts';
 
 // Seam imports to be verified by orchestrator when wave-2 lands:
-import { Store } from '../src/store.ts';
-import { appServer } from '../src/server.ts';
+import { Store } from '../src/infrastructure/store.ts';
+import { appServer } from '../src/infrastructure/server.ts';
 
-import { createAgentService } from '../src/agent/service.ts';
+import { createAgentService } from '../src/clients/neatlogs/service.ts';
 
-import { createProvider } from '../src/agent/provider.ts';
+import { createProvider } from '../src/clients/neatlogs/provider.ts';
 
-import { loadKnowledge } from '../src/knowledge.ts';
+import { loadKnowledge } from '../src/clients/neatlogs/knowledge.ts';
 
-import { createTelemetry } from '../src/telemetry.ts';
+import { createTelemetry } from '../src/infrastructure/telemetry.ts';
 
 interface FakeClock {
   currentTime: number;

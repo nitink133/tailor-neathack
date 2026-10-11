@@ -2,13 +2,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import type { ChatStatus, ChatTurn, Dataset, DemoSession, FixtureScenario, Span, Story, Trace, TraceList, TraceQuery } from './contracts.ts';
+import type { ChatStatus, ChatTurn, Dataset, DemoSession, FixtureScenario, Span, Story, Trace, TraceList, TraceQuery } from '../clients/neatlogs/contracts.ts';
 import {
   LIMITS, systemClock,
   type Clock, type ExecutionLabel, type PublishResult, type ReadbackEvidence, type ScenarioProposal, type SessionSnapshot, type TurnOutcome, type TurnResponse,
-} from './agent-contract.ts';
-import { fixtures } from './fixtures.ts';
-import { datasetProblems, storyProblems, validateProposal } from './validator.ts';
+} from '../clients/neatlogs/agent-contract.ts';
+import { fixtures } from '../clients/neatlogs/fixtures.ts';
+import { CHAT_STATUSES, TOMBSTONE_TTL_MS, TURN_DEADLINE_MS, TURN_RUNS_PER_SESSION, isSessionExpired } from '../tailor/lifecycle.ts';
+import { datasetProblems, storyProblems, validateProposal } from '../clients/neatlogs/validator.ts';
 
 export class Failure extends Error {
   status: number; code: string;
@@ -20,17 +21,7 @@ class CommitThenThrow extends Error {
   constructor(failure: Failure) { super(failure.message); this.failure = failure; }
 }
 
-/** Ended-session tombstones keep End demo idempotent, then are swept. */
-export const TOMBSTONE_TTL_MS = 10 * 60 * 1000;
-const CHAT_STATUSES: readonly ChatStatus[] = ['pending', 'applied', 'failed', 'uncertain', 'question', 'note'];
-
-/**
- * A run older than this cannot still be executing (provider calls + explanation call + slack), so the sweep may
- * settle it as interrupted. Runs younger than this are only settled on a same-ID retry when no process holds them.
- */
-export const TURN_DEADLINE_MS = (LIMITS.maxProviderCallsPerTurn + 1) * LIMITS.providerTimeoutMs + 60_000;
-/** Settled runs kept per session so an older retry replays instead of running again. */
-export const TURN_RUNS_PER_SESSION = 16;
+export { TOMBSTONE_TTL_MS, TURN_DEADLINE_MS, TURN_RUNS_PER_SESSION };
 
 export interface StoreFaults { failSave?: () => boolean; failReadback?: () => boolean }
 export interface StoreOptions { clock?: Clock; faults?: StoreFaults }
@@ -146,7 +137,7 @@ export class Store {
   private row(id: string): Row | undefined {
     return this.db.prepare('SELECT id, document, state, last_active_at, expires_at, last_turn FROM sessions WHERE id=?').get(id) as Row | undefined;
   }
-  private expired(row: Row, now = this.clock.now()) { return now - row.last_active_at > LIMITS.idleMs || now >= row.expires_at; }
+  private expired(row: Row, now = this.clock.now()) { return isSessionExpired(row.last_active_at, row.expires_at, now); }
   /** Server-clock lifecycle gate. Expired rows are deleted on access; ended rows are tombstones. */
   private live(id: string): Row {
     const row = this.row(id);

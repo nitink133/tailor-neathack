@@ -2,7 +2,7 @@
 // the model cannot reach another buyer's data.
 import type { TraceQuery } from './contracts.ts';
 import type { Clock, PublishResult, ScenarioProposal, SessionTools, TurnTelemetry } from './agent-contract.ts';
-import { findTrace, traceList, traceQuery, type Store } from './store.ts';
+import { findTrace, traceList, traceQuery, type Store } from '../../infrastructure/store.ts';
 import { validateProposal } from './validator.ts';
 
 const publishAttributes = (r: PublishResult): Record<string, string | number> => {

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { loadKnowledge, pricingSummary } from '../src/knowledge.ts';
+import { loadKnowledge, pricingSummary } from '../src/clients/neatlogs/knowledge.ts';
 
 const knowledgeDir = new URL('../knowledge/neatlogs/', import.meta.url);
 const validLevels = new Set(['demonstrable', 'modifiable', 'explain_only', 'unsupported']);

@@ -2,15 +2,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LIMITS, type AgentAction, type PublishResult, type ScenarioProposal } from '../src/agent-contract.ts';
-import { travelBuyerTurn1, travelBuyerTurn2, travelProposalV1, nonProposalRequests } from '../src/examples/travel-booking.ts';
-import { createAgentService } from '../src/agent/service.ts';
-import { createProvider, parseAgentAction } from '../src/agent/provider.ts';
-import { createMockProvider } from '../src/agent/mock-provider.ts';
-import { parseUserMessage } from '../src/agent/prompts.ts';
-import { loadKnowledge } from '../src/knowledge.ts';
-import { createSpendGuard } from '../src/agent/spend.ts';
-import { sentencePassesAnswerFilter } from '../src/agent/answer.ts';
-import { groundNarrative } from '../src/agent/explain.ts';
+import { travelBuyerTurn1, travelBuyerTurn2, travelProposalV1, nonProposalRequests } from '../src/clients/neatlogs/examples/travel-booking.ts';
+import { createAgentService } from '../src/clients/neatlogs/service.ts';
+import { createProvider, parseAgentAction } from '../src/clients/neatlogs/provider.ts';
+import { createMockProvider } from '../src/clients/neatlogs/mock-provider.ts';
+import { parseUserMessage } from '../src/clients/neatlogs/prompts.ts';
+import { loadKnowledge } from '../src/clients/neatlogs/knowledge.ts';
+import { createSpendGuard } from '../src/tailor/spend.ts';
+import { sentencePassesAnswerFilter } from '../src/clients/neatlogs/answer.ts';
+import { groundNarrative } from '../src/clients/neatlogs/explain.ts';
 import { countingProvider, FAKE_RECORDS, fakeKnowledge, harness, recordingTelemetry, scriptedProvider, stubTools, validateProposal } from './helpers/agent.ts';
 
 const errorSpans = (h: ReturnType<typeof harness>) => h.tools.state.dataset.traces.find(t => t.scenario === h.tools.state.dataset.activeScenario)!.spans.filter(s => s.status === 'ERROR');

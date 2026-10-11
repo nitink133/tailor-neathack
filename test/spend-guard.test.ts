@@ -6,8 +6,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProviderRequest } from '../src/agent-contract.ts';
-import { ProviderError, createAnthropicProvider, type MessagesClientLike, type RawMessageLike } from '../src/agent/anthropic-provider.ts';
-import { MODEL_RATES, createSpendGuard, hasRatesFor } from '../src/agent/spend.ts';
+import { ProviderError, createAnthropicProvider, type MessagesClientLike, type RawMessageLike } from '../src/clients/neatlogs/anthropic-provider.ts';
+import { MODEL_RATES, createSpendGuard, hasRatesFor } from '../src/tailor/spend.ts';
 
 const KEY = 'placeholder-not-a-key';
 const answerWire = { type: 'answer', text: 'ok', clarification: null, proposal: null, explanation: null, traceId: null, spanIds: null, knowledgeIds: [], capabilityId: null, reason: null };

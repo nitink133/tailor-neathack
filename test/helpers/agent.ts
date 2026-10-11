@@ -8,8 +8,8 @@ import {
   type ProviderRequest, type ProviderResponse, type ReadbackEvidence, type ScenarioProposal, type SessionSnapshot, type SessionTools, type TurnTelemetry, type ValidationProblem,
 } from '../../src/agent-contract.ts';
 import type { ChatTurn, Dataset, Span, Story, Trace, TraceList } from '../../src/contracts.ts';
-import { createAgentService } from '../../src/agent/service.ts';
-import { createMockProvider } from '../../src/agent/mock-provider.ts';
+import { createAgentService } from '../../src/clients/neatlogs/service.ts';
+import { createMockProvider } from '../../src/clients/neatlogs/mock-provider.ts';
 
 export const SESSION_ID = 'sess-test';
 

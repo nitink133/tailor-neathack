@@ -2,9 +2,8 @@
 // reply: at most one short lead sentence survives, and only if it passes the claim filter below (no prices, no plan
 // names the records don't list, no capability claims the records don't support).
 
-import type { CapabilityRecord } from '../agent-contract.ts';
-import { clip } from './context.ts';
-import { cleanNarrative } from './explain.ts';
+import type { CapabilityRecord } from './agent-contract.ts';
+import { clip, cleanNarrative } from '../../tailor/text.ts';
 import { PLAN_WORDS, allWordsGroundedIn, hasBlanketPlanClaim, hasLimitNumber, hasPricingClaim, splitSentences } from './claims.ts';
 
 const MAX_LEAD_CHARS = 200;

@@ -3,8 +3,12 @@
 // never full span payloads except a size-capped view of the ONE active trace (needed for follow-up edits).
 // Buyer statements and Tailor assumptions are kept in separate fields on purpose.
 
-import type { ChatTurn, Clarification, Json, Span, Story, Trace } from '../contracts.ts';
-import { CONTRACT_VERSION, LIMITS, type CapabilityRecord, type SessionSnapshot, type TurnRequest } from '../agent-contract.ts';
+import type { ChatTurn, Json, Span, Story, Trace } from './contracts.ts';
+import { CONTRACT_VERSION, LIMITS, type CapabilityRecord, type SessionSnapshot, type TurnRequest } from './agent-contract.ts';
+import { clip } from '../../tailor/text.ts';
+import { resolveTurnText as resolveCoreTurnText, type ResolvedTurnText as CoreResolvedTurnText } from '../../tailor/conversation.ts';
+
+export { clip };
 
 export const CONTEXT_SCHEMA_VERSION = 1 as const;
 const MAX_RECENT_TURNS = 12;
@@ -51,11 +55,6 @@ export interface AgentContext {
   knowledge: KnowledgeSummary[];
   knowledgeVersion: string;
   limits: Record<string, number>;
-}
-
-export function clip(text: string, max: number): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
-  return flat.length <= max ? flat : `${flat.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
 /** Persisted span IDs are `${traceId}-${spanKey}`; recover the model-facing key. */
@@ -111,38 +110,11 @@ export function summariseRecord(record: CapabilityRecord): KnowledgeSummary {
   };
 }
 
-export interface ResolvedTurnText {
-  /** Text the model should treat as the buyer's message. */
-  effectiveText: string;
-  choice: { id: string; label: string } | null;
-  question: Clarification | null;
-  /** Conversation without the in-flight buyer turn (the backend appends it before invoking the agent). */
-  history: ChatTurn[];
-}
+export type ResolvedTurnText = CoreResolvedTurnText<ChatTurn>;
 
-/**
- * Resolve `choiceId` against the most recent tailor turn that carries a clarification.
- * An unknown choiceId (or one with no open question) is ignored and the typed text is used as free text.
- */
+/** The core's choice/free-text resolution, typed for the Neatlogs session. */
 export function resolveTurnText(session: SessionSnapshot, request: TurnRequest): ResolvedTurnText {
-  const history = [...session.conversation];
-  const last = history[history.length - 1];
-  if (last && last.role === 'buyer' && last.text.trim() === request.text.trim()) history.pop();
-  let question: Clarification | null = null;
-  for (let i = history.length - 1; i >= 0; i--) {
-    const turn = history[i]!;
-    if (turn.role !== 'tailor') continue;
-    question = turn.clarification ?? null;
-    break;
-  }
-  const choice = request.choiceId && question ? question.choices.find(c => c.id === request.choiceId) ?? null : null;
-  const effective = choice ? choice.label : request.text;
-  return {
-    effectiveText: effective.trim().slice(0, LIMITS.maxTurnTextChars),
-    choice: choice ? { id: choice.id, label: choice.label } : null,
-    question,
-    history,
-  };
+  return resolveCoreTurnText(session, request);
 }
 
 export function buildContext(args: { session: SessionSnapshot; resolved: ResolvedTurnText; records: CapabilityRecord[]; knowledgeVersion: string; openTraceId?: string }): AgentContext {

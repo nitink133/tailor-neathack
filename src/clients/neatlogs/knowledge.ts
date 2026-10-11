@@ -23,7 +23,7 @@ const scopes = ['official_product', 'clone_only'] as const;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const sourceUrlPattern = /^(?:https?:\/\/|repo:)/;
 const officialSourcePattern = /^https?:\/\//;
-const defaultDirectory = new URL('../knowledge/neatlogs/', import.meta.url);
+const defaultDirectory = new URL('../../../knowledge/neatlogs/', import.meta.url);
 
 function parseJson(path: URL, label: string): unknown {
   try {

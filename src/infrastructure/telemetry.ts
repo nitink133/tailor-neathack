@@ -12,7 +12,7 @@ import { BasicTracerProvider, SimpleSpanProcessor, type ReadableSpan, type SpanE
 // Same transitive-dependency rule: the OTel global error handler is the only place background batch failures surface.
 import { setGlobalErrorHandler, loggingErrorHandler } from '@opentelemetry/core';
 import type { Span as OtelSpan } from '@opentelemetry/api';
-import { LIMITS, type ProviderErrorKind, type ProviderUsage, type TelemetryStep, type TurnTelemetry } from './agent-contract.ts';
+import { CORE_LIMITS as LIMITS, type ProviderErrorKind, type ProviderUsage, type TelemetryStep, type TurnTelemetry } from '../tailor/contract.ts';
 
 export type TelemetryMode = 'disabled' | 'captured' | 'neatlogs';
 export interface TelemetryOptions {

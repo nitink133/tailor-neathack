@@ -15,9 +15,9 @@ let key = process.env.TAILOR_DEV_KEY;
 let stop = async () => {};
 
 if (inProcess) {
-  const { Store } = await import('../src/store.ts');
-  const { appServer } = await import('../src/server.ts');
-  const { createTelemetry } = await import('../src/telemetry.ts');
+  const { Store } = await import('../src/infrastructure/store.ts');
+  const { appServer } = await import('../src/infrastructure/server.ts');
+  const { createTelemetry } = await import('../src/infrastructure/telemetry.ts');
   const dir = mkdtempSync(join(tmpdir(), 'tailor-fixture-'));
   const store = new Store(join(dir, 'sessions.sqlite'));
   key = randomBytes(32).toString('hex');

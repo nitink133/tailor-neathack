@@ -6,10 +6,10 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import type { AgentService, AgentTurnInput, AgentTurnResult, Clock, KnowledgeIndex, ModelProvider, PublishResult } from '../../src/agent-contract.ts';
-import { travelProposalV1, travelProposalV2 } from '../../src/examples/travel-booking.ts';
-import { Store, type StoreFaults } from '../../src/store.ts';
-import { appServer } from '../../src/server.ts';
-import { createTelemetry, type Telemetry, type TelemetryMode } from '../../src/telemetry.ts';
+import { travelProposalV1, travelProposalV2 } from '../../src/clients/neatlogs/examples/travel-booking.ts';
+import { Store, type StoreFaults } from '../../src/infrastructure/store.ts';
+import { appServer } from '../../src/infrastructure/server.ts';
+import { createTelemetry, type Telemetry, type TelemetryMode } from '../../src/infrastructure/telemetry.ts';
 
 export const T0 = Date.parse('2026-10-11T12:00:00.000Z');
 export type FakeClock = Clock & { advance(ms: number): void; set(ms: number): void };

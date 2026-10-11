@@ -8,15 +8,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { CONTRACT_VERSION, LIMITS, OUTCOME_KINDS, SPAN_KINDS, type AgentAction, type ProviderRequest } from '../src/agent-contract.ts';
-import { travelBuyerTurn1, travelProposalV1, travelProposalV2 } from '../src/examples/travel-booking.ts';
+import { travelBuyerTurn1, travelProposalV1, travelProposalV2 } from '../src/clients/neatlogs/examples/travel-booking.ts';
 import {
   AGENT_ACTION_SCHEMA, EVIDENCE_EXPLANATION_SCHEMA, ProviderError, createAnthropicProvider, mapSdkError, maxOutputTokensFor, normaliseWireAction, toAnthropicMessages, toProviderUsage,
   type AnthropicMessageParams, type MessagesClientLike, type RawMessageLike, type RequestOptionsLike,
-} from '../src/agent/anthropic-provider.ts';
-import { explanationMessage, parseUserMessage } from '../src/agent/prompts.ts';
-import { createProvider, validateAgentAction, validateEvidenceExplanation } from '../src/agent/provider.ts';
-import { createAgentService } from '../src/agent/service.ts';
-import { PER_CALL_OUTPUT_TOKEN_CEILING, SPEND_ESTIMATE_NOTE, createSpendGuard } from '../src/agent/spend.ts';
+} from '../src/clients/neatlogs/anthropic-provider.ts';
+import { explanationMessage, parseUserMessage } from '../src/clients/neatlogs/prompts.ts';
+import { createProvider, validateAgentAction, validateEvidenceExplanation } from '../src/clients/neatlogs/provider.ts';
+import { createAgentService } from '../src/clients/neatlogs/service.ts';
+import { PER_CALL_OUTPUT_TOKEN_CEILING, SPEND_ESTIMATE_NOTE, createSpendGuard } from '../src/tailor/spend.ts';
 import { harness, recordingTelemetry, scriptedProvider, SESSION_ID, FAKE_RECORDS, fixedClock, fakeKnowledge, type StubTools, type CountingProvider } from './helpers/agent.ts';
 
 const PLACEHOLDER_KEY = 'placeholder-not-a-key';

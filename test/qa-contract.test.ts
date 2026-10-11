@@ -13,7 +13,7 @@ import {
   travelProposalV1,
   travelProposalV2,
   nonProposalRequests,
-} from '../src/examples/travel-booking.ts';
+} from '../src/clients/neatlogs/examples/travel-booking.ts';
 
 interface EvalItem {
   id: string;
