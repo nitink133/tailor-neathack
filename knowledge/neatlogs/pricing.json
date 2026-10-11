@@ -1,0 +1,17 @@
+{
+  "verifiedOn": "2026-10-11",
+  "status": "unknown",
+  "plans": [],
+  "sources": [
+    {
+      "url": "https://neatlogs.com/",
+      "verifiedOn": "2026-10-11",
+      "claim": "The fetched homepage contains a Start free section and span-volume marketing statements, but no verified named-plan entitlement table was used."
+    }
+  ],
+  "notes": [
+    "The dedicated URL https://neatlogs.com/pricing could not be fetched on 2026-10-11 (CRAWL_NOT_FOUND).",
+    "No capability-to-plan availability is asserted from the homepage alone.",
+    "Hackathon credits or access are not evidence of ordinary plan availability."
+  ]
+}
