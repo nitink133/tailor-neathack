@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4PC5ZJ5X7CYEHSEP37PNNTZ",
+  "strategy": "manual-commit",
+  "branch": "work/nit-269-build-personalised-tailor-agent-proof",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/agent/anthropic-provider.ts",
+    "src/agent/mock-provider.ts",
+    "src/agent/prompts.ts",
+    "src/agent/provider-error.ts",
+    "src/agent/provider.ts",
+    "src/agent/service.ts",
+    "src/agent/spend.ts",
+    "test/agent.test.ts",
+    "test/anthropic-provider.test.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ]
+}
