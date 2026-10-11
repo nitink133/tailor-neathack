@@ -8,6 +8,7 @@ import { createProvider, parseAgentAction } from '../src/agent/provider.ts';
 import { createMockProvider } from '../src/agent/mock-provider.ts';
 import { parseUserMessage } from '../src/agent/prompts.ts';
 import { loadKnowledge } from '../src/knowledge.ts';
+import { createSpendGuard } from '../src/agent/spend.ts';
 import { sentencePassesAnswerFilter } from '../src/agent/answer.ts';
 import { groundNarrative } from '../src/agent/explain.ts';
 import { countingProvider, FAKE_RECORDS, fakeKnowledge, harness, recordingTelemetry, scriptedProvider, stubTools, validateProposal } from './helpers/agent.ts';
@@ -434,10 +435,15 @@ test('knowledge answers cite only records relevant to the question', async () =>
   assert.doesNotMatch(result.messages[0]!.text, /Pricing and plans/);
 });
 
-test('createProvider: mock works, live throws and reads no environment', () => {
+test('createProvider: mock has no effort; anthropic is a live provider built from an injected client and reads no environment', () => {
   const mock = createProvider({ kind: 'mock' });
-  assert.deepEqual([mock.mode, mock.name, mock.model], ['mock', 'tailor-mock', null]);
-  assert.throws(() => createProvider({ kind: 'live' }), /Live provider not approved\/configured/);
+  assert.deepEqual([mock.mode, mock.name, mock.model, mock.effort], ['mock', 'tailor-mock', null, null]);
+  assert.equal(mock.explain, undefined);
+  const spend = createSpendGuard({ capUsd: 1 });
+  const client = { messages: { parse: async () => { throw new Error('offline'); } } };
+  const live = createProvider({ kind: 'anthropic', apiKey: 'placeholder-not-a-key', spend, client });
+  assert.deepEqual([live.mode, live.name, live.model, live.effort], ['live', 'anthropic', 'claude-sonnet-5-5', 'medium']);
+  assert.equal(typeof live.explain, 'function');
 });
 
 test('parseAgentAction: strict structural validation', () => {

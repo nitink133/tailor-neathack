@@ -9,16 +9,17 @@
 import {
   LIMITS,
   type AgentAction, type AgentService, type AgentTurnInput, type AgentTurnResult, type ExecutionLabel, type ModelProvider, type ProviderMessage,
-  type PublishResult, type ScenarioProposal, type SessionTools, type TurnOutcome, type TurnStep, type ValidationProblem,
+  type PublishResult, type ReadbackEvidence, type ScenarioProposal, type SessionTools, type TurnOutcome, type TurnStep, type ValidationProblem,
 } from '../agent-contract.ts';
 import type { ChatStatus, Clarification, Story, Trace } from '../contracts.ts';
 import { buildContext, clip, resolveTurnText } from './context.ts';
 import { composeAnswer } from './answer.ts';
 import { cleanNarrative, citedSpanIds, describeCommit, describeTrace, groundNarrative } from './explain.ts';
-import { repairMessage, SYSTEM_PROMPT, userMessage } from './prompts.ts';
-import { validateAgentAction } from './provider.ts';
+import { explanationMessage, EXPLANATION_SYSTEM_PROMPT, repairMessage, SYSTEM_PROMPT, userMessage } from './prompts.ts';
+import { validateAgentAction, validateEvidenceExplanation } from './provider.ts';
+import { isProviderError, type ProviderError } from './provider-error.ts';
 
-const MODEL_TIMEOUT_MS = 30_000;
+const MODEL_TIMEOUT_MS = LIMITS.providerTimeoutMs;
 
 class BudgetError extends Error {}
 
@@ -71,11 +72,14 @@ function problemSummary(problems: ValidationProblem[]): string {
 async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
   const { session, request, knowledge, telemetry, clock, provider } = input;
   const steps: TurnStep[] = [];
-  const execution: ExecutionLabel = { mode: provider.mode, provider: provider.name, model: provider.model };
+  // `effort` is only present for providers that expose one (live); the mock label stays {mode, provider, model}.
+  const execution: ExecutionLabel = { mode: provider.mode, provider: provider.name, model: provider.model, ...(provider.effort ? { effort: provider.effort } : {}) };
   let providerCalls = 0;
   let repairs = 0;
   let escalations = 0;
   let toolCalls = 0;
+  /** Last failure from a live provider; decides retry behaviour and the buyer-facing unavailable copy. */
+  let lastProviderError: ProviderError | null = null;
   const tools = guardTools(input.tools, () => {
     if (toolCalls >= LIMITS.maxToolCallsPerTurn) throw new BudgetError('Tool call budget exhausted');
     toolCalls++;
@@ -93,7 +97,8 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
       steps.push({ name, status: 'ok', ...(d ? { detail: d } : {}), durationMs: Math.max(0, clock.now() - started) });
       return value;
     } catch (error) {
-      steps.push({ name, status: 'failed', durationMs: Math.max(0, clock.now() - started) });
+      // Operator-safe detail only: the provider error KIND ('auth', 'rate_limit', 'spend_cap', …), never a message or payload.
+      steps.push({ name, status: 'failed', ...(isProviderError(error) ? { detail: error.kind } : {}), durationMs: Math.max(0, clock.now() - started) });
       throw error;
     }
   }
@@ -120,6 +125,7 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
         name === 'repair' ? () => 'Fixed what the checks flagged' : name === 'escalate' ? () => 'Asked a stronger model once' : () => 'Planned the response');
         telemetry.recordUsage(response.usage, prov.model);
         telemetry.event('provider_latency', { provider: prov.name, latencyMs: response.latencyMs });
+        if (response.requestId) telemetry.event('provider_request_id', { provider: prov.name, requestId: response.requestId });
         const action = validateAgentAction(response.action);
         if (!action) return null;
         if (action.type === 'ask') {
@@ -128,7 +134,12 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
         }
         return action;
       } catch (error) {
-        telemetry.event('provider_error', { provider: prov.name, kind: error instanceof Error ? error.name : 'unknown' });
+        if (isProviderError(error)) {
+          lastProviderError = error;
+          telemetry.event('provider_error', { provider: prov.name, kind: error.kind, retryable: error.retryable, ...(error.requestId ? { requestId: error.requestId } : {}) });
+        } else {
+          telemetry.event('provider_error', { provider: prov.name, kind: error instanceof Error ? error.name : 'unknown' });
+        }
         return null;
       }
     }
@@ -139,13 +150,19 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
         if (providerCalls >= LIMITS.maxProviderCallsPerTurn) return null;
         if (!first) { if (repairs >= LIMITS.maxRepairsPerTurn) return null; repairs++; }
         first = false;
+        lastProviderError = null;
         const action = await callOnce(prov, name, repairOf);
         if (action) return action;
+        // Auth, billing, spend-cap, refusal… will not improve on a retry; do not burn the repair budget on them.
+        if (lastProviderError && !(lastProviderError as ProviderError).retryable) return null;
       }
     }
 
     const action = await acquire(provider, 'model');
     if (!action) {
+      if ((lastProviderError as ProviderError | null)?.kind === 'spend_cap') {
+        return finish('provider_unavailable', note('The demo’s model budget for today is used up, so I can’t plan new scenarios right now and I haven’t changed anything. Please try again later.', 'failed'));
+      }
       return finish('provider_unavailable', note('I couldn’t get a usable answer from my planning step just now, so I haven’t changed anything. Please try again in a moment.', 'failed'));
     }
 
@@ -231,8 +248,16 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
             try { trace = (await step('explain', { traces: readback.traces.length }, () => tools.readTrace(traceId), () => 'Read the saved trace'))?.trace ?? null; }
             catch { trace = null; }
           }
-          const { text, evidence } = describeCommit(readback, trace, groundNarrative(explanation, trace, readback));
-          return finish('committed', note(text, 'applied', { evidence }), { evidence: readback, story: sanitiseStory(proposal.story) });
+          let narrative = groundNarrative(explanation, trace, readback);
+          let citedByModel: string[] = [];
+          if (trace) {
+            const live = await explainFromEvidence(trace, readback, proposal.story);
+            if (live) { narrative = live.narrative; citedByModel = live.spanIds; }
+          }
+          const { text, evidence } = describeCommit(readback, trace, narrative);
+          // Evidence span ids stay inside the read-back trace: the model's picks (if any survive) replace the default error spans.
+          const spanIds = citedByModel.length ? citedByModel : evidence.spanIds;
+          return finish('committed', note(text, 'applied', { evidence: { ...evidence, spanIds } }), { evidence: readback, story: sanitiseStory(proposal.story) });
         }
         case 'conflict':
           return finish('conflict', note(`The scenario changed while I was working (the live version is now ${result.currentVersion}), so nothing was saved and your last good version is still live. Ask again and I’ll start from the latest.`, 'failed'));
@@ -244,6 +269,37 @@ async function handleTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
           return finish('expired', note('This demo has ended or expired, so I can no longer read or change anything. Start a new demo to continue.'));
         case 'unsupported':
           return finish('unsupported', note(`That isn’t something this demo can show: ${oneLine(result.reason, 200)}. I didn’t add it to your scenario.`));
+      }
+    }
+
+    /**
+     * Optional second provider call (live providers): narrate ONLY the read-back evidence. One call, inside the shared
+     * provider budget. Any failure keeps the turn committed and falls back to the (grounded) planning explanation.
+     */
+    async function explainFromEvidence(trace: Trace, readback: ReadbackEvidence, story: Story): Promise<{ narrative: string; spanIds: string[] } | null> {
+      if (!provider.explain) return null;
+      if (providerCalls >= LIMITS.maxProviderCallsPerTurn) { telemetry.event('explain_unavailable', { kind: 'budget' }); return null; }
+      providerCalls++;
+      try {
+        const messages: ProviderMessage[] = [
+          { role: 'system', content: EXPLANATION_SYSTEM_PROMPT },
+          { role: 'user', content: explanationMessage({ buyerText: resolved.effectiveText, story, trace, readback }) },
+        ];
+        const response = await step('explain', { provider: provider.name, mode: provider.mode, call: providerCalls }, () =>
+          withTimeout(signal => provider.explain!({ messages, responseSchema: 'evidence_explanation', maxOutputTokens: LIMITS.maxExplanationOutputTokens }, signal), MODEL_TIMEOUT_MS),
+        () => 'Wrote the explanation from the saved trace');
+        telemetry.recordUsage(response.usage, provider.model);
+        telemetry.event('provider_latency', { provider: provider.name, latencyMs: response.latencyMs });
+        if (response.requestId) telemetry.event('provider_request_id', { provider: provider.name, requestId: response.requestId });
+        const explanation = validateEvidenceExplanation(response.explanation);
+        if (!explanation) { telemetry.event('explain_unavailable', { kind: 'malformed' }); return null; }
+        const narrative = groundNarrative(explanation.text, trace, readback);
+        if (!narrative) { telemetry.event('explain_unavailable', { kind: 'ungrounded' }); return null; }
+        const known = new Set(trace.spans.map(s => s.id));
+        return { narrative, spanIds: [...new Set(explanation.spanIds.filter(id => known.has(id)))] };
+      } catch (error) {
+        telemetry.event('explain_unavailable', { kind: isProviderError(error) ? error.kind : error instanceof Error ? error.name : 'unknown' });
+        return null;
       }
     }
 

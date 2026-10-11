@@ -1,15 +1,26 @@
 // Provider factory + strict structural validation of model output.
-// Only the deterministic mock exists. A live provider is deliberately NOT implemented: no SDK, no key reading.
+// `mock` is the deterministic offline provider. `anthropic` is the live provider: the caller supplies the API key and a
+// spend guard (this module never reads the environment) and never falls back to the mock.
 
-import { CONTRACT_VERSION, OUTCOME_KINDS, SPAN_KINDS, type AgentAction, type ModelProvider, type ProposedSpan, type ProposedTrace, type ScenarioProposal } from '../agent-contract.ts';
+import { CONTRACT_VERSION, OUTCOME_KINDS, SPAN_KINDS, type AgentAction, type EvidenceExplanation, type ModelProvider, type ProposedSpan, type ProposedTrace, type ScenarioProposal } from '../agent-contract.ts';
 import type { Json } from '../contracts.ts';
+import { createAnthropicProvider, type AnthropicProviderOptions, type Effort } from './anthropic-provider.ts';
 import { createMockProvider } from './mock-provider.ts';
+import type { SpendGuard } from './spend.ts';
 
-export type ProviderConfig = { kind: 'mock' } | { kind: 'live'; provider?: string; model?: string };
+export type { Effort } from './anthropic-provider.ts';
+export type ProviderConfig =
+  | { kind: 'mock' }
+  | { kind: 'anthropic'; apiKey: string; model?: string; effort?: Effort; spend: SpendGuard; maxRetries?: number; timeoutMs?: number; client?: AnthropicProviderOptions['client'] };
 
 export function createProvider(config: ProviderConfig): ModelProvider {
-  if (config.kind === 'mock') return createMockProvider();
-  throw new Error('Live provider not approved/configured');
+  switch (config.kind) {
+    case 'mock': return createMockProvider();
+    case 'anthropic': {
+      const { kind: _kind, ...options } = config;
+      return createAnthropicProvider(options);
+    }
+  }
 }
 
 type Obj = Record<string, unknown>;
@@ -111,6 +122,14 @@ export function validateAgentAction(value: unknown): AgentAction | null {
     }
     default: return null;
   }
+}
+
+/** Structural validation of the explanation call's output. Null when it is not `{ text: non-empty string, spanIds: string[] }`. */
+export function validateEvidenceExplanation(value: unknown): EvidenceExplanation | null {
+  if (!isObj(value) || !isStr(value.text) || value.text.trim().length === 0) return null;
+  const spanIds = strings(value.spanIds);
+  if (!spanIds) return null;
+  return { text: value.text, spanIds };
 }
 
 /** Parse model text into exactly one AgentAction. No prose, no code fences, no multiple objects. */

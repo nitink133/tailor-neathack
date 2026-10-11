@@ -17,6 +17,7 @@ export function createMockProvider(): ModelProvider {
     name: 'tailor-mock',
     model: null,
     mode: 'mock',
+    effort: null,
     async complete(request: ProviderRequest): Promise<ProviderResponse> {
       const started = performance.now();
       const action = decide(request);
