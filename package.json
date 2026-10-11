@@ -2,7 +2,7 @@
   "name": "tailor-neathack",
   "version": "0.0.0",
   "private": true,
-  "description": "Tailor \u2014 neatHack (October 2026) candidate project",
+  "description": "Tailor — neatHack (October 2026) candidate project",
   "type": "module",
   "engines": {
     "node": ">=26.7.0",
@@ -14,13 +14,16 @@
     "doctor:local": "npm exec --offline --no -- neatlogs doctor --local --json",
     "doctor:probe": "node --env-file-if-exists=.env.local node_modules/neatlogs/dist/cli.mjs doctor --probe --json",
     "smoke:trace": "node --env-file-if-exists=.env.local scripts/smoke-trace.ts",
-    "env:check": "node --env-file-if-exists=.env.local -e \"const v=process.env.NEATLOGS_API_KEY;console.log('NEATLOGS_API_KEY:',typeof v,v?'set':'empty-or-missing')\"",
+    "env:check": "node --env-file-if-exists=.env.local -e \"for (const k of ['NEATLOGS_API_KEY','ANTHROPIC_API_KEY']) { const v=process.env[k]; console.log(k+':', v ? 'set' : 'empty-or-missing'); } const cap=process.env.TAILOR_LIVE_CAP_USD; console.log('TAILOR_LIVE_CAP_USD:', cap ? cap : 'unset'); console.log('TAILOR_MODEL:', process.env.TAILOR_MODEL ?? 'unset (default claude-sonnet-5-5)'); console.log('TAILOR_EFFORT:', process.env.TAILOR_EFFORT ?? 'unset (default medium)');\"",
     "build": "tsc -p tsconfig.browser.json",
     "dev": "npm run build && node src/main.ts",
     "test:ui": "playwright test",
-    "fixture": "node scripts/fixture.ts"
+    "fixture": "node scripts/fixture.ts",
+    "dev:live": "npm run build && TAILOR_PROVIDER=anthropic node --env-file-if-exists=.env.local src/main.ts",
+    "smoke:live": "node --env-file-if-exists=.env.local scripts/live-smoke.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.133.0",
     "neatlogs": "1.1.28"
   },
   "devDependencies": {

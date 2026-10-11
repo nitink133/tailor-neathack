@@ -22,6 +22,8 @@ export interface AppServerOptions {
   telemetry: Telemetry;
   /** Defaults to the store's clock so lifecycle and validation share one server clock. */
   clock?: Clock;
+  /** Live-provider spend guard; exposes its estimated-usage summary on GET /api/dev/spend. Absent for the mock. */
+  spend?: { summary(): unknown };
 }
 
 const COOKIE_MAX_AGE_S = LIMITS.lifetimeMs / 1000;
@@ -143,6 +145,10 @@ export function appServer(store: Store, options: AppServerOptions) {
         if (path.startsWith('/api/dev/')) {
           if (!devKey || req.headers['x-tailor-dev-key'] !== devKey) throw new Failure(403, 'DEVELOPER_ONLY', 'Developer inspection is disabled or requires the local developer key.');
           if (path === '/api/dev/sessions' && req.method === 'GET') return send(200, store.list());
+          // Spend summary: provider-reported usage × configured rates. Estimates only; Anthropic billing is authoritative.
+          if (path === '/api/dev/spend' && req.method === 'GET') {
+            return send(200, options.spend ? { available: true, ...(options.spend.summary() as object) } : { available: false, reason: 'No live provider configured; the mock provider spends nothing.' });
+          }
           const match = /^\/api\/dev\/sessions\/([\w-]+)\/proposal$/.exec(path);
           if (match && req.method === 'POST') {
             store.authorize(match[1]!, cookieOf(req));

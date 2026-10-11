@@ -265,7 +265,13 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
           if (!usage) { span.setAttribute('tailor.usage.available', false); return; }
           const ok = Number.isFinite(usage.inputTokens) && Number.isFinite(usage.outputTokens);
           span.setAttribute('tailor.usage.available', ok);
-          if (ok) { span.setAttribute('tailor.usage.input_tokens', usage.inputTokens); span.setAttribute('tailor.usage.output_tokens', usage.outputTokens); }
+          if (ok) {
+            span.setAttribute('tailor.usage.input_tokens', usage.inputTokens); span.setAttribute('tailor.usage.output_tokens', usage.outputTokens);
+            // Optional provider-reported detail; absent means not reported (never written as zero).
+            if (Number.isFinite(usage.cacheReadInputTokens)) span.setAttribute('tailor.usage.cache_read_input_tokens', usage.cacheReadInputTokens as number);
+            if (Number.isFinite(usage.cacheCreationInputTokens)) span.setAttribute('tailor.usage.cache_creation_input_tokens', usage.cacheCreationInputTokens as number);
+            if (Number.isFinite(usage.thinkingTokens)) span.setAttribute('tailor.usage.thinking_tokens', usage.thinkingTokens as number);
+          }
         });
       },
     };

@@ -36,6 +36,12 @@ export const LIMITS = {
   /** Escalation to a stronger model is allowed at most once per turn and only after a repair failed. */
   maxEscalationsPerTurn: 1,
   maxOutputTokens: 4000,
+  /** Evidence-grounded explanation call after save+readback (live providers only; mock keeps the planning text). */
+  maxExplanationOutputTokens: 800,
+  /** Wall-clock bound for one provider call, including provider-side thinking. */
+  providerTimeoutMs: 60_000,
+  /** Upper bound on prompt size we are willing to send per call; the context builder must stay under this. */
+  maxInputCharsPerCall: 60_000,
   // Scenario data bounds.
   maxTracesPerDataset: 4,
   maxSpansPerTrace: 24,
@@ -194,6 +200,8 @@ export interface ExecutionLabel {
   provider: string;
   /** null until a live model is approved and configured. */
   model: string | null;
+  /** Provider effort setting when the provider exposes one (e.g. Anthropic output_config.effort); null otherwise. */
+  effort?: string | null;
 }
 export interface TurnResponse {
   turnId: string;
@@ -262,18 +270,56 @@ export interface ProviderRequest {
   /** Validator problems from the previous attempt when repairing. */
   repairOf?: ValidationProblem[];
 }
-export interface ProviderUsage { inputTokens: number; outputTokens: number }
+export interface ProviderUsage {
+  /** Uncached input tokens as reported by the provider. */
+  inputTokens: number;
+  /** Output tokens as reported. Thinking is billed inside this number. */
+  outputTokens: number;
+  /** Provider-reported cache accounting when available; undefined means not reported, never zero. */
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  /** Subset of outputTokens spent on reasoning when the provider reports it (Anthropic: usage.output_tokens_details.thinking_tokens). */
+  thinkingTokens?: number;
+}
 export interface ProviderResponse {
   action: AgentAction;
   /** Provider-reported usage only. null when not reported; never estimate. */
   usage: ProviderUsage | null;
   latencyMs: number;
+  /** Provider request id for support/debugging; never contains buyer content. */
+  requestId?: string;
 }
+/** Second, optional call after save+readback: narrate ONLY from the evidence we pass in. */
+export interface ExplanationRequest {
+  messages: ProviderMessage[];
+  responseSchema: 'evidence_explanation';
+  maxOutputTokens: number;
+}
+export interface EvidenceExplanation {
+  /** 1–4 sentences for the buyer; code grounds it against the read-back trace before use. */
+  text: string;
+  /** Span ids the explanation relies on; must be a subset of the evidence passed in. */
+  spanIds: string[];
+}
+export interface ExplanationResponse {
+  explanation: EvidenceExplanation;
+  usage: ProviderUsage | null;
+  latencyMs: number;
+  requestId?: string;
+}
+/** Why a provider call failed. Mapped to telemetry/step detail; buyer copy stays generic. */
+export type ProviderErrorKind =
+  | 'auth' | 'permission' | 'billing' | 'spend_cap' | 'rate_limit' | 'overloaded' | 'timeout' | 'network'
+  | 'invalid_request' | 'refusal' | 'truncated' | 'malformed' | 'context_exceeded' | 'unknown';
 export interface ModelProvider {
   readonly name: string;
   readonly model: string | null;
   readonly mode: 'mock' | 'live';
+  /** Effort setting when the provider exposes one; null for the mock. */
+  readonly effort?: string | null;
   complete(request: ProviderRequest, signal?: AbortSignal): Promise<ProviderResponse>;
+  /** Absent on providers without a separate explanation step (mock); the service then keeps the planning explanation. */
+  explain?(request: ExplanationRequest, signal?: AbortSignal): Promise<ExplanationResponse>;
 }
 
 // ---------------------------------------------------------------------------
