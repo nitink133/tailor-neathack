@@ -1,0 +1,26 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+
+# Secrets and local config (keep only the credential-free template)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials*.json
+secrets/
+
+# Browser state and network captures
+cookies*.json
+*.cookies
+browser-profile*/
+user-data-dir*/
+playwright/.auth/
+*.har
+*.pcap
+*.pcapng
+
+# Entire keeps its own .entire/.gitignore; .entire/settings.json and .cursor/hooks.json stay tracked.
