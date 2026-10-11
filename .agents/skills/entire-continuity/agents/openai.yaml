@@ -1,0 +1,4 @@
+interface:
+  display_name: "Entire continuity"
+  short_description: "Verify live capture and checkpoint continuity"
+  default_prompt: "Use $entire-continuity to check capture and checkpoint continuity in this Entire-enabled worktree."
