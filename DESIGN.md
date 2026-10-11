@@ -127,7 +127,7 @@ The local `.dark` theme swaps app surface, divider, text and status variables. I
 
 Geist is loaded locally from `/assets/geist.woff2`, sourced from the public reference, with Arial and sans-serif fallbacks. Generic monospace serves timestamps, JSON, the setup prompt and hackathon strip. There is no separate invented display family.
 
-The final desktop hero uses an 80px, weight-650 main sentence, with a 58px, weight-600 gray first sentence, 1.12 line height and tight tracking. At 900px and below these become 46px and 38px; at 600px and below they become 36px and 31px, with 1.15 line height. The wordmark is 28px, reducing to 23px on mobile.
+The final desktop hero uses a 4.75vw main sentence bounded at 48–89.6px, weight 660 and .94 line height; the gray first sentence is .74em at weight 545. At 900px and below these become 46px and 38px; at 600px and below they become 36px and 31px, with 1.15 line height. The wordmark uses a 30px monospace treatment.
 
 App base type is 12px; the Traces title is 14px at weight 500. Table headings are uppercase 10px with `.02em` tracking. Span names use 11px on desktop, with smaller 8–9px metadata and times. Mobile span names reduce to 9px. Entry body text is 14px at 1.6 line height, with a 35px heading reducing to 29px on mobile. Dense type is part of the observed composition, not evidence of a completed accessibility audit.
 
@@ -153,11 +153,11 @@ Controls and graph roots use 6px corners, JSON blocks 7px, fields and notes 8px,
 
 **Buttons and navigation.** Default buttons use a white ground, fine border and compact padding; hover introduces the subtle surface. Solid entry actions use dark ink with white text. The public setup control is a dark monospace prompt beside an outlined entry CTA. Unimplemented navigation and setup controls announce that they are outside the limited demo via a status toast. Active rail navigation uses the divider fill. Many unavailable desktop controls are hidden at smaller breakpoints.
 
-**Forms and filtering.** Entry uses a visibly labeled, required textarea, a native radio fieldset and a submit action that disables while saving and restores after failure. Errors appear in a `role="alert"` paragraph. Search, fixture, detection, tag and minimum latency controls use native inputs/selectors inside compact bordered capsules; they are not the incumbent's popover editor. Empty results show “No traces found,” explanatory text and a clear-filters action.
+**Forms and filtering.** Entry uses a visibly labeled, required textarea, a native radio fieldset and a submit action that disables while saving and restores after failure. Errors appear in a `role="alert"` paragraph. Search, fixture, detection, tag and minimum latency controls use native inputs/selectors inside capsule popovers with explicit apply actions; they implement a bounded local condition editor. Empty results show “No traces found,” explanatory text and a clear-filters action.
 
 **Trace table.** Keep the incumbent column order: selection, Ingested at, Status, Detections, Evals, Input, Output, Comments and Replay. Use ellipsis for dense row values and retain horizontal scrolling. Evals/comments stay empty; replay reports unavailable scope. Ready retains its screen-reader text and explanatory title. Footer counts follow the filtered rows.
 
-**Inline spans, graph and timeline.** Span buttons expose `aria-expanded`, rotate their disclosure icon and reveal INPUT plus OUTPUT or ERROR JSON, timing and parent metadata, copy and direct-link actions. Selected spans use the blue-tinted fill. Errors have textual labels and bordered red blocks. The graph and timeline are optional toggles with `aria-pressed`; selecting their links opens the corresponding inline span using `?span=`. The graph is fixed and cannot be dragged or resized. The timeline has textual duration labels alongside its colored bars.
+**Inline spans, graph and timeline.** Span buttons expose `aria-expanded`, use circle plus/minus disclosure icons and reveal INPUT plus OUTPUT or ERROR JSON, timing and parent metadata, copy and direct-link actions. Selected spans use the blue-tinted fill. Errors have textual labels and bordered red blocks. The graph and timeline are optional toggles with `aria-pressed`; graph selection highlights its node and timeline row without opening inline JSON; timeline and direct links open the corresponding inline span using `?span=`. The graph is fixed and cannot be dragged or resized. The timeline has textual duration labels alongside its colored bars.
 
 **Focus, feedback and accessibility.** Interactive elements have a 2px blue `:focus-visible` outline with 3px offset. Native labels, fieldsets, required validation, named icon controls and hidden Ready text provide semantic cues. Decorative SVGs are `aria-hidden`. Loading and toast feedback use `role="status"`; request failures use `role="alert"`, Retry and a path to create another session. Disabled actions reduce opacity and use a not-allowed cursor. A reduced-motion media rule prevents smooth scrolling. These are implemented patterns, not a claim of full WCAG, keyboard-navigation or assistive-technology certification.
 
@@ -169,6 +169,8 @@ Controls and graph roots use 6px corners, JSON blocks 7px, fields and notes 8px,
 - Do describe local review evidence and real-reference parity as separate findings.
 - Don't introduce a new Tailor brand, decorative accent palette, card dashboard or visual metaphor into this faithful replica.
 - Don't imply visitor text personalizes traces, or imply live replay, real buyer collection, model execution or real Neatlogs mutation.
-- Don't treat the two-trace navigator, fixed graph, substring search or native capsule selectors as full incumbent feature parity.
+- Don't treat the two-trace navigator, fixed graph, substring search or bounded capsule editors as full incumbent feature parity.
 - Don't claim full marketing-page reproduction, animation parity, certified dark-theme parity, desktop pixel parity or verified real mobile parity.
 - Don't treat locally sourced public assets as established redistribution or deployment permission; their current use is this local review replica.
+
+The matching-viewport fidelity follow-up uses a 704px trace flow, 40px timeline rows, root collapse, compact trace-choice popover, curved root-to-child graph connectors and public agent SVGs. Native Comet reference and replica captures are both 1720×1410 at 100% zoom; crops use identical coordinates without resampling. See docs/nit-265-reference.md for coverage and remaining differences.

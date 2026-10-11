@@ -20,6 +20,11 @@ test('both fixtures agree across API, trace tree, timeline, navigation, direct l
     await expect(page.locator('.timeline-row')).toHaveCount(t.spans.length);
     await page.getByRole('button',{name:'Toggle span tree'}).click();
     await expect(page.getByLabel('Span parent tree').locator('a')).toHaveCount(t.spans.length-1);
+    await page.getByLabel('Span parent tree').locator('a').nth(1).click();
+    await expect(page.locator('.graph-tree .graph-selected')).toHaveCount(1);
+    await expect(page.locator('.span-content')).toHaveCount(0);
+    await page.locator('[data-root]').click();await expect(page.locator('[data-span-id]')).toHaveCount(1);
+    await page.locator('[data-root]').click();await expect(page.locator('[data-span-id]')).toHaveCount(t.spans.length);
     await page.getByRole('button',{name:'Toggle span tree'}).click();
     await page.getByRole('link',{name:`Select ${t.spans[2]!.name} in timeline`}).click();
     await expect(page.locator('.selected-span')).toHaveAttribute('data-span-id',t.spans[2]!.id);
@@ -28,10 +33,11 @@ test('both fixtures agree across API, trace tree, timeline, navigation, direct l
     await page.goBack();await expect(page.locator('.selected-span')).toHaveCount(0);
     await page.goForward();await expect(page.locator('.selected-span')).toBeVisible();
     const direct=await page.request.get(`/api/sessions/${s.id}/traces/${t.id}/spans/${t.spans[2]!.id}`);expect((await direct.json()).span).toEqual(t.spans[2]);
+    const otherTrace=s.dataset.traces.find(x=>x.id!==t.id)!;await page.locator('.trace-picker summary').click();await page.locator('.trace-picker nav a').filter({hasText:otherTrace.scenario==='recovered'?'Retry recovers':'Both attempts fail'}).click();await expect(page.locator('.root-output')).toContainText(otherTrace.outcome);
   }
   await page.goto(`/demo/${s.id}/traces?q=zz-no-match`);await expect(page.getByRole('heading',{name:'No traces found'})).toBeVisible();
   await page.getByRole('link',{name:'Clear filters'}).click();await expect(page.locator('[data-count]')).toHaveText('1 – 2 of 2');
-  await page.getByLabel('Detections',{exact:true}).selectOption('yes');await page.getByRole('button',{name:'Apply',exact:true}).click();await expect(page.locator('[data-count]')).toHaveText('1 – 1 of 1');
+  await page.locator('.filter-popover summary').filter({hasText:'Detections'}).click();await page.getByLabel('Detections',{exact:true}).selectOption('yes');await page.getByRole('button',{name:'Apply filters',exact:true}).click();await expect(page.locator('[data-count]')).toHaveText('1 – 1 of 1');
   await page.locator('tbody tr a').first().click();await expect(page.locator('.root-output')).toContainText('escalation_required');
   await page.locator('.back-link').click();await expect(page.getByLabel('Detections',{exact:true})).toHaveValue('yes');
   await page.goBack();await expect(page.locator('.root-output')).toContainText('escalation_required');await page.goForward();await expect(page.locator('[data-count]')).toHaveText('1 – 1 of 1');
@@ -56,7 +62,7 @@ test('loading, failure recovery, interrupted navigation, repeated entry and brow
 });
 
 test('dated desktop/mobile evidence',async({page})=>{
-  await page.setViewportSize({width:3127,height:1204});await page.goto('/');await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:ed+'/replica-public-desktop.png'});
+  await page.setViewportSize({width:1710,height:1318});await page.goto('/');await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:ed+'/replica-public-desktop.png'});
   await page.goto('/entry');await page.getByLabel('Fictional project description').fill('Fictional review project');await page.getByRole('button',{name:'Save and explore traces'}).click();await expect(page.locator('[data-count]')).toHaveText('1 – 2 of 2');const s:DemoSession=await (await page.request.get('/api/session')).json();
   await page.screenshot({path:ed+'/replica-list-desktop.png'});
   await page.goto(`/demo/${s.id}/traces/${s.dataset.traces[0]!.id}`);await expect(page.locator('.root-output')).toBeVisible();await page.getByRole('button',{name:'Toggle timeline'}).click();await page.screenshot({path:ed+'/replica-recovered-desktop.png'});
