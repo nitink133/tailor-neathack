@@ -1,0 +1,60 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4MD03G7FQ8TXDDDGZMXAASS",
+  "session_id": "01a128b8-8734-7721-9f61-4697417b9557",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-11T02:34:50.98843Z",
+  "branch": "codex/nit-265-replica-app",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "DESIGN.md",
+    "PRODUCT.md",
+    "README.md",
+    "docs/nit-265-reference.md",
+    "playwright.config.ts",
+    "public/index.html",
+    "public/style.css",
+    "scripts/fixture.ts",
+    "src/client.ts",
+    "src/contracts.ts",
+    "src/fixtures.ts",
+    "src/server.ts",
+    "src/store.ts",
+    "test/api.test.ts",
+    "tsconfig.browser.json",
+    "ui/replica.spec.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.1-sol",
+  "turn_id": "cda61edd9a4b",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 330872,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 14086912,
+    "output_tokens": 52139,
+    "api_call_count": 78,
+    "subagent_tokens_complete": false
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-11T02:34:50.896943Z",
+    "agent_lines": 821,
+    "agent_removed": 1,
+    "human_added": 67,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 888,
+    "total_lines_changed": 891,
+    "agent_percentage": 92.25589225589226,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
