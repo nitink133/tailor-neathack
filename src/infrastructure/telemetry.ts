@@ -29,8 +29,23 @@ export interface TelemetryOptions {
   flushTimeoutMs?: number;
   /** Upper bound for the whole `shutdown()` (final flush + SDK shutdown; default 5 000 ms). */
   shutdownTimeoutMs?: number;
-  /** One bounded line per failure burst / failed shutdown goes here (default: stderr). Never receives payloads or keys. */
+  /** One bounded line per failure burst and one final shutdown line go here (default: stderr). Never receives payloads or keys. */
   log?: (line: string) => void;
+  /**
+   * Allows exact buyer input / Tailor reply text on the turn root, ONLY for turns opened with `{ synthetic: true }`
+   * (a controlled, synthetic fixture). Default off. Values are still clipped and scanned for credentials/emails.
+   */
+  syntheticPayloads?: boolean;
+}
+export interface TurnOptions {
+  /** The caller vouches that this turn runs on a controlled synthetic fixture (see `syntheticPayloads`). */
+  synthetic?: boolean;
+}
+/** Server-side per-turn handle: the core seam plus the synthetic-fixture payload hook. */
+export interface RuntimeTurnTelemetry extends TurnTelemetry {
+  annotate(attributes: Record<string, string | number | boolean>): void;
+  /** Attaches exact synthetic input/output to the turn root when allowed; returns whether anything was attached. */
+  attachSynthetic(io: { input?: string; output?: string }): boolean;
 }
 export interface CapturedSpan {
   name: string; traceId: string; spanId: string; parentSpanId: string | null;
@@ -47,11 +62,18 @@ export type DeliveryState = 'disabled' | 'captured' | 'healthy' | 'degraded' | '
 /** Safe summary of the last export failure: HTTP status / error code / error class name only, never bodies or messages. */
 export interface ExportErrorSummary { name: string | null; code: string | null; status: number | null; at: string }
 /** turnId → opaque correlation id (HMAC of the session id) for the operator; the HMAC secret is never included. */
-export interface TurnCorrelation { turnId: string; correlationId: string; status: 'ok' | 'failed' | null; outcome: string | null }
+/** `traceId` is the exported root's OTel trace id (the hosted read API key); null when nothing was recorded. */
+export interface TurnCorrelation { turnId: string; correlationId: string; traceId: string | null; status: 'ok' | 'failed' | null; outcome: string | null }
 export interface TelemetryDiagnostics {
   mode: TelemetryMode;
   deliveryState: DeliveryState;
   droppedSteps: number; droppedAttributes: number; sdkFailures: number;
+  /** Attribute values dropped because they looked like a credential or an email address (also in droppedAttributes). */
+  redactedValues: number;
+  /** Whether synthetic-fixture payloads may be attached (TelemetryOptions.syntheticPayloads). */
+  syntheticPayloads: boolean;
+  /** Export destination origin (neatlogs mode only; never a key). */
+  endpoint: string | null;
   /** neatlogs: spans the SDK failed to export; captured: failed exporter calls (after bounded retries). */
   exportFailures: number;
   /** Alias of `droppedSpans` kept for existing readers. */
@@ -77,7 +99,7 @@ export interface FlushResult { ok: boolean; exported: number; failed: number; st
 export type ShutdownResult = FlushResult;
 export interface Telemetry {
   readonly mode: TelemetryMode;
-  forTurn(turnId: string, sessionId: string): TurnTelemetry;
+  forTurn(turnId: string, sessionId: string, options?: TurnOptions): RuntimeTurnTelemetry;
   flush(): Promise<FlushResult>;
   /** Bounded final flush + SDK shutdown; idempotent; never throws. */
   shutdown(): Promise<ShutdownResult>;
@@ -88,14 +110,14 @@ export interface Telemetry {
 
 const STEP_KINDS: Record<TelemetryStep, TraceSpanKind> = {
   turn: 'WORKFLOW', load_context: 'CHAIN', retrieve_knowledge: 'RETRIEVER', model: 'CHAIN', validate: 'GUARDRAIL',
-  save: 'TOOL', readback: 'TOOL', explain: 'CHAIN', repair: 'CHAIN', escalate: 'CHAIN',
+  save: 'TOOL', readback: 'TOOL', explain: 'CHAIN', repair: 'CHAIN', escalate: 'CHAIN', tool: 'TOOL',
 };
 const ALLOWED_KEYS = new Set([
   'turnId', 'correlationId', 'outcome', 'step', 'status', 'durationMs', 'latencyMs', 'version', 'expectedVersion',
   'attemptedVersion', 'currentVersion', 'lastKnownVersion', 'conversationVersion', 'provider', 'providerMode', 'mode',
   'model', 'errorCode', 'code', 'reason', 'state', 'action', 'attempt', 'repairs', 'escalated', 'httpStatus',
 ]);
-const COUNT_KEY = /^[a-z][A-Za-z]{0,40}(Count|Calls|Records|Spans|Traces|Problems|Tokens)$/;
+const COUNT_KEY = /^[a-z][A-Za-z]{0,40}(Count|Calls|Records|Spans|Traces|Problems|Tokens|Chars|Bytes|Drops)$/;
 /** Numeric-only keys (deadlines, reservations): `deadlineMs`, `reservationUsd`, `spentUsd`, ... Never strings. */
 const MEASURE_KEY = /^[a-z][A-Za-z]{0,40}(Usd|Ms)$/;
 // Provider-error detail (L4-10). Each key has its own value validator so these can never carry free text.
@@ -103,11 +125,49 @@ const PROVIDER_ERROR_KINDS = new Set<ProviderErrorKind>([
   'auth', 'permission', 'billing', 'spend_cap', 'rate_limit', 'overloaded', 'timeout', 'network',
   'invalid_request', 'refusal', 'truncated', 'malformed', 'context_exceeded', 'unknown',
 ]);
+const ID_TOKEN = /^[A-Za-z0-9_.:-]{1,64}$/;
+const oneOf = (...allowed: string[]) => (v: unknown) => typeof v === 'string' && allowed.includes(v);
+const isBool = (v: unknown) => typeof v === 'boolean';
+const isCount = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+const token = (re: RegExp) => (v: unknown) => typeof v === 'string' && re.test(v);
+/** Comma-joined list of short ids/tokens (no free text): at most `max` items, each matching `item`. */
+const idList = (item: RegExp, max: number) => (v: unknown) => {
+  if (typeof v !== 'string' || !v || v.length > 800) return false;
+  const parts = v.split(',');
+  return parts.length <= max && parts.every(p => item.test(p));
+};
+/** Code-built decision trail: short tokens joined by "→" (e.g. "plan→publishScenario v3→readback ok→committed"). */
+const DECISION = /^[A-Za-z0-9_.:=\/ →-]{1,240}$/u;
 const VALIDATED: Record<string, (v: unknown) => boolean> = {
   providerErrorKind: v => typeof v === 'string' && PROVIDER_ERROR_KINDS.has(v as ProviderErrorKind),
-  requestId: v => typeof v === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(v),
-  stopReason: v => typeof v === 'string' && /^[a-z_]{1,32}$/.test(v),
-  retryable: v => typeof v === 'boolean',
+  requestId: token(/^[A-Za-z0-9_-]{1,64}$/),
+  stopReason: token(/^[a-z_]{1,32}$/),
+  retryable: isBool,
+  // Per-turn instrumentation (Phase 3). Enumerations, booleans, counts and id lists only.
+  purpose: oneOf('plan', 'repair', 'escalate', 'explain'),
+  effort: oneOf('low', 'medium', 'high', 'xhigh', 'max'),
+  attemptResult: oneOf('ok', 'invalid', 'error'),
+  resultState: oneOf('committed', 'rejected', 'conflict', 'save_failed', 'readback_uncertain', 'expired', 'unsupported', 'found', 'unavailable', 'refused'),
+  detailState: oneOf('ok', 'missing', 'failed', 'not_requested'),
+  source: oneOf('code', 'tool'),
+  adapterId: token(ID_TOKEN), knowledgeVersion: token(ID_TOKEN), promptVersion: token(ID_TOKEN),
+  toolName: token(/^[A-Za-z][A-Za-z0-9_]{0,47}$/),
+  permitted: isBool, mutates: isBool, costKnown: isBool, timeout: isBool, promptCaching: isBool,
+  versionBefore: isCount, versionAfter: isCount,
+  sourceIds: idList(ID_TOKEN, 12),
+  argKeys: idList(/^[A-Za-z][A-Za-z0-9_]{0,31}$/, 16),
+  issueCodes: idList(/^[A-Z0-9_]{1,40}$/, 10),
+  decision: token(DECISION),
+};
+const SYNTHETIC_MAX_CHARS = 1000;
+/** Validated keys whose values may exceed the short-token rule (their own validator is the whole check). */
+const LIST_KEYS = new Set(['sourceIds', 'argKeys', 'issueCodes', 'decision']);
+/** Same validators by exported key, for the export mask. `tailor.evidence_refs` holds hashed refs only. */
+const EXPORT_VALIDATORS: Record<string, (v: unknown) => boolean> = {
+  'tailor.source_ids': VALIDATED.sourceIds!, 'tailor.arg_keys': VALIDATED.argKeys!, 'tailor.issue_codes': VALIDATED.issueCodes!,
+  'tailor.decision': VALIDATED.decision!, 'tailor.evidence_refs': idList(/^r[0-9a-f]{10}$/, 8),
+  'tailor.synthetic_input': v => typeof v === 'string' && v.length <= SYNTHETIC_MAX_CHARS,
+  'tailor.synthetic_output': v => typeof v === 'string' && v.length <= SYNTHETIC_MAX_CHARS,
 };
 /** Names service code already uses → the allowlisted key (kind → provider_error_kind, providerRequestId → request_id). */
 const KEY_ALIAS: Record<string, string> = { kind: 'providerErrorKind', providerRequestId: 'requestId' };
@@ -118,25 +178,48 @@ const SDK_KEY = /^(neatlogs\.|openinference\.span\.kind$|session\.id$|service\.n
 const PAYLOAD_KEY = /(input|output|prompt|message|content|exception|retriever|parameters|end_?user|user\.|metadata|template|variables|document|query)/i;
 const TURN_OUTCOMES = new Set(['answered', 'clarification', 'committed', 'rejected', 'save_failed', 'readback_uncertain', 'conflict', 'unsupported', 'refused', 'expired', 'provider_unavailable']);
 
+// Credential / personal-data shapes. Any string value matching these is dropped (and counted) even under an allowed key.
+const SECRET_LIKE = /sk-ant-|\b(?:sk|rk|pk)[-_](?:live|test|proj)[-_]|\bnl_[A-Za-z0-9_]{4,}|\bxox[abprs]-|\bgh[pousr]_[A-Za-z0-9]{16,}|github_pat_|\bAKIA[0-9A-Z]{12,}|\bAIza[0-9A-Za-z_-]{16,}|\beyJ[A-Za-z0-9_-]{8,}\.|-----BEGIN|\bbearer\s|api[_-]?key|passw(?:or)?d|secret|token=/i;
+const EMAIL_LIKE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/;
+/** Long unbroken mixed letter+digit runs (API keys, bearer tokens). UUIDs, request ids and 16-hex ids stay below this. */
+const highEntropy = (s: string) => (s.match(/[A-Za-z0-9]{32,}/g) ?? []).some(run => /\d/.test(run) && /[A-Za-z]/.test(run));
+/** True when a value looks like a credential or an email address. */
+export const looksSensitive = (v: unknown): boolean => typeof v === 'string' && (SECRET_LIKE.test(v) || EMAIL_LIKE.test(v) || highEntropy(v));
+
 type AttrValue = string | number | boolean;
 const snake = (k: string) => k.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
 const safeValue = (v: unknown): v is AttrValue => (typeof v === 'number' && Number.isFinite(v)) || typeof v === 'boolean' || (typeof v === 'string' && SAFE_STRING.test(v));
 
-/** Allowlist for caller-supplied attributes: known keys/count keys with short token-like values only. */
-export function cleanAttributes(attrs: Record<string, unknown> | undefined): { clean: Record<string, AttrValue>; dropped: number } {
+/**
+ * Allowlist for caller-supplied attributes: known keys/count keys with short token-like values only, plus validated
+ * id lists. `evidenceRefs` (comma-joined product evidence ids) is exported only as keyed hashes via `hashRef`, because
+ * product ids can embed session identifiers; without `hashRef` it is dropped. Credential/email-like values are always
+ * dropped and counted in `redacted` (and `dropped`).
+ */
+export function cleanAttributes(attrs: Record<string, unknown> | undefined, hashRef?: (id: string) => string): { clean: Record<string, AttrValue>; dropped: number; redacted: number } {
   const clean: Record<string, AttrValue> = {};
   let dropped = 0;
+  let redacted = 0;
   for (const [rawKey, v] of Object.entries(attrs ?? {})) {
     const k = KEY_ALIAS[rawKey] ?? rawKey;
-    const validator = VALIDATED[k];
+    if (k === 'evidenceRefs') {
+      const parts = typeof v === 'string' && v ? v.split(',') : [];
+      if (hashRef && parts.length > 0 && parts.length <= 8 && parts.every(p => p.length > 0 && p.length <= 200)) clean['tailor.evidence_refs'] = parts.map(hashRef).join(',');
+      else dropped++;
+      continue;
+    }
+    if (looksSensitive(v)) { dropped++; redacted++; continue; }
+    const validator = Object.hasOwn(VALIDATED, k) ? VALIDATED[k] : undefined;
     const measureOk = MEASURE_KEY.test(k) && typeof v === 'number' && v >= 0;
     const keyOk = validator ? validator(v) : ALLOWED_KEYS.has(k) || measureOk || (COUNT_KEY.test(k) && typeof v === 'number');
-    if (keyOk && safeValue(v)) clean[`tailor.${snake(k)}`] = v; else dropped++;
+    const valueOk = LIST_KEYS.has(k) ? typeof v === 'string' : safeValue(v);
+    if (keyOk && valueOk) clean[`tailor.${snake(k)}`] = v as AttrValue; else dropped++;
   }
-  return { clean, dropped };
+  return { clean, dropped, redacted };
 }
 function exportable(key: string, value: unknown): boolean {
-  if (key.startsWith('tailor.')) return safeValue(value);
+  if (looksSensitive(value)) return false;
+  if (key.startsWith('tailor.')) { const check = EXPORT_VALIDATORS[key]; return check ? check(value) : safeValue(value); }
   if (!SDK_KEY.test(key) || PAYLOAD_KEY.test(key)) return false;
   return (typeof value === 'string' && value.length <= 200 && !/\s{2,}|[<>`]/.test(value)) || typeof value === 'number' || typeof value === 'boolean';
 }
@@ -236,7 +319,7 @@ class TurnLog {
     const safe = SAFE_STRING.test(turnId) ? turnId : 'invalid';
     const existing = this.entries.find(e => e.turnId === safe && e.correlationId === correlationId);
     if (existing) return existing;
-    const entry: TurnCorrelation = { turnId: safe, correlationId, status: null, outcome: null };
+    const entry: TurnCorrelation = { turnId: safe, correlationId, traceId: null, status: null, outcome: null };
     this.entries.push(entry);
     if (this.entries.length > RECENT_TURNS) this.entries.shift();
     return entry;
@@ -270,12 +353,16 @@ async function bounded(work: Promise<unknown>, ms: number): Promise<Settled> {
   } finally { clearTimeout(timer); }
 }
 
-const noopTurn = (turnId: string, correlationId: string): TurnTelemetry => ({
+const noopTurn = (turnId: string, correlationId: string): RuntimeTurnTelemetry => ({
   turnId, correlationId,
   step: (_name, _attrs, fn) => fn(),
   event: () => {},
   recordUsage: () => {},
+  annotate: () => {},
+  attachSynthetic: () => false,
 });
+const DEFAULT_ENDPOINT = 'https://ingest.neatlogs.com';
+const originOf = (url: string | undefined): string | null => { try { return new URL(url || DEFAULT_ENDPOINT).origin; } catch { return null; } };
 const DEFAULT_FLUSH_TIMEOUT_MS = 10_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000;
 
@@ -293,7 +380,8 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
       forTurn: (turnId, sessionId) => { const cid = correlationIdFor(secret, sessionId); turns.track(turnId, cid); return noopTurn(turnId, cid); },
       flush: async () => ({ ...quiet }), shutdown: async () => ({ ...quiet }), captured: () => [],
       diagnostics: () => ({
-        mode, deliveryState: 'disabled', droppedSteps: 0, droppedAttributes: 0, sdkFailures: 0, exportFailures: 0, droppedExports: 0,
+        mode, deliveryState: 'disabled', droppedSteps: 0, droppedAttributes: 0, sdkFailures: 0, redactedValues: 0,
+        syntheticPayloads: false, endpoint: null, exportFailures: 0, droppedExports: 0,
         droppedSpans: 0, queued: 0, exportedSpans: 0, lastExportError: null, lastSuccessfulExportAt: null, recentTurns: turns.snapshot(),
       }),
     };
@@ -328,7 +416,11 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
     provider.addSpanProcessor(capture);
   }
 
-  const diag = { droppedSteps: 0, droppedAttributes: 0, sdkFailures: 0 };
+  const diag = { droppedSteps: 0, droppedAttributes: 0, sdkFailures: 0, redactedValues: 0 };
+  const syntheticPayloads = options.syntheticPayloads === true;
+  const endpoint = mode === 'neatlogs' ? originOf(options.endpoint ?? process.env.NEATLOGS_ENDPOINT?.trim()) : null;
+  /** Keyed, truncated hash for product evidence ids (they may embed session ids): stable per id, not reversible. */
+  const hashRef = (id: string) => `r${createHmac('sha256', secret).update(`evidence:${id}`).digest('hex').slice(0, 10)}`;
   const context = new AsyncLocalStorage<{ turnId: string; span: OtelSpan }>();
   const roots = new Map<string, OtelSpan>();
   let pending = 0;
@@ -398,10 +490,16 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
     provider.forceFlush = async () => { try { await forceFlush(); } catch (error) { noteError(error); throw error; } };
   }
 
-  const forTurn = (turnId: string, sessionId: string): TurnTelemetry => {
+  const scrub = (attributes: Record<string, unknown>) => {
+    const r = cleanAttributes(attributes, hashRef);
+    diag.droppedAttributes += r.dropped; diag.redactedValues += r.redacted;
+    return r;
+  };
+  const forTurn = (turnId: string, sessionId: string, turnOptions: TurnOptions = {}): RuntimeTurnTelemetry => {
     const correlationId = correlationIdFor(secret, sessionId);
     const safeTurnId = SAFE_STRING.test(turnId) ? turnId : 'invalid';
     const summary = turns.track(turnId, correlationId);
+    const synthetic = syntheticPayloads && turnOptions.synthetic === true;
     return {
       turnId, correlationId,
       async step<T>(name: TelemetryStep, attributes: Record<string, string | number | boolean>, fn: () => Promise<T>): Promise<T> {
@@ -409,8 +507,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
         pending++;
         const box: { ran: boolean; result?: { ok: true; value: T } | { ok: false; error: unknown } } = { ran: false };
         try {
-          const { clean, dropped } = cleanAttributes(attributes);
-          diag.droppedAttributes += dropped;
+          const { clean, dropped } = scrub(attributes);
           const attrs: Record<string, AttrValue> = { ...clean, 'tailor.turn_id': safeTurnId, 'tailor.correlation_id': correlationId, 'tailor.step': name };
           if (name === 'model') attrs['tailor.model_call'] = true;
           if (dropped) attrs['tailor.dropped_attributes'] = dropped;
@@ -420,7 +517,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
           await trace(traceOptions, async (span) => {
             box.ran = true;
             const started = performance.now();
-            if (name === 'turn') roots.set(turnId, span);
+            if (name === 'turn') { roots.set(turnId, span); guard(() => { summary.traceId = span.spanContext().traceId; }); }
             try {
               const value = await context.run({ turnId, span }, fn);
               box.result = { ok: true, value };
@@ -460,10 +557,33 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
         guard(() => {
           const span = targetSpan(turnId);
           if (!span) return;
-          const { clean, dropped } = cleanAttributes(attributes);
-          diag.droppedAttributes += dropped;
-          span.addEvent(`tailor.${SAFE_EVENT.test(name) ? name : 'event'}`, clean);
+          span.addEvent(`tailor.${SAFE_EVENT.test(name) ? name : 'event'}`, scrub(attributes).clean);
         });
+      },
+      annotate(attributes: Record<string, string | number | boolean>) {
+        guard(() => {
+          const span = targetSpan(turnId);
+          if (!span) return;
+          const { clean } = scrub(attributes);
+          if (Object.keys(clean).length) span.setAttributes(clean);
+        });
+      },
+      attachSynthetic(io: { input?: string; output?: string }): boolean {
+        if (!synthetic) return false;
+        let attached = false;
+        guard(() => {
+          const span = targetSpan(turnId);
+          if (!span) return;
+          span.setAttribute('tailor.synthetic', true);
+          for (const [key, text] of [['tailor.synthetic_input', io.input], ['tailor.synthetic_output', io.output]] as const) {
+            if (typeof text !== 'string' || !text) continue;
+            const value = text.slice(0, SYNTHETIC_MAX_CHARS);
+            if (looksSensitive(value)) { diag.droppedAttributes++; diag.redactedValues++; continue; }
+            span.setAttribute(key, value);
+            attached = true;
+          }
+        });
+        return attached;
       },
       recordUsage(usage: ProviderUsage | null, model: string | null) {
         guard(() => {
@@ -477,6 +597,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
             span.setAttribute('tailor.usage.input_tokens', usage.inputTokens); span.setAttribute('tailor.usage.output_tokens', usage.outputTokens);
             // Optional provider-reported detail; absent means not reported (never written as zero).
             if (Number.isFinite(usage.cacheReadInputTokens)) span.setAttribute('tailor.usage.cache_read_input_tokens', usage.cacheReadInputTokens as number);
+            // Cache writes keep the provider's name (cache_creation); prompt caching is not enabled yet, so normally absent.
             if (Number.isFinite(usage.cacheCreationInputTokens)) span.setAttribute('tailor.usage.cache_creation_input_tokens', usage.cacheCreationInputTokens as number);
             if (Number.isFinite(usage.thinkingTokens)) span.setAttribute('tailor.usage.thinking_tokens', usage.thinkingTokens as number);
           }
@@ -545,8 +666,9 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
       ok: fl.ok && shutdownOk && !timedOut && extraFailed === 0 && extraDropped === 0,
       exported: fl.exported, failed: fl.failed + extraFailed, state: stateNow(), timedOut,
     };
-    if (!result.ok && mode === 'neatlogs') {
-      try { log(`[tailor:telemetry] shutdown: delivery state=${result.state} exported=${result.exported} failed=${result.failed} totalFailedSpans=${t.failed} droppedSpans=${t.dropped}${result.timedOut ? ' timedOut=true' : ''}`); } catch { /* logging must not throw */ }
+    // Exactly one final line per process lifetime (shutdown is memoised): the operator always learns the final verdict.
+    if (mode === 'neatlogs') {
+      try { log(`[tailor:telemetry] shutdown: delivery state=${result.state} ok=${result.ok} exported=${result.exported} failed=${result.failed} totalFailedSpans=${t.failed} droppedSpans=${t.dropped}${result.timedOut ? ' timedOut=true' : ''}`); } catch { /* logging must not throw */ }
     }
     return result;
   };
@@ -565,7 +687,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
       const t = totals();
       if (!closed) logBurst(false);
       return {
-        mode, deliveryState: stateNow(), ...diag,
+        mode, deliveryState: stateNow(), ...diag, syntheticPayloads, endpoint,
         exportFailures: t.failed, droppedExports: t.dropped, droppedSpans: t.dropped,
         queued: queuedNow(), exportedSpans: settledExported,
         lastExportError: exporter?.lastError ?? lastError, lastSuccessfulExportAt: lastSuccessAt,

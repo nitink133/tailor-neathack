@@ -168,6 +168,95 @@ test('provider-error detail is allowlisted per key with validated values (L4-10)
   assert.equal(hostile.dropped, 9);
 });
 
+test('key-like and email-like values are dropped and counted even under allowlisted keys', async () => {
+  const hostile = {
+    reason: 'sk-ant-api03-abcdefghij', state: 'nl_live_abcdefgh', code: 'buyer@example.com', model: 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7',
+    toolName: 'ghp_abcdefghijklmnopqrstuvwx', decision: 'plan→bearer abc', requestId: 'AKIAABCDEFGHIJKLMNOP',
+  };
+  const { clean, dropped, redacted } = cleanAttributes(hostile);
+  assert.deepEqual(clean, {});
+  assert.equal(dropped, 7);
+  assert.equal(redacted, 7, 'every credential/email shape is counted as redacted');
+  // Ordinary ids are not mistaken for secrets.
+  const ok = cleanAttributes({ turnId: SESSION, requestId: 'req_011CSabc123', correlationId: '0123456789abcdef', toolName: 'publishScenario' });
+  assert.equal(ok.dropped, 0);
+
+  const t = await createTelemetry({ mode: 'captured', secret: SECRET });
+  try {
+    const tt = t.forTurn('turn-0011', SESSION);
+    await tt.step('turn', {}, async () => {
+      await tt.step('model', { provider: 'mock' }, async () => tt.annotate({ requestId: 'sk-ant-api03-zzzzzzzzzz', stopReason: 'end_turn' }));
+      tt.event('response', { status: 'priya@example.com', outcome: 'answered' });
+    });
+    const d = t.diagnostics();
+    assert.equal(d.redactedValues, 2);
+    assert.equal(d.droppedAttributes, 2);
+    const model = t.captured().find(s => s.name === 'model')!;
+    assert.equal(model.attributes['tailor.stop_reason'], 'end_turn');
+    assert.equal(model.attributes['tailor.request_id'], undefined);
+    const dump = JSON.stringify(t.captured());
+    for (const forbidden of ['sk-ant', 'priya@example.com']) assert.equal(dump.includes(forbidden), false);
+  } finally { await t.shutdown(); }
+});
+
+test('product evidence ids are exported only as keyed hashes; id lists and the decision trail are validated', async () => {
+  const evidence = [`${SESSION}-recovered-root`, `${SESSION}-recovered-attempt-1`].join(',');
+  assert.equal(cleanAttributes({ evidenceRefs: evidence }).dropped, 1, 'without the server-side hasher the refs are dropped');
+  const t = await createTelemetry({ mode: 'captured', secret: SECRET });
+  try {
+    const tt = t.forTurn('turn-0012', SESSION);
+    await tt.step('turn', {}, async () => {
+      tt.annotate({ evidenceRefs: evidence, sourceIds: 'trace-detail,alerts', issueCodes: 'UNKNOWN_PARENT,TIMING', argKeys: 'story,traces', decision: 'plan→publishScenario v2→readback ok→committed' });
+      tt.annotate({ sourceIds: `trace-detail,${BUYER}`, issueCodes: 'lower_case', decision: `plan→${BUYER}<script>` });
+    });
+    const root = t.captured().find(s => s.name === 'tailor.turn')!;
+    assert.match(String(root.attributes['tailor.evidence_refs']), /^r[0-9a-f]{10},r[0-9a-f]{10}$/);
+    assert.equal(root.attributes['tailor.source_ids'], 'trace-detail,alerts');
+    assert.equal(root.attributes['tailor.issue_codes'], 'UNKNOWN_PARENT,TIMING');
+    assert.equal(root.attributes['tailor.decision'], 'plan→publishScenario v2→readback ok→committed', 'free-text overrides were dropped');
+    assert.equal(t.diagnostics().droppedAttributes, 3);
+    const dump = JSON.stringify(t.captured());
+    assert.equal(dump.includes(SESSION), false, 'raw session ids embedded in product ids never leave');
+    assert.equal(dump.includes(BUYER), false);
+    assert.match(t.diagnostics().recentTurns.at(-1)!.traceId!, /^[0-9a-f]{32}$/);
+  } finally { await t.shutdown(); }
+  // The export mask applies the same validators (defence in depth).
+  const masked = maskSpanData({
+    name: 'tailor.turn',
+    attributes: { 'tailor.decision': 'plan→answer:1_sources→answered', 'tailor.source_ids': `a,${BUYER}`, 'tailor.evidence_refs': 'not-a-hash', 'tailor.synthetic_input': 'x'.repeat(1001), 'tailor.request_id': 'sk-ant-api03-abcdefghij' },
+    events: [], status: { code: 'OK' },
+  }) as Record<string, any>;
+  assert.deepEqual(masked.attributes, { 'tailor.decision': 'plan→answer:1_sources→answered' });
+});
+
+test('synthetic payloads: off by default; with the option only synthetic turns carry clipped text; sensitive payloads are dropped', async () => {
+  const off = await createTelemetry({ mode: 'captured', secret: SECRET });
+  try {
+    const tt = off.forTurn('turn-0013', SESSION, { synthetic: true });
+    await tt.step('turn', {}, async () => { assert.equal(tt.attachSynthetic({ input: BUYER, output: 'ok' }), false); });
+    assert.equal(JSON.stringify(off.captured()).includes(BUYER), false);
+    assert.equal(off.diagnostics().syntheticPayloads, false);
+  } finally { await off.shutdown(); }
+  const on = await createTelemetry({ mode: 'captured', secret: SECRET, syntheticPayloads: true });
+  try {
+    const real = on.forTurn('turn-0014', SESSION);
+    await real.step('turn', {}, async () => { assert.equal(real.attachSynthetic({ input: BUYER }), false, 'a non-synthetic turn never carries payloads'); });
+    const syn = on.forTurn('turn-0015', SESSION, { synthetic: true });
+    await syn.step('turn', {}, async () => {
+      assert.equal(syn.attachSynthetic({ input: 'SYNTHETIC build a fictional order bot', output: 'y'.repeat(1500) }), true);
+    });
+    const leak = on.forTurn('turn-0016', SESSION, { synthetic: true });
+    await leak.step('turn', {}, async () => { assert.equal(leak.attachSynthetic({ input: 'mail me at a@b.co', output: 'key sk-ant-api03-abcdefghij' }), false); });
+    const roots = on.captured().filter(s => s.name === 'tailor.turn');
+    const byTurn = (id: string) => roots.find(s => s.attributes['tailor.turn_id'] === id)!.attributes;
+    assert.equal(byTurn('turn-0014')['tailor.synthetic_input'], undefined);
+    assert.equal(byTurn('turn-0015')['tailor.synthetic_input'], 'SYNTHETIC build a fictional order bot');
+    assert.equal(String(byTurn('turn-0015')['tailor.synthetic_output']).length, 1000, 'clipped');
+    assert.equal(byTurn('turn-0016')['tailor.synthetic_input'], undefined);
+    assert.equal(on.diagnostics().redactedValues, 2);
+  } finally { await on.shutdown(); }
+});
+
 test('provider-error attributes survive on captured spans and events, free text still does not', async () => {
   const t = await createTelemetry({ mode: 'captured', secret: SECRET });
   try {

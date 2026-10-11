@@ -80,6 +80,8 @@ export interface SpendGuard {
   /** Records reported usage directly (null = not reported, recorded as a call with no tokens). */
   record(usage: ProviderUsage | null, model: string | null, kind: string): void;
   summary(): SpendSummary;
+  /** Estimated USD for reported usage at `model`'s rates; null when the model cannot be priced. Books nothing. */
+  priceUsd?(usage: ProviderUsage, model: string | null): number | null;
 }
 
 export interface SpendGuardOptions {
@@ -268,6 +270,9 @@ export function createSpendGuard(options: SpendGuardOptions): SpendGuard {
         estimated: true, note: SPEND_ESTIMATE_NOTE,
         byKind: structuredClone(byKind), limits: { perCallMaxOutputTokens, perTurnMaxCalls },
       };
+    },
+    priceUsd(usage, model) {
+      try { return usageUsd(usage, model); } catch { return null; }
     },
   };
 }

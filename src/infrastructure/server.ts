@@ -27,6 +27,11 @@ export interface AppServerOptions {
 }
 
 const COOKIE_MAX_AGE_S = LIMITS.lifetimeMs / 1000;
+/**
+ * Sessions whose description starts with this are controlled synthetic fixtures (scripts/verify-hosted.ts). Their exact
+ * turn text may reach telemetry only when the telemetry instance was created with `syntheticPayloads: true` (default off).
+ */
+export const SYNTHETIC_FIXTURE_PREFIX = 'SYNTHETIC hosted-verification';
 
 const MAX_BODY_BYTES = 32000;
 const cookieOf = (req: IncomingMessage) => /(?:^|;\s*)tailor=([^;]+)/.exec(req.headers.cookie ?? '')?.[1] ?? '';
@@ -149,7 +154,8 @@ export function appServer(store: Store, options: AppServerOptions) {
           const request = turnRequestOf(await body(req));
           const hash = requestHash(request);
           const turnId = randomUUID();
-          const tt = telemetry.forTurn(turnId, id);
+          const synthetic = (() => { try { return store.read(id).description.startsWith(SYNTHETIC_FIXTURE_PREFIX); } catch { return false; } })();
+          const tt = telemetry.forTurn(turnId, id, { synthetic });
           const started = performance.now();
           const result = await tt.step('turn', { provider: provider.name, providerMode: provider.mode }, async () => {
             store.touch(id);
@@ -166,6 +172,7 @@ export function appServer(store: Store, options: AppServerOptions) {
             return gate.run(id, async () => {
               const response = await runTurn(id, request, hash, turnId, tt);
               tt.event('turn.result', { outcome: response.outcome, version: response.version, conversationVersion: response.conversationVersion, latencyMs: Math.round(performance.now() - started) });
+              tt.attachSynthetic({ input: request.text, output: response.messages.filter(m => m.role === 'tailor').map(m => m.text).join('\n') });
               return response;
             });
           });

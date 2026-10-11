@@ -155,6 +155,10 @@ export interface ProductAdapter<T extends AdapterTypes = AdapterTypes> {
   /** Knowledge answers are composed by code from the cited records; provider prose adds at most a filtered lead. */
   composeAnswer(cited: T['record'][], buyerText: string, providerText: string): string;
   recordTitle(record: T['record']): string;
+  /** Stable id of a knowledge record, for telemetry (retrieved source ids). Absent: only the record count is reported. */
+  recordId?(record: T['record']): string;
+  /** Version of the prompt text (system prompt, framing notes) this adapter sends; reported with every turn. */
+  readonly promptVersion?: string;
   /** Optional: turn an uncited answer into a (permission-checked) tool action, e.g. "explain this record". */
   redirectUncitedAnswer?(action: Extract<CoreAction, { kind: 'answer' }>, ctx: { request: T['request']; buyerText: string }): Extract<CoreAction, { kind: 'tool' }> | null;
   readonly copy?: Partial<AdapterCopy>;

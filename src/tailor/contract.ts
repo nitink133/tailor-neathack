@@ -158,6 +158,12 @@ export interface ProviderResponse<TAction = unknown> {
   latencyMs: number;
   /** Provider request id for support/debugging; never contains buyer content. */
   requestId?: string;
+  /** Provider stop reason when reported (e.g. Anthropic `end_turn`). */
+  stopReason?: string;
+  /** Cost of this call in USD when it is known (reported usage x configured rates); absent means unknown. */
+  costUsd?: number;
+  /** Worst-case USD reserved for this call before it was sent (live providers with a spend guard). */
+  reservationUsd?: number;
 }
 /** Second, optional call after save+readback: narrate ONLY from the evidence passed in. */
 export interface ExplanationRequest {
@@ -170,6 +176,9 @@ export interface ExplanationResponse<TExplanation = unknown> {
   usage: ProviderUsage | null;
   latencyMs: number;
   requestId?: string;
+  stopReason?: string;
+  costUsd?: number;
+  reservationUsd?: number;
 }
 /** Why a provider call failed. Mapped to telemetry/step detail; buyer copy stays generic. */
 export type ProviderErrorKind =
@@ -200,7 +209,8 @@ export interface KnowledgeIndex<TRecord = unknown> {
 // ---------------------------------------------------------------------------
 // Telemetry seam (real Tailor runtime observability, never product demo data).
 // ---------------------------------------------------------------------------
-export type TelemetryStep = TurnStep['name'] | 'turn';
+/** `tool` is telemetry-only (tool selection/execution); it never appears in the buyer-visible TurnStep list. */
+export type TelemetryStep = TurnStep['name'] | 'turn' | 'tool';
 export interface TurnTelemetry {
   /** Correlation IDs are hashed/opaque; no cookie, no raw buyer text, no full payloads by default. */
   readonly turnId: string;
@@ -209,6 +219,11 @@ export interface TurnTelemetry {
   event(name: string, attributes: Record<string, string | number | boolean>): void;
   /** Provider usage when reported; absence is recorded as unavailable, never zero. */
   recordUsage(usage: ProviderUsage | null, model: string | null): void;
+  /**
+   * Adds attributes to the innermost active step (inside `step()`'s callback), else to the turn itself. Same allowlist
+   * as `step()`: ids, counts, versions and short tokens only. Optional so minimal test doubles need not implement it.
+   */
+  annotate?(attributes: Record<string, string | number | boolean>): void;
 }
 
 export interface Clock { now(): number }

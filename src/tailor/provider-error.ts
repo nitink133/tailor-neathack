@@ -17,14 +17,21 @@ export class ProviderError extends Error {
   retryable: boolean;
   requestId?: string;
   status?: number;
+  /** Stop reason when the provider answered but the answer was unusable (refusal, max_tokens, ...). */
+  stopReason?: string;
+  /** Known cost of the failed call (0 when certainly not billed); absent means unknown. */
+  costUsd?: number;
+  /** Worst-case USD reserved for the failed call; kept against the cap when `costUsd` is unknown. */
+  reservationUsd?: number;
 
-  constructor(kind: ProviderErrorKind, message: string, extra: { retryable?: boolean; requestId?: string | null; status?: number } = {}) {
+  constructor(kind: ProviderErrorKind, message: string, extra: { retryable?: boolean; requestId?: string | null; status?: number; stopReason?: string | null } = {}) {
     super(message);
     this.name = 'ProviderError';
     this.kind = kind;
     this.retryable = extra.retryable ?? RETRYABLE[kind];
     if (extra.requestId) this.requestId = extra.requestId;
     if (extra.status !== undefined) this.status = extra.status;
+    if (extra.stopReason) this.stopReason = extra.stopReason;
   }
 }
 

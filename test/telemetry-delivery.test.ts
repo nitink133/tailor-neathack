@@ -21,7 +21,7 @@ interface Seen { method: string | undefined; path: string | undefined; contentTy
 interface Listener { seen: Seen[]; status: number; close(): Promise<void> }
 
 /** Dummy OTLP receiver. `status === 0` accepts the request and never answers (hang). */
-async function listen(status: number): Promise<Listener> {
+async function listen(status: number, port = PORT): Promise<Listener> {
   const state: Listener = { seen: [], status, close: async () => {} };
   const sockets = new Set<Socket>();
   const server: Server = createServer(async (req, res) => {
@@ -40,7 +40,7 @@ async function listen(status: number): Promise<Listener> {
     res.end();
   });
   server.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
-  await new Promise<void>((resolve) => server.listen(PORT, HOST, resolve));
+  await new Promise<void>((resolve) => server.listen(port, HOST, resolve));
   state.close = () => new Promise<void>((resolve) => { for (const s of sockets) s.destroy(); server.close(() => resolve()); });
   return state;
 }
@@ -202,6 +202,29 @@ test('shutdown is bounded: a receiver that never answers cannot hang it, and the
     assert.equal(lines.length, 1, 'one shutdown summary line');
     assert.equal(lines[0]!.includes(FAKE_KEY), false);
     assert.deepEqual(await t.shutdown(), result, 'repeat shutdown is a no-op returning the same result');
+  } finally { await rx.close(); }
+});
+
+test('shutdown reports the final delivery state to stderr exactly once; diagnostics name the endpoint origin only', async () => {
+  const port = 4351;
+  const rx = await listen(200, port);
+  const lines: string[] = [];
+  const t = await createTelemetry(hostedLike(lines, { endpoint: `http://${HOST}:${port}/` }));
+  try {
+    const d = t.diagnostics();
+    assert.equal(d.endpoint, `http://${HOST}:${port}`);
+    assert.equal(d.syntheticPayloads, false);
+    assert.equal(d.redactedValues, 0);
+    await runTurn(t);
+    assert.equal(lines.length, 0, 'a healthy run logs nothing before shutdown');
+    const result = await t.shutdown();
+    assert.equal(result.ok, true);
+    assert.equal(result.state, 'healthy');
+    assert.equal(lines.length, 1);
+    assert.match(lines[0]!, /^\[tailor:telemetry\] shutdown: delivery state=healthy ok=true exported=\d+ failed=0 /);
+    for (const forbidden of [FAKE_KEY, BUYER, SESSION, SECRET]) assert.equal(lines[0]!.includes(forbidden), false);
+    await t.shutdown();
+    assert.equal(lines.length, 1, 'a repeat shutdown does not log again');
   } finally { await rx.close(); }
 });
 

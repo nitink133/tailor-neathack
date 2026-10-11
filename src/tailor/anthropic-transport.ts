@@ -169,6 +169,10 @@ export interface StructuredResult<T> {
   latencyMs: number;
   requestId?: string;
   stopReason: string;
+  /** Estimated USD for the reported usage (null usage or an unpriceable model leaves it absent: unknown). */
+  costUsd?: number;
+  /** Worst-case USD reserved before the call. */
+  reservationUsd: number;
 }
 export interface AnthropicTransport {
   readonly name: 'anthropic';
@@ -236,9 +240,10 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
       message = await Promise.race([client.messages.create(params, { signal: controller.signal, timeout: timeoutMs, maxRetries: 0 }), aborted]);
     } catch (error) {
       const mappedError = controller.signal.aborted ? timedOut() : mapSdkError(error);
+      mappedError.reservationUsd = worstCase;
       // The API answered with an HTTP error: not billed. Anything else (timeout, dropped connection, unknown) may
       // have been billed: keep the worst case, marked unreconciled.
-      if (!controller.signal.aborted && error instanceof Anthropic.APIError && typeof error.status === 'number') spend.release(reservation);
+      if (!controller.signal.aborted && error instanceof Anthropic.APIError && typeof error.status === 'number') { spend.release(reservation); mappedError.costUsd = 0; }
       else spend.settle(reservation, null);
       throw mappedError;
     } finally {
@@ -251,7 +256,15 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
     const usage = toProviderUsage(message.usage);
     // Refusals, truncations and malformed replies are billed: settle BEFORE any throw below.
     spend.settle(reservation, usage);
-    const failure = (kind: ProviderErrorKind, text: string) => new ProviderError(kind, text, { requestId });
+    const priced = usage ? spend.priceUsd?.(usage, model) : null;
+    const costUsd = typeof priced === 'number' && Number.isFinite(priced) ? priced : undefined;
+    const stopReason = typeof message.stop_reason === 'string' ? message.stop_reason : undefined;
+    const failure = (kind: ProviderErrorKind, text: string) => {
+      const error = new ProviderError(kind, text, { requestId, ...(stopReason ? { stopReason } : {}) });
+      error.reservationUsd = worstCase;
+      if (costUsd !== undefined) error.costUsd = costUsd;
+      return error;
+    };
 
     switch (message.stop_reason) {
       case 'refusal': {
@@ -269,7 +282,7 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
     try { parsed = JSON.parse(text); } catch { throw failure('malformed', 'The response was not valid structured JSON'); }
     const value = args.extract(parsed);
     if (value === null) throw failure('malformed', 'The structured response failed validation');
-    return { value, usage, latencyMs, stopReason: message.stop_reason, ...(requestId ? { requestId } : {}) };
+    return { value, usage, latencyMs, stopReason: message.stop_reason, reservationUsd: worstCase, ...(costUsd !== undefined ? { costUsd } : {}), ...(requestId ? { requestId } : {}) };
   }
 
   return { name: 'anthropic', model, mode: 'live', effort, call };

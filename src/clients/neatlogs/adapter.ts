@@ -15,7 +15,7 @@ import { composeAnswer } from './answer.ts';
 import { PRODUCT_NAMES } from './claims.ts';
 import { buildContext } from './context.ts';
 import { citedSpanIds, describeCommit, describeTrace, groundNarrative, safeNarrative } from './explain.ts';
-import { explanationMessage, EXPLANATION_SYSTEM_PROMPT, repairMessage, SYSTEM_PROMPT } from './prompts.ts';
+import { explanationMessage, EXPLANATION_SYSTEM_PROMPT, PROMPT_VERSION, repairMessage, SYSTEM_PROMPT } from './prompts.ts';
 import { validateAgentAction, validateEvidenceExplanation } from './provider.ts';
 
 export interface NeatlogsTypes {
@@ -73,6 +73,7 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
   id: 'neatlogs',
   productNames: PRODUCT_NAMES,
   systemPrompt: SYSTEM_PROMPT,
+  promptVersion: PROMPT_VERSION,
   responseSchema: 'agent_action',
   buildContext: ({ session, request, history, buyerText, choice, question, records, knowledgeVersion }) => buildContext({
     session, resolved: { effectiveText: buyerText, choice, question, history }, records, knowledgeVersion,
@@ -90,7 +91,7 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
       async readDetail(readback, ctx) {
         const traceId = committedEntry(readback)?.id ?? readback.traceIds[0];
         if (!traceId) return null;
-        return (await ctx.step('explain', { traces: readback.traces.length }, () => ctx.ports.readTrace(traceId), () => 'Read the saved trace'))?.trace ?? null;
+        return (await ctx.step('explain', { traceCount: readback.traces.length }, () => ctx.ports.readTrace(traceId), () => 'Read the saved trace'))?.trace ?? null;
       },
       explanation: {
         responseSchema: 'evidence_explanation',
@@ -138,7 +139,7 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
           targetId = target.id;
           spanCount = target.spans.length;
         }
-        const read = await ctx.step('explain', { spans: spanCount }, () => ctx.ports.readTrace(targetId), () => 'Read the saved trace');
+        const read = await ctx.step('explain', { spanCount }, () => ctx.ports.readTrace(targetId), () => 'Read the saved trace');
         if (!read && openId) return { state: 'unavailable', status: 'failed', text: 'I couldn’t find the trace you have open in this demo, so I won’t describe a different one instead. Reopen it from the trace list and ask again.' };
         if (!read) return { state: 'unavailable', status: 'failed', text: READ_FAILED };
         return { state: 'found', detail: read.trace, version: read.version };
@@ -156,6 +157,7 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
   },
   composeAnswer,
   recordTitle: record => record.title,
+  recordId: record => record.id,
   // An uncited "answer" about the trace on screen is really an explanation of THAT trace, read back by code.
   redirectUncitedAnswer: (action, { request, buyerText }) =>
     (request.openTraceId && ABOUT_THIS_TRACE.test(buyerText) ? { kind: 'tool', tool: 'explainTrace', args: {}, narrative: action.text } : null),

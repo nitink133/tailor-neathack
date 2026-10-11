@@ -222,6 +222,14 @@ export function normaliseWireAction(parsed: unknown): unknown | null {
 // ---------------------------------------------------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------------------------------------------------
+/** Request id, stop reason, known cost and reservation for the core's per-attempt telemetry. */
+const accounting = (r: { requestId?: string; stopReason: string; costUsd?: number; reservationUsd: number }) => ({
+  ...(r.requestId ? { requestId: r.requestId } : {}),
+  stopReason: r.stopReason,
+  reservationUsd: r.reservationUsd,
+  ...(r.costUsd !== undefined ? { costUsd: r.costUsd } : {}),
+});
+
 export function createAnthropicProvider(options: AnthropicProviderOptions): ModelProvider {
   const transport = createAnthropicTransport(options);
   return {
@@ -234,14 +242,14 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
         kind: 'plan', messages: request.messages, extraSystem: WIRE_FORMAT_NOTES, maxTokens: request.maxOutputTokens, schema: PLAN_SCHEMA,
         extract: parsed => { const wire = normaliseWireAction(parsed); return wire === null ? null : validateAgentAction(wire); },
       }, signal);
-      return { action: result.value, usage: result.usage, latencyMs: result.latencyMs, ...(result.requestId ? { requestId: result.requestId } : {}) };
+      return { action: result.value, usage: result.usage, latencyMs: result.latencyMs, ...accounting(result) };
     },
     async explain(request: ExplanationRequest, signal?: AbortSignal): Promise<ExplanationResponse> {
       const result = await transport.call<EvidenceExplanation>({
         kind: 'explain', messages: request.messages, maxTokens: request.maxOutputTokens, schema: EXPLAIN_SCHEMA,
         extract: parsed => validateEvidenceExplanation(parsed),
       }, signal);
-      return { explanation: result.value, usage: result.usage, latencyMs: result.latencyMs, ...(result.requestId ? { requestId: result.requestId } : {}) };
+      return { explanation: result.value, usage: result.usage, latencyMs: result.latencyMs, ...accounting(result) };
     },
   };
 }

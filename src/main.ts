@@ -10,6 +10,7 @@ import { readConfig } from './infrastructure/config.ts';
 import { createAgentService } from './clients/neatlogs/service.ts';
 import { createProvider } from './clients/neatlogs/provider.ts';
 import { loadKnowledge } from './clients/neatlogs/knowledge.ts';
+import { PROMPT_VERSION } from './clients/neatlogs/prompts.ts';
 import { systemClock } from './tailor/contract.ts';
 
 function fail(message: string): never {
@@ -36,7 +37,7 @@ const stopSweeper = startSweeper(store, clock);
 server.listen(config.port, '127.0.0.1', () => {
   const address = server.address() as { port: number };
   const live = spend ? ` · effort=${provider.effort ?? 'n/a'} · cap=$${(spend.summary() as { capUsd: number }).capUsd} (estimates; billing is authoritative) · spend ledger=${ledgerPath}` : '';
-  console.log(`Tailor local demo: http://127.0.0.1:${address.port} · provider=${provider.name} (${provider.mode}) · model=${provider.model ?? 'none'}${live} · telemetry=${telemetry.mode} · knowledge=${knowledge.version}`);
+  console.log(`Tailor local demo: http://127.0.0.1:${address.port} · provider=${provider.name} (${provider.mode}) · model=${provider.model ?? 'none'}${live} · telemetry=${telemetry.mode} · knowledge=${knowledge.version} · prompts=${PROMPT_VERSION}`);
 });
 
 let closing = false;
