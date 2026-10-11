@@ -7,6 +7,7 @@ import { createAgentService } from '../src/agent/service.ts';
 import { createProvider, parseAgentAction } from '../src/agent/provider.ts';
 import { createMockProvider } from '../src/agent/mock-provider.ts';
 import { parseUserMessage } from '../src/agent/prompts.ts';
+import { loadKnowledge } from '../src/knowledge.ts';
 import { sentencePassesAnswerFilter } from '../src/agent/answer.ts';
 import { groundNarrative } from '../src/agent/explain.ts';
 import { countingProvider, FAKE_RECORDS, fakeKnowledge, harness, recordingTelemetry, scriptedProvider, stubTools, validateProposal } from './helpers/agent.ts';
@@ -640,4 +641,118 @@ test('FINDING 3: this/my/current session, scenario requests and plain numbers wi
     assert.notEqual(result.outcome, 'refused', text);
   }
   assert.equal(h.tools.state.version, 2);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Wave 3: mock classifier regressions from the QA eval set (eval-06, eval-09)
+// ---------------------------------------------------------------------------------------------------------------------
+const EVAL_06 = 'Does Neatlogs detect agent execution failures and show error spans?';
+const EVAL_09 = 'Replay this production trace against my local model and run an evals benchmark.';
+const knowledgeSets = [['fake records', () => fakeKnowledge()], ['real records', () => loadKnowledge()]] as const;
+
+function spied() {
+  const seen: AgentAction[] = [];
+  const inner = createMockProvider();
+  return { seen, provider: countingProvider({ ...inner, complete: async (r, s) => { const out = await inner.complete(r, s); seen.push(out.action); return out; } }) };
+}
+
+for (const [label, knowledge] of knowledgeSets) {
+  test(`eval-06 (${label}): a question that merely contains "show" is answered from the knowledge records, never synthesised`, async () => {
+    const { seen, provider } = spied();
+    const h = harness({ provider, knowledge: knowledge() });
+    const result = await h.say(EVAL_06);
+    assert.equal(result.outcome, 'answered');
+    assert.equal(seen[0]!.type, 'answer');
+    assert.ok((seen[0] as Extract<AgentAction, { type: 'answer' }>).knowledgeIds.length > 0, 'cites at least one record');
+    assert.equal(h.tools.state.version, 1, 'dataset version unchanged');
+    assert.equal(h.tools.publishCount(), 0);
+    assert.match(result.messages[0]!.text, /Sources:/);
+    assert.deepEqual(h.tools.state.dataset.traces, []);
+  });
+
+  test(`eval-09 (${label}): replay + evals benchmark is unsupported with the matching capabilityId and nothing is written`, async () => {
+    const { seen, provider } = spied();
+    const h = harness({ provider, knowledge: knowledge() });
+    const result = await h.say(EVAL_09);
+    assert.equal(result.outcome, 'unsupported');
+    const action = seen[0] as Extract<AgentAction, { type: 'unsupported' }>;
+    assert.equal(action.type, 'unsupported');
+    assert.match(action.capabilityId ?? '', /replay/i, 'capabilityId names the replay record');
+    assert.equal(h.tools.calls.length, 0, 'no tool call at all');
+    assert.equal(h.tools.state.version, 1, 'dataset version unchanged');
+    assert.match(result.messages[0]!.text, /replay/i);
+    assert.match(result.messages[0]!.text, /Nothing was changed/);
+  });
+}
+
+test('eval-09: the unsupported reply names every matched capability, including evaluations', async () => {
+  const h = harness({ knowledge: loadKnowledge() });
+  const text = (await h.say(EVAL_09)).messages[0]!.text;
+  assert.match(text, /Experimental session replay/);
+  assert.match(text, /Human and AI evaluations/);
+  assert.doesNotMatch(text, /\d+\s*(?:ms|%)/, 'no fabricated benchmark numbers');
+});
+
+test('a product question with no matching record gets the honest no-record answer, never a scenario', async () => {
+  for (const [, knowledge] of knowledgeSets) {
+    const h = harness({ knowledge: knowledge() });
+    const result = await h.say('Does Neatlogs show Kubernetes dashboards?');
+    assert.equal(result.outcome, 'answered');
+    assert.match(result.messages[0]!.text, /don’t have a verified record/);
+    assert.equal(h.tools.state.version, 1);
+  }
+});
+
+test('question-shaped text about replay/run is a knowledge answer, not an unsupported request', async () => {
+  const h = harness({ knowledge: loadKnowledge() });
+  const result = await h.say('What does replay do in Neatlogs?');
+  assert.equal(result.outcome, 'answered');
+  assert.equal(h.tools.state.version, 1);
+});
+
+test('regression guards: scenario text with show/run/retry verbs still proposes, edits and clarifies as before', async () => {
+  for (const [, knowledge] of knowledgeSets) {
+    const h = harness({ knowledge: knowledge() });
+    const first = await h.say('Show me a booking API timeout followed by a successful retry');
+    assert.equal(first.outcome, 'committed');
+    assert.equal(h.tools.state.version, 2);
+    const edit = await h.say('Make the retry fail too.');
+    assert.equal(edit.outcome, 'committed');
+    assert.equal(h.tools.state.version, 3);
+    assert.equal(errorSpans(h).length, 2, 'the retry now fails too');
+    // "runs" in ordinary scenario text, with no capability noun, never triggers the unsupported path.
+    const again = await h.say('Make the retry run again and then succeed.');
+    assert.notEqual(again.outcome, 'unsupported');
+    assert.equal(h.tools.state.version, again.outcome === 'committed' ? 4 : 3);
+  }
+});
+
+test('regression guards: QA matrix (b) insurance, (c) ambiguous + choice and (e) Slack keep their outcomes', async () => {
+  for (const [, knowledge] of knowledgeSets) {
+    const insurance = harness({ knowledge: knowledge() });
+    assert.equal((await insurance.say('I am developing an insurance claims triage bot: OCR tool returns garbage, guardrail blocks the payout.')).outcome, 'committed');
+
+    const ambiguous = harness({ knowledge: knowledge() });
+    const asked = await ambiguous.say(nonProposalRequests.ambiguous.text);
+    assert.equal(asked.outcome, 'clarification');
+    assert.equal(asked.clarification!.choices.length, 3);
+    const picked = await ambiguous.say(asked.clarification!.choices[0]!.label, { choiceId: 'c1' });
+    assert.ok(['committed', 'answered'].includes(picked.outcome), picked.outcome);
+
+    const slack = harness({ knowledge: knowledge() });
+    const result = await slack.say(nonProposalRequests.explainOnly.text);
+    assert.equal(result.outcome, 'unsupported');
+    assert.equal(slack.tools.state.version, 1);
+    assert.equal(slack.tools.calls.length, 0);
+  }
+});
+
+test('questions about the buyer’s own workflow or scenario patterns are not hijacked by the product-question path', async () => {
+  const h = harness();
+  for (const text of ['Can you show me a booking API timeout followed by a successful retry?', 'Can you simulate a trace where the tool errors out?', 'Could you make my agent fail with a rate limit?']) {
+    const fresh = harness();
+    const result = await fresh.say(text);
+    assert.equal(result.outcome, 'committed', text);
+  }
+  assert.equal(h.tools.state.version, 1);
 });

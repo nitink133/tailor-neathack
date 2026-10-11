@@ -63,9 +63,15 @@ const SESSION_ID_REFERENCES: RegExp[] = [
 const MUTATION_VERB = /\b(?:delete|remove|drop|wipe|cancel|rotate|revoke|reset|modify|change|update|upgrade|downgrade|edit)\b/i;
 const MUTATION_TARGET = /\b(?:real|actual|production|live)\b[^.]{0,30}\b(?:neatlogs|project|account|workspace|traces|data)\b|\bneatlogs\b[^.]{0,20}\b(?:account|project|workspace|api key|billing|subscription|plan)\b|\bmy (?:neatlogs|real) (?:account|project|workspace)\b|\bmy (?:account|api key|billing|subscription)\b/i;
 
-const CAPABILITY_STRONG = /\b(?:slack|pagerduty|opsgenie|alerts?|alerting|notifications?|replays?|evals?|evaluations?|sso|saml|webhooks?|billing|invoices?)\b/i;
+const CAPABILITY_STRONG = /\b(?:slack|pagerduty|opsgenie|alerts?|alerting|notifications?|replays?|evals?|evaluations?|benchmarks?|production traces?|sso|saml|webhooks?|billing|invoices?)\b/i;
 const CAPABILITY_WEAK = /\b(?:integrations?|experiments?|deployments?|dashboards?|detections? rules?)\b/i;
 const CAPABILITY_ACTION = /\b(?:set ?up|configure|enable|turn on|connect|integrate|schedule|trigger|install|add|send|create|start)\b/i;
+// Verbs that ask the demo to DO a product capability. They only count together with a capability noun, and only for
+// request-shaped text (a "what/how/does…" question about replay is a knowledge question, not a request to run one).
+const CAPABILITY_ACTION_EXT = /\b(?:replay|re-?run|rerun|run|execute|benchmark|export|import|deploy|sync|schedule)\b/i;
+const INFO_QUESTION_START = /^(?:what|how|why|which|who|when|where|does|do|is|are)\b/i;
+// Words that make a question about the buyer's OWN workflow rather than the product.
+const OWN_WORKFLOW = /\bmy (?:own )?(?:agent|workflow|bot|assistant|app|pipeline|copilot|chatbot)\b|\b(?:simulate|make|create|build|generate|produce|swap|switch|change|add|let|have|set|turn)\b/i;
 
 const EXPLAIN = /\b(?:explain|walk me through|what happened|why (?:did|does|is|was|were|do)|what went wrong|what does this (?:trace |run )?show|summari[sz]e (?:this|the) (?:trace|run))\b/i;
 const QUESTION_FORM = /\?\s*$|^(?:what|how|can|could|does|do|is|are|which|will|who|where|when|why)\b/i;
@@ -201,7 +207,8 @@ function decide(request: ProviderRequest): AgentAction {
   const { spec, domainRaw } = parseSpec(text);
   const withoutDomain = domainRaw ? text.replace(domainRaw, ' ') : text;
 
-  if ((CAPABILITY_STRONG.test(withoutDomain) || CAPABILITY_WEAK.test(withoutDomain)) && CAPABILITY_ACTION.test(withoutDomain) && !NEW_WORKFLOW.test(text) && !(spec.pattern && !/\b(alert|slack|pagerduty|opsgenie|replay|webhook|sso|saml)\b/i.test(withoutDomain))) {
+  const asksToDoCapability = CAPABILITY_ACTION.test(withoutDomain) || (!INFO_QUESTION_START.test(text) && CAPABILITY_ACTION_EXT.test(withoutDomain));
+  if ((CAPABILITY_STRONG.test(withoutDomain) || CAPABILITY_WEAK.test(withoutDomain)) && asksToDoCapability && !NEW_WORKFLOW.test(text) && !(spec.pattern && !/\b(alert|slack|pagerduty|opsgenie|replay|webhook|sso|saml)\b/i.test(withoutDomain))) {
     const hit = unsupportedFor(withoutDomain, ctx);
     if (hit) return hit;
   }
@@ -212,6 +219,8 @@ function decide(request: ProviderRequest): AgentAction {
   }
 
   if (QUESTION_FORM.test(text) && !SCENARIO_VERB.test(lower) && KNOWLEDGE_TOPIC.test(text)) return answerFor(ctx, text);
+  // A question-shaped product query beats a scenario verb it merely contains ("…detect failures and show error spans?").
+  if (isProductQuestion(ctx, text, spec)) return answerFor(ctx, text, true);
 
   const newWorkflow = ctx.story === null || NEW_WORKFLOW.test(text);
   const explicit = spec.pattern !== null || spec.guardrail || spec.successOnly;
@@ -241,33 +250,58 @@ function refusalFor(text: string): AgentAction | null {
 }
 
 function unsupportedFor(text: string, ctx: AgentContext): AgentAction | null {
-  const words = (text.match(CAPABILITY_STRONG) ?? text.match(CAPABILITY_WEAK) ?? []).map(w => w.toLowerCase());
-  const needle = words[0] ?? '';
-  const records = ctx.knowledge ?? [];
-  const match = records.find(k => (levelOf(k) === 'explain_only' || levelOf(k) === 'unsupported') && matchesWord(k, needle))
-    ?? records.find(k => (levelOf(k) === 'explain_only' || levelOf(k) === 'unsupported') && words.some(w => matchesWord(k, w)));
-  if (!match && !CAPABILITY_STRONG.test(text)) return null;
-  if (match) {
-    const mode = levelOf(match) === 'explain_only' ? 'explain-only in this demo — I can describe it but not set it up' : 'not available in this demo';
-    return { type: 'unsupported', capabilityId: match.id, text: `${match.title} is ${mode}. ${firstSentence(match.behaviour)}` };
+  const words = [...new Set([...(text.match(new RegExp(CAPABILITY_STRONG.source, 'gi')) ?? []), ...(text.match(new RegExp(CAPABILITY_WEAK.source, 'gi')) ?? [])].map(w => w.toLowerCase()))];
+  const records = (ctx.knowledge ?? []).filter(k => levelOf(k) === 'explain_only' || levelOf(k) === 'unsupported');
+  const matches: KnowledgeSummary[] = [];
+  for (const w of words) {
+    const hit = records.find(k => nameMatches(k, w)) ?? records.find(k => matchesWord(k, w));
+    if (hit && !matches.includes(hit)) matches.push(hit);
+  }
+  const shown = matches.slice(0, 2);
+  if (!shown.length && !CAPABILITY_STRONG.test(text)) return null;
+  if (shown.length) {
+    const say = (k: KnowledgeSummary) => `${k.title} is ${levelOf(k) === 'explain_only' ? 'explain-only in this demo — I can describe it but not run it' : 'not available in this demo'}.`;
+    return { type: 'unsupported', capabilityId: shown[0]!.id, text: `${shown.map(say).join(' ')} ${firstSentence(shown[0]!.behaviour)}` };
   }
   return { type: 'unsupported', text: 'That is outside what this demo can do, and I don’t have a verified record describing it, so I won’t guess. I can model a failing workflow or explain the open trace instead.' };
 }
 
+const stemOf = (word: string) => word.replace(/(?:ing|s)$/, '');
+/** Title/id match is stronger than a topic match ("evals" -> "Human and AI evaluations", not a prompt-management topic). */
+function nameMatches(k: KnowledgeSummary, word: string): boolean {
+  const stem = stemOf(word);
+  return !!stem && [k.id, k.title].some(x => x.toLowerCase().includes(stem));
+}
+
 function matchesWord(k: KnowledgeSummary, word: string): boolean {
   if (!word) return false;
-  const stem = word.replace(/(?:ing|s)$/, '');
+  const stem = stemOf(word);
   return [k.id, k.title, ...k.topics].some(x => x.toLowerCase().includes(stem));
+}
+
+/**
+ * Question-shaped, about the product, not about the buyer's own workflow and not describing a failure to simulate.
+ * Product-ness comes from "Neatlogs", the fixed knowledge phrases, or two distinct topic words of the retrieved records.
+ */
+function isProductQuestion(ctx: AgentContext, text: string, spec: Spec): boolean {
+  if (!QUESTION_FORM.test(text)) return false;
+  if (OWN_WORKFLOW.test(text) || NEW_WORKFLOW.test(text)) return false;
+  if (spec.pattern !== null || spec.guardrail || spec.successOnly || RETRY_MENTION.test(text)) return false;
+  if (/\bneatlogs\b/i.test(text) || KNOWLEDGE_TOPIC.test(text)) return true;
+  const topics = new Set((ctx.knowledge ?? []).flatMap(k => k.topics.flatMap(t => t.toLowerCase().split(/[^a-z0-9]+/)).filter(t => t.length >= 4)));
+  const mine = (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(w => w.length >= 4 && !GENERIC_WORDS.has(w));
+  const hits = new Set(mine.filter(w => [...topics].some(t => t === w || t.startsWith(w.slice(0, 5)) && w.length > 4 || w.startsWith(t.slice(0, 5)) && t.length > 4)).map(w => w.slice(0, 5)));
+  return hits.size >= 2;
 }
 
 const GENERIC_WORDS = new Set(['neatlogs', 'the', 'a', 'an', 'it', 'does', 'do', 'can', 'what', 'how', 'is', 'are', 'for', 'of', 'to', 'in', 'on', 'my', 'me', 'you', 'this', 'that', 'and', 'or', 'with', 'your']);
 
-function answerFor(ctx: AgentContext, text: string): AgentAction {
+function answerFor(ctx: AgentContext, text: string, strict = false): AgentAction {
   const words = (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(w => !GENERIC_WORDS.has(w));
   const score = (k: KnowledgeSummary) => words.filter(w => [k.id, k.title, ...k.topics].some(x => x.toLowerCase().split(/[^a-z0-9]+/).some(t => t === w || (w.length > 4 && (t.startsWith(w.slice(0, 5)) || w.startsWith(t.slice(0, 5)) && t.length > 4))))).length;
   const ranked = (ctx.knowledge ?? []).map((k, i) => ({ k, i, s: score(k) })).sort((a, b) => b.s - a.s || a.i - b.i);
   const picked = ranked.filter(r => r.s > 0).slice(0, 2).map(r => r.k);
-  const records = picked.length ? picked : ranked.slice(0, 1).map(r => r.k);
+  const records = picked.length || strict ? picked : ranked.slice(0, 1).map(r => r.k);
   if (!records.length) return { type: 'answer', text: 'I don’t have a verified record that answers that, so I won’t guess.', knowledgeIds: [] };
   const lines = records.map(k => `${k.title}: ${firstSentence(k.behaviour)}${levelOf(k) === 'explain_only' ? ' (explain-only in this demo.)' : ''}`);
   return { type: 'answer', text: lines.join(' '), knowledgeIds: records.map(k => k.id) };
