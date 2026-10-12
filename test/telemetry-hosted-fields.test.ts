@@ -124,3 +124,34 @@ test('guidance diagnostics expose exact independent trace IDs and share canonica
   assert.equal(JSON.stringify(telemetry.diagnostics().recentGuidance).includes('owner-local'), false);
   await telemetry.shutdown();
 });
+
+test('trusted 1040-character final reply is preserved, with a flagged 2000-character cap', async () => {
+  const telemetry = await createTelemetry({ mode: 'captured', secret: 'fake-reply-preservation', syntheticPayloads: true });
+  const tt = telemetry.forTurn('payload-turn', 'payload-owner', { synthetic: true });
+  await tt.step('turn', {}, async () => { tt.attachSynthetic({ input: 'SYNTHETIC: a fictional request', output: 'x'.repeat(1040) }); });
+  const root = telemetry.captured().find(span => span.name === 'tailor.turn')!;
+  assert.equal(String(root.attributes['tailor.synthetic_output']).length, 1040);
+  assert.equal(root.attributes['tailor.synthetic_output_truncated'], false);
+  const mask = createSpanMask(telemetryVocabulary({}), { hostedFields: true, syntheticPayloads: true });
+  const out = await mask(root as any) as any;
+  const envelope = parseNativeDiagnosticEnvelope(out.attributes['neatlogs.output.value'])! as any;
+  assert.equal(envelope.text.value.length, 1040);
+  assert.equal(envelope.text.truncated, false);
+  assert.equal(envelope.diagnostics.summaries.action.plannerType, null, 'missing planner action is unavailable');
+  await telemetry.shutdown();
+});
+
+test('bounded structured planner selection is allowlisted without raw proposal or model prose', async () => {
+  const mask = createSpanMask(telemetryVocabulary({ recordIds: ['trace-detail'] }), { hostedFields: true, syntheticPayloads: true });
+  const out = await mask({ name: 'tailor.turn', attributes: { 'tailor.step': 'turn', 'tailor.synthetic': true }, events: [
+    { name: 'tailor.planner_selected', attributes: { 'tailor.planner_action': 'propose', 'tailor.proposal_mode': 'new',
+      'tailor.proposal_trace_count': 2, 'tailor.proposal_span_count': 8, 'tailor.expected_version': 1, 'tailor.suggestion_count': 2,
+      'tailor.raw_action': 'private free text', 'tailor.proposal': '{raw payload}' } },
+  ] } as any) as any;
+  const envelope = parseNativeDiagnosticEnvelope(out.attributes['neatlogs.output.value'])! as any;
+  assert.equal(envelope.diagnostics.summaries.action.plannerType, 'propose');
+  assert.equal(envelope.diagnostics.summaries.action.structuredSelections[0]['tailor.proposal_mode'], 'new');
+  assert.equal(envelope.diagnostics.summaries.action.structuredSelections[0]['tailor.proposal_trace_count'], 2);
+  assert.equal(out.attributes['neatlogs.output.value'].includes('private free text'), false);
+  assert.equal(out.attributes['neatlogs.output.value'].includes('raw payload'), false);
+});

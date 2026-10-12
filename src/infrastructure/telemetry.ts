@@ -182,6 +182,8 @@ const ENUMS = {
   state: ['ok', 'rejected', 'uncertain', 'committed', 'conflict', 'save_failed', 'readback_uncertain', 'expired', 'unsupported'],
   reason: ['not_permitted', 'budget', 'no_time', 'malformed', 'ungrounded', 'error', ...PROVIDER_ERROR_KINDS],
   action: ['ask', 'tool', 'answer', 'unsupported', 'refuse'],
+  plannerAction: ['ask','propose','explain','answer','unsupported','refuse','invalid'],
+  proposalMode: ['new','edit'],
   step: Object.keys({ turn: 0, context: 0, guard: 0, load_context: 0, retrieve_knowledge: 0, model: 0, validate: 0, save: 0, readback: 0, explain: 0, repair: 0, escalate: 0, tool: 0 } satisfies Record<TelemetryStep, 0>),
   code: [
     'step_failed', 'SAVE_FAILED', 'SERVER_FAILURE', 'NOT_FOUND', 'TRACE_NOT_FOUND', 'SESSION_EXPIRED', 'SESSION_ENDED',
@@ -282,6 +284,7 @@ const VALIDATED: Record<string, Check> = {
   policyOutcome: inEnum(ENUMS.policyOutcome), guardClassification: inEnum(ENUMS.policyOutcome), policyReason: inEnum(ENUMS.policyReason), guardReason: inEnum(ENUMS.policyReason), guardOutcome: inEnum(ENUMS.guardOutcome), guardStage: inEnum(ENUMS.guardStage), guardModel: (v, vocab) => str(v) && vocab.modelIds.has(v),
   settlement: inEnum(ENUMS.settlement), evidencePhase: inEnum(ENUMS.evidencePhase), evidenceStatus: inEnum(ENUMS.evidenceStatus), operation: inEnum(ENUMS.operation), evidenceKey: format(/^(?:turn|load_context|context|retrieve_knowledge|model|repair|escalate|validate|tool|save|readback|explain|guard|response):[1-9][0-9]{0,4}:(?:start|end)$/), estimationVersion: inEnum(ENUMS.estimationVersion), pricingVersion: inEnum(['tailor-rates-2026-10-12.1']), sourceComponent: inEnum(ENUMS.sourceComponent),
   outcome: inEnum(ENUMS.outcome), status: inEnum(ENUMS.status), state: inEnum(ENUMS.state), reason: inEnum(ENUMS.reason),
+  plannerAction: inEnum(ENUMS.plannerAction), proposalMode: inEnum(ENUMS.proposalMode),
   action: inEnum(ENUMS.action), step: inEnum(ENUMS.step), code: inEnum(ENUMS.code), errorCode: inEnum(ENUMS.code),
   errorClass: inEnum(ENUMS.errorClass), stopReason: inEnum(ENUMS.stopReason),
   providerErrorKind: v => str(v) && PROVIDER_ERROR_KINDS.has(v as ProviderErrorKind),
@@ -292,12 +295,12 @@ const VALIDATED: Record<string, Check> = {
   issueCodes: listOf(format(ISSUE_CODE), 10),
   decision: isDecision,
 };
-const SYNTHETIC_MAX_CHARS = 1000;
+const SYNTHETIC_MAX_CHARS = LIMITS.maxTurnTextChars;
 /** Names service code already uses → the allowlisted key (kind → provider_error_kind, providerRequestId → request_id). */
 const KEY_ALIAS: Record<string, string> = { kind: 'providerErrorKind', providerRequestId: 'requestId' };
 /** Event names service code emits; anything else is recorded as `tailor.event`. */
 const EVENT_NAMES = new Set([
-  'guidance_selected', 'guidance_unavailable',
+  'planner_selected', 'guidance_selected', 'guidance_unavailable',
   'agent_error', 'commit', 'explain_unavailable', 'provider_error', 'provider_latency', 'provider_request_id', 'publish.result',
   'publish_threw', 'readback.result', 'evidence', 'policy', 'dispatch_prevented', 'context_trimmed', 'input_accounting', 'settlement', 'response', 'tool_refused', 'turn.recovered', 'turn.replayed', 'turn.result', 'validate.result', 'validation',
 ]);
@@ -394,6 +397,27 @@ function exportable(key: string, value: unknown, vocab: Vocabulary): boolean {
   return (typeof value === 'string' && value.length <= 200 && !/\s{2,}|[<>`]/.test(value)) || typeof value === 'number' || typeof value === 'boolean';
 }
 
+/** Summaries repeat only already-observed safe fields; absent planner output stays unavailable. */
+export function summariseObservedDiagnostics(records: Record<string, unknown>[]): Record<string, unknown> {
+  const attrs = records.map(record => record.attributes as Record<string, unknown>);
+  const events = records.flatMap(record => Array.isArray(record.events) ? record.events as { name: string; attributes: Record<string, unknown> }[] : []);
+  const selected = new Set(attrs.flatMap(value => typeof value['tailor.source_ids'] === 'string' ? value['tailor.source_ids'].split(',') : []));
+  const fields = (value: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.flatMap(key => value[key] === undefined ? [] : [[key, value[key]]]));
+  return {
+    capabilities: { available: attrs.some(value => value['tailor.record_count'] !== undefined || value['tailor.source_ids'] !== undefined), sourceIds: [...selected].slice(0,12) },
+    context: attrs.map(value => fields(value, ['tailor.context_bytes','tailor.context_chars','tailor.context_budget_chars','tailor.context_recent_turns_kept','tailor.context_recent_turns_dropped','tailor.context_payloads_dropped','tailor.context_knowledge_records_kept'])).filter(value => Object.keys(value).length).slice(0,8),
+    guards: attrs.map(value => fields(value, ['tailor.guard_stage','tailor.guard_classification','tailor.guard_reason','tailor.guard_outcome','tailor.policy_outcome','tailor.policy_reason'])).filter(value => Object.keys(value).length).slice(0,8),
+    action: { plannerType: events.findLast(event => event.name === 'tailor.planner_selected')?.attributes['tailor.planner_action'] ?? attrs.find(value => value['tailor.action'] !== undefined)?.['tailor.action'] ?? null,
+      structuredSelections: events.filter(event => event.name === 'tailor.planner_selected').slice(0,8).map(event => event.attributes),
+      decision: attrs.find(value => value['tailor.decision'] !== undefined)?.['tailor.decision'] ?? null,
+      toolNames: [...new Set(attrs.flatMap(value => typeof value['tailor.tool_name'] === 'string' ? [value['tailor.tool_name']] : []))].slice(0,8),
+      suggestionCount: events.findLast(event => event.name === 'tailor.guidance_selected')?.attributes['tailor.suggestion_count'] ?? null,
+      guidanceTargetIds: [...new Set(events.flatMap(event => typeof event.attributes['tailor.guidance_target'] === 'string' ? [event.attributes['tailor.guidance_target']] : []))].slice(0,3) },
+    results: attrs.map(value => fields(value, ['tailor.step','tailor.status','tailor.result_state','tailor.state','tailor.version','tailor.version_before','tailor.version_after','tailor.detail_state','tailor.problem_count'])).filter(value => value['tailor.result_state'] !== undefined || value['tailor.state'] !== undefined || value['tailor.problem_count'] !== undefined).slice(0,12),
+    resultEvents: events.filter(event => ['validation','validate.result','publish.result','readback.result'].includes(event.name.slice(7))).slice(0,12),
+  };
+}
+
 /** Native panels format JSON objects; labelled plain text preserves the diagnostic JSON line. */
 export function parseNativeDiagnosticEnvelope(value: unknown): Record<string, unknown> | null {
   if (typeof value !== 'string' || value.length > 24_000) return null;
@@ -487,10 +511,11 @@ export function createSpanMask(vocab: Vocabulary, options: { hostedFields?: bool
           root: record, steps: (group?.steps ?? []).map(step => ({ ...step,
             attributes: Object.fromEntries(Object.entries(step.attributes as Record<string, unknown>).filter(([key,value]) => metadataAttributes[key] !== value)),
             sdk: Object.fromEntries(Object.entries(step.sdk as Record<string, unknown>).filter(([key,value]) => sdk[key] !== value)),
-          })), truncated: group?.truncated ?? false };
+          })), truncated: group?.truncated ?? false, summaries: {} as Record<string, unknown> };
+        diagnostics.summaries = summariseObservedDiagnostics([diagnostics.root, ...diagnostics.steps]);
         const outputEnvelope = { schema: approvedRoot ? 'tailor-native-output-v1' : 'tailor-guidance-diagnostics-v1',
           text: approvedRoot && synthetic.output !== undefined ? { value: synthetic.output, truncated: attributes['tailor.synthetic_output_truncated'] === true } : null, diagnostics };
-        while (nativeDiagnosticText(outputEnvelope).length > 24_000 && diagnostics.steps.length) { diagnostics.steps.pop(); diagnostics.truncated = true; }
+        while (nativeDiagnosticText(outputEnvelope).length > 24_000 && diagnostics.steps.length) { diagnostics.steps.pop(); diagnostics.truncated = true; diagnostics.summaries = summariseObservedDiagnostics([diagnostics.root, ...diagnostics.steps]); }
         while (nativeDiagnosticText(outputEnvelope).length > 24_000 && diagnostics.root.events.length) { diagnostics.root.events.pop(); diagnostics.truncated = true; }
         if (nativeDiagnosticText(outputEnvelope).length <= 24_000) {
           const value = nativeDiagnosticText(outputEnvelope);

@@ -20,8 +20,9 @@ const targets = ['trace.overview', 'trace.slowest-span', 'trace.output'];
 function wire(guidance: unknown, extra: Record<string, unknown> = {}) {
   return { type: 'answer', text: 'Trace detail shows stored steps, timing and errors.', knowledgeIds: ['trace-detail'], clarification: null, proposal: null, explanation: null, traceId: null, spanIds: null, capabilityId: null, reason: null, guidance, ...extra };
 }
-async function run(guidance: unknown, extra: Record<string, unknown> = {}, openTraceId?: string) {
+async function run(guidance: unknown, extra: Record<string, unknown> = {}, openTraceId?: string, withoutStory = false) {
   const f = await fixture();
+  if (withoutStory) { f.tools.state.story = null; f.session.story = null; }
   const schemas: string[] = [];
   const client: MessagesClientLike = { messages: { async create(params) {
     const properties = params.output_config.format.schema.properties as Record<string, unknown>;
@@ -30,9 +31,12 @@ async function run(guidance: unknown, extra: Record<string, unknown> = {}, openT
     return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(guard ? { outcome: 'allow_product_question', reason: 'product_question' } : wire(guidance, extra)) }], usage: { input_tokens: 50, output_tokens: 30 } };
   } } };
   const telemetry = recordingTelemetry();
+  const observations: { name: string; attributes: Record<string, string | number | boolean> }[] = [];
+  const recordEvent = telemetry.event;
+  telemetry.event = (name, attributes) => { observations.push({ name, attributes }); recordEvent(name, attributes); };
   const provider = createAnthropicProvider({ apiKey: 'offline-placeholder', spend: createSpendGuard({ capUsd: 100 }), client });
   const result = await createAgentService().handleTurn({ ...f, request: { text: 'What does trace detail show?', clientTurnId: 'guidance-offline', ...(openTraceId ? { openTraceId } : {}) }, knowledge: fakeKnowledge(), clock: fixedClock, telemetry, provider });
-  return { ...f, result, schemas, telemetry };
+  return { ...f, result, schemas, telemetry, observations };
 }
 
 test('guidance: structured answer carries zero to three suggestions without another planning call', async () => {
@@ -47,6 +51,15 @@ test('guidance: structured answer carries zero to three suggestions without anot
       assert.equal(guide.binding.version, session.version);
     }
   }
+});
+
+test('guidance: informational entry answers cannot offer concealed seed targets', async () => {
+  const { result, tools, observations } = await run(targets, {}, undefined, true);
+  assert.equal(result.outcome, 'answered');
+  assert.equal(result.messages.at(-1)?.guidance, undefined);
+  assert.equal(tools.publishCount(), 1, 'informational guidance must not create a workflow');
+  assert.ok(observations.some(event => event.name === 'guidance_selected' && event.attributes.suggestionCount === 0));
+  assert.ok(observations.some(event => event.name === 'planner_selected' && event.attributes.plannerAction === 'answer'));
 });
 
 test('guidance: parser fails closed for oversized, malformed and arbitrary selector/action entries', () => {

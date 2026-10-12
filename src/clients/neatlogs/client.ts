@@ -61,7 +61,7 @@ function guidanceEvent(messageId: string, g: GuidanceSuggestion, outcome: 'selec
   void request(`/api/sessions/${encodeURIComponent(String(g.binding.sessionId))}/guidance-events`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({messageId,suggestionId:g.id,outcome,...(reason?{reason}:{})}) }, true).catch(() => {});
 }
 function guidanceCards(turn: ChatTurn, s: DemoSession): string {
-  if (!Array.isArray(turn.guidance) || !turn.guidance.length || turn.role !== 'tailor') return '';
+  if (s.story===null || !Array.isArray(turn.guidance) || !turn.guidance.length || turn.role !== 'tailor') return '';
   const guidance = sanitiseStoredGuidance(turn.guidance);
   if(!guidance.length)return '';
   const cards = guidance.map(g => {
@@ -96,7 +96,7 @@ function restoreGuidanceHighlight() {
 }
 async function showGuidance(messageId: string, suggestionId: string) {
   const s=current; const turn=s?.conversation.find(t=>t.id===messageId); const g=sanitiseStoredGuidance(turn?.guidance).find(g=>g.id===suggestionId);
-  if(!s || !g) return;
+  if(!s || s.story===null || !g) return;
   const attempt=++guidanceAttempt; activeGuidance={messageId,suggestion:g,state:'loading'};
   guidanceEvent(messageId,g,'selected');
   const fail=(reason:'stale'|'missing'|'navigation'|'loading'|'render') => { if(attempt!==guidanceAttempt)return;activeGuidance={messageId,suggestion:g,state:'failed',reason};guidanceEvent(messageId,g,'failed',reason);repaint(); };
@@ -459,9 +459,19 @@ function examples(s: DemoSession | boolean) {
   const hasRetry = !!relevantTrace?.spans.some(span => /retry|backoff|attempt[_ -]?(?:[2-9]|\d{2,})\b/i.test(span.name));
   return `<div class="chat-examples" aria-label="Suggested prompts"><button type="button" data-example="Explain this trace">Explain this trace</button>${hasRetry ? '<button type="button" data-example="Make the retry fail too">Make the retry fail too</button>' : ''}</div>`;
 }
+function payloadCaptureStatus(s: DemoSession): string {
+  const value=(s as DemoSession & {payloadCapture?:unknown}).payloadCapture;
+  const status=value && typeof value==='object'?value as Record<string,unknown>:undefined;
+  const enabled=status?.enabled===true && status.reason==='approved_synthetic_session' && Number.isSafeInteger(status.maxTextChars) && Number(status.maxTextChars)>0 && Number(status.maxTextChars)<=2000;
+  const explanation=enabled?'Approved synthetic session: bounded trace text capture is on, up to 2,000 characters per text field.'
+    :status?.reason==='session_not_approved'?'Trace text capture is off because this session has not been approved. Timing and token usage are still recorded.'
+    :status?.reason==='hosted_export_disabled'?'Hosted trace text capture is off in this local preview.'
+    :'Trace text capture is off. Capture approval for this session is unavailable.';
+  return `<details class="payload-capture-status" data-payload-capture="${enabled?'on':'off'}"><summary title="${esc(explanation)}">Trace text capture ${enabled?'on':'off'} <span aria-hidden="true">ⓘ</span></summary><p>${esc(explanation)}</p></details>`;
+}
 function chatPanel(s: DemoSession) {
   const turns = turnsOf(s);
-  return `<aside class="chat-panel${activeGuidance?' has-contextual-guidance':''}" aria-label="Playground"><header><span class="contextual-tailor-mark" aria-hidden="true">✳</span><div class="playground-heading"><strong>Tailor</strong><span class="contextual-tailor-subtitle">Explore this product with me</span></div><span class="chat-actions"><button type="button" data-end-demo class="end-demo">End demo</button><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></span></header><div class="chat-thread">${turns.length?chatThread(turns, s):`<p class="chat-empty">Describe the agent you’re building, or ask me to explain the open trace.</p>`}${progress()}</div><footer class="contextual-conversation-footer">${examples(s)}${composer(chatBusy, openTrace(s))}<div class="contextual-powered">Powered by Tailor <span>Synthetic data · ${esc(execChip())}</span></div></footer></aside>`;
+  return `<aside class="chat-panel${activeGuidance?' has-contextual-guidance':''}" aria-label="Playground"><header><span class="contextual-tailor-mark" aria-hidden="true">✳</span><div class="playground-heading"><strong>Tailor</strong><span class="contextual-tailor-subtitle">Explore this product with me</span></div><span class="chat-actions"><button type="button" data-end-demo class="end-demo">End demo</button><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></span></header><div class="chat-thread">${turns.length?chatThread(turns, s):`<p class="chat-empty">Describe the agent you’re building, or ask me to explain the open trace.</p>`}${progress()}</div><footer class="contextual-conversation-footer">${examples(s)}${composer(chatBusy, openTrace(s))}${payloadCaptureStatus(s)}<div class="contextual-powered">Powered by Tailor <span>Synthetic data · ${esc(execChip())}</span></div></footer></aside>`;
 }
 function landing() {
   document.documentElement.classList.remove('chat-dock', 'rail-open');
@@ -523,9 +533,11 @@ function awaitingPersonalisedDemo(s: DemoSession): boolean {
   return s.story === null && (sessionStorage.getItem(`tailor-entry-awaiting:${s.id}`) === '1' || !!pendingTurn || s.conversation.some(turn => turn.role === 'buyer'));
 }
 function preparationWorkspace(s: DemoSession) {
-  const clarification=s.conversation.some(turn=>!!turn.clarification);
-  const title=chatBusy?'Working on your workflow…':clarification?'A little more context is needed':'Your workflow is not ready yet';
-  const copy=chatBusy?'Tailor is handling your request. Your conversation stays here.':clarification?'Answer Tailor’s question to continue. No personalised traces have been saved yet.':'No personalised traces have been saved and verified. Check the conversation and try again when you’re ready.';
+  const latestAnswer=[...s.conversation].reverse().find(turn=>turn.role==='tailor');
+  const clarification=latestAnswer?.status==='question' && !!latestAnswer.clarification;
+  const informational=latestAnswer?.status==='note' && !pendingTurn && !turnNote && (!lastResult || lastResult.outcome==='answered');
+  const title=chatBusy?'Working on your workflow…':clarification?'A little more context is needed':informational?'Ask about your workflow':'Your workflow is not ready yet';
+  const copy=chatBusy?'Tailor is handling your request. Your conversation stays here.':clarification?'Answer Tailor’s question to continue. No personalised traces have been saved yet.':informational?'Explore your workflow in the conversation. No personalised traces have been created.':'No personalised traces have been saved and verified. Check the conversation and try again when you’re ready.';
   root.innerHTML=shell(s,`<main class="personalised-preparation${chatBusy?' is-working':''}" role="status" aria-live="polite" aria-busy="${chatBusy}"><span class="personalised-preparation-mark" aria-hidden="true">✳</span><h1>${esc(title)}</h1><p>${esc(copy)}</p></main>`);
 }
 function list(s: DemoSession,data: TraceList) {

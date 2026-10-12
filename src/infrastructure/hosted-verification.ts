@@ -1,6 +1,7 @@
+import { CORE_LIMITS } from '../tailor/contract.ts';
 // Pure hosted-readback validation: no environment, credentials, network or model calls.
 import { compareEvidence, evidenceKey, EVIDENCE_OPERATIONS, type EvidenceManifestSnapshot, type EvidenceReceipt } from '../tailor/evidence.ts';
-import { looksSensitive, createSpanMask, telemetryVocabulary, isSafeTelemetryEventName, parseNativeDiagnosticEnvelope } from './telemetry.ts';
+import { looksSensitive, createSpanMask, telemetryVocabulary, isSafeTelemetryEventName, parseNativeDiagnosticEnvelope, summariseObservedDiagnostics } from './telemetry.ts';
 
 export const RUNTIME_PROJECT_ID = '18c4b4b6-0b1e-4d41-9405-7960fc2d0aa8';
 export const FORBIDDEN_PROJECT_ID = 'a35a7334-258e-441c-b2e1-b8198a263f21';
@@ -60,15 +61,16 @@ function normaliseHostedSpan(span: Bag, issues: string[]): Bag {
   } else metadata = bag(value);
   const envelope = bag(metadata.tailor);
   const mirrored = attributeMap(envelope.attributes);
+  const events = Array.isArray(envelope.events) ? envelope.events.map(bag) : [];
+  const declaredSources = [mirrored, ...events.map(event => attributeMap(event.attributes))];
   // Declarations remain bounded token identifiers. This validates shape/privacy, not authenticity;
   // exact turn/session/evidence expectations below provide the independent identity checks.
-  const values = (key: string) => typeof mirrored[key] === 'string' ? [mirrored[key] as string] : [];
+  const values = (key: string) => declaredSources.flatMap(source => typeof source[key] === 'string' ? [source[key] as string] : []);
   const vocab = telemetryVocabulary({ adapterIds: values('tailor.adapter_id'), toolNames: [...values('tailor.tool_name'), ...(typeof mirrored['tailor.decision'] === 'string' ? mirrored['tailor.decision'].split('→').flatMap(part => part.match(/^([A-Za-z][A-Za-z0-9_]{0,47})(?::| |$)/)?.[1] ?? []) : [])],
-    recordIds: (typeof mirrored['tailor.source_ids'] === 'string' ? mirrored['tailor.source_ids'].split(',') : []),
+    recordIds: values('tailor.source_ids').flatMap(value => value.split(',')),
     promptVersions: values('tailor.prompt_version'), knowledgeVersions: values('tailor.knowledge_version'),
     codeVersions: values('tailor.code_version'), adapterVersions: values('tailor.adapter_version'), policyVersions: values('tailor.policy_version'),
     modelIds: [...values('tailor.model'), ...values('tailor.guard_model')], contractVersions: values('tailor.contract_version') });
-  const events = Array.isArray(envelope.events) ? envelope.events.map(bag) : [];
   if (events.length > 200) issues.push('metadata_limit');
   if (events.some(e => !isSafeTelemetryEventName(e.name))) issues.push('unsafe_metadata');
   const sdk = bag(metadata.sdk);
@@ -76,7 +78,7 @@ function normaliseHostedSpan(span: Bag, issues: string[]): Bag {
   if (sdk['neatlogs.session.id'] !== undefined && (typeof sdk['neatlogs.session.id'] !== 'string' || !/^[0-9a-f]{16}$/.test(sdk['neatlogs.session.id']))) issues.push('unsafe_metadata');
   for (const key of ['neatlogs.span.kind','openinference.span.kind']) if (sdk[key] !== undefined && (typeof sdk[key] !== 'string' || !/^(?:workflow|chain|guardrail|tool|retriever|llm|agent|Neatlogs.INTERNAL)$/i.test(sdk[key]))) issues.push('unsafe_metadata');
   const synthetic = bag(metadata.synthetic);
-  for (const [key,value] of Object.entries(synthetic)) if (!['input','output'].includes(key) || typeof value !== 'string' || value.length > 1000 || looksSensitive(value)) issues.push('unsafe_synthetic_payload');
+  for (const [key,value] of Object.entries(synthetic)) if (!['input','output'].includes(key) || typeof value !== 'string' || value.length > CORE_LIMITS.maxTurnTextChars || looksSensitive(value)) issues.push('unsafe_synthetic_payload');
   const candidate = { attributes: { ...sdk, ...mirrored }, events };
   const safe = createSpanMask(vocab)(candidate) as { attributes: Bag; events: Bag[] };
   if (Object.keys(candidate.attributes).length !== Object.keys(safe.attributes).length || events.length !== safe.events.length) issues.push('unsafe_metadata');
@@ -110,19 +112,20 @@ function withNativeDiagnostics(spans: Bag[], expected: HostedExpectation, issues
   const output = nativeEnvelope(root, 'output'); const input = nativeEnvelope(root, 'input');
   if (output.schema !== 'tailor-native-output-v1' || input.schema !== 'tailor-native-input-v1') { issues.push('native_envelope_missing'); return spans; }
   const diagnostics = bag(output.diagnostics); const record = bag(diagnostics.root);
-  if (Object.keys(output).some(key => !['schema','text','diagnostics'].includes(key)) || Object.keys(diagnostics).some(key => !['schema','traceId','root','steps','truncated'].includes(key))) issues.push('unsafe_native_diagnostics');
+  if (Object.keys(output).some(key => !['schema','text','diagnostics'].includes(key)) || Object.keys(diagnostics).some(key => !['schema','traceId','root','steps','truncated','summaries'].includes(key))) issues.push('unsafe_native_diagnostics');
   if (diagnostics.schema !== 'tailor-observed-diagnostics-v1' || diagnostics.traceId !== expected.traceId || record.spanId !== spanId(root) || record.parentSpanId !== null) issues.push('native_identity_mismatch');
   if (diagnostics.truncated !== false) issues.push('native_diagnostics_truncated');
   const textIn = bag(input.text); const textOut = bag(output.text);
   if ([textIn,textOut].some(text => Object.keys(text).some(key => !['value','truncated'].includes(key)))) issues.push('unsafe_synthetic_payload');
   for (const [field,text] of [['input',textIn],['output',textOut]] as const) {
     const value = text.value;
-    if (!expected.synthetic || typeof value !== 'string' || value.length > 1000 || looksSensitive(value) || typeof text.truncated !== 'boolean') issues.push('unsafe_synthetic_payload');
+    if (!expected.synthetic || typeof value !== 'string' || value.length > CORE_LIMITS.maxTurnTextChars || looksSensitive(value) || typeof text.truncated !== 'boolean') issues.push('unsafe_synthetic_payload');
     if (expected.synthetic?.[field] !== undefined && value !== expected.synthetic[field]) issues.push(`synthetic_${field}_mismatch`);
   }
   const steps = Array.isArray(diagnostics.steps) ? diagnostics.steps.map(bag) : [];
   if (steps.length > 100) issues.push('native_diagnostics_limit');
   const records = new Map([record,...steps].map(value => [value.spanId, value]));
+  if (diagnostics.summaries !== undefined && JSON.stringify(diagnostics.summaries) !== JSON.stringify(summariseObservedDiagnostics([record,...steps]))) issues.push('native_summary_mismatch');
   if (records.size !== steps.length + 1) issues.push('native_record_duplicate');
   const actualIds = new Set(spans.map(spanId));
   if ([...records.keys()].some(id => typeof id !== 'string' || !actualIds.has(id))) issues.push('native_record_unknown');
@@ -173,7 +176,7 @@ export function verifyHostedTrace(body: unknown, expected: HostedExpectation): H
   if (Object.keys(synthetic).length) {
     if (!expected.synthetic || rootAttrs['tailor.synthetic'] !== true) issues.push('unexpected_synthetic_payload');
     if (Object.keys(synthetic).some(k => !['input','output'].includes(k))) issues.push('unsafe_metadata');
-    for (const [key, value] of Object.entries(synthetic)) if (typeof value !== 'string' || value.length > 1000 || looksSensitive(value)) issues.push('unsafe_synthetic_payload');
+    for (const [key, value] of Object.entries(synthetic)) if (typeof value !== 'string' || value.length > CORE_LIMITS.maxTurnTextChars || looksSensitive(value)) issues.push('unsafe_synthetic_payload');
   }
   if (expected.synthetic) for (const [key,value] of Object.entries(expected.synthetic)) if (synthetic[key] !== value) issues.push(`synthetic_${key}_mismatch`);
   const rootId = root ? spanId(root) : null;

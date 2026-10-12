@@ -81,7 +81,16 @@ export function appServer(store: Store, options: AppServerOptions) {
     compareAndSet: (id, evaluationId, version, next) => store.compareAndSetArtifact(id, 'evaluations', evaluationId, version, next),
   }, { now: () => new Date(clock.now()) });
   const execution = (): ExecutionLabel => ({ mode: provider.mode, provider: provider.name, model: provider.model, effort: provider.effort ?? null });
-  const withExecution = <T extends object>(data: T): T & ExecutionInfoResponse => ({ ...data, execution: execution() });
+  const withExecution = <T extends object>(data: T): T & ExecutionInfoResponse => {
+    const id = (data as { id?: unknown }).id;
+    const hosted = telemetry.mode === 'neatlogs' && telemetry.diagnostics().syntheticPayloads;
+    const approved = typeof id === 'string' && options.syntheticFixture?.(id) === true;
+    return { ...data, execution: execution(), ...(typeof id === 'string' ? { payloadCapture: {
+      enabled: hosted && approved,
+      reason: !hosted ? 'hosted_export_disabled' : approved ? 'approved_synthetic_session' : 'session_not_approved',
+      maxTextChars: LIMITS.maxTurnTextChars,
+    } } : {}) };
+  };
   const devKeyHash = devKey ? createHash('sha256').update(devKey).digest() : null;
   const devAllowed = (given: unknown) => devKeyHash !== null && typeof given === 'string' && timingSafeEqual(createHash('sha256').update(given).digest(), devKeyHash);
 

@@ -229,7 +229,7 @@ test('product evidence ids are exported only as keyed hashes; id lists and the d
   // The export mask applies the same validators (defence in depth).
   const masked = maskSpanData({
     name: 'tailor.turn',
-    attributes: { 'tailor.decision': 'plan→answer:1_sources→answered', 'tailor.source_ids': `a,${BUYER}`, 'tailor.evidence_refs': 'not-a-hash', 'tailor.synthetic_input': 'x'.repeat(1001), 'tailor.request_id': 'sk-ant-api03-abcdefghij' },
+    attributes: { 'tailor.decision': 'plan→answer:1_sources→answered', 'tailor.source_ids': `a,${BUYER}`, 'tailor.evidence_refs': 'not-a-hash', 'tailor.synthetic_input': 'x'.repeat(2001), 'tailor.request_id': 'sk-ant-api03-abcdefghij' },
     events: [], status: { code: 'OK' },
   }) as Record<string, any>;
   assert.deepEqual(masked.attributes, { 'tailor.decision': 'plan→answer:1_sources→answered' });
@@ -249,7 +249,7 @@ test('synthetic payloads: off by default; with the option only synthetic turns c
     await real.step('turn', {}, async () => { assert.equal(real.attachSynthetic({ input: BUYER }), false, 'a non-synthetic turn never carries payloads'); });
     const syn = on.forTurn('turn-0015', SESSION, { synthetic: true });
     await syn.step('turn', {}, async () => {
-      assert.equal(syn.attachSynthetic({ input: 'SYNTHETIC build a fictional order bot', output: 'y'.repeat(1500) }), true);
+      assert.equal(syn.attachSynthetic({ input: 'SYNTHETIC build a fictional order bot', output: 'y'.repeat(2500) }), true);
     });
     const leak = on.forTurn('turn-0016', SESSION, { synthetic: true });
     await leak.step('turn', {}, async () => { assert.equal(leak.attachSynthetic({ input: 'mail me at a@b.co', output: 'key sk-ant-api03-abcdefghij' }), false); });
@@ -257,7 +257,7 @@ test('synthetic payloads: off by default; with the option only synthetic turns c
     const byTurn = (tt: { turnRef: string }) => roots.find(s => s.attributes['tailor.turn_id'] === tt.turnRef)!.attributes;
     assert.equal(byTurn(real)['tailor.synthetic_input'], undefined);
     assert.equal(byTurn(syn)['tailor.synthetic_input'], 'SYNTHETIC build a fictional order bot');
-    assert.equal(String(byTurn(syn)['tailor.synthetic_output']).length, 1000, 'clipped');
+    assert.equal(String(byTurn(syn)['tailor.synthetic_output']).length, 2000, 'clipped at the core reply limit');
     assert.equal(byTurn(leak)['tailor.synthetic_input'], undefined);
     assert.equal(on.diagnostics().redactedValues, 2);
   } finally { await on.shutdown(); }

@@ -133,8 +133,33 @@ function wholeSentences(text: string, budget: number): string {
   return out.join(' ');
 }
 
+/** A fixed workflow example translates cited instrumentation facts without admitting provider-authored claims. */
+function codeReviewFit(cited: CapabilityRecord[], question: string, knowledgeVersion?: string): string | null {
+  if (!/\b(?:code[ -]?review|pull requests?|PRs?)\b/i.test(question) || !/\b(?:make sense|use ?case|fit|suitable|should.*use)\b/i.test(question)) return null;
+  const traces = cited.find(r => r.id === 'official-traces-and-spans' && r.scope === 'official_product');
+  const sdk = cited.find(r => r.id === 'official-typescript-sdk' && r.scope === 'official_product');
+  if (!traces || !sdk) return null;
+  const records = [traces, sdk];
+  const lines = [
+    'Neatlogs makes sense as an observability layer for a code-review agent if you want to inspect how each review ran and investigate slow or failed steps.',
+    '1. Instrument each PR review run',
+    'For example, you could record one trace per review and spans for your agent’s steps, such as reading a diff, calling a model and preparing feedback. Capture the inputs, outputs, timing and errors you need to inspect. This is a suggested instrumentation design for your agent.',
+    '2. Use the saved evidence to debug',
+    'Inspect the recorded steps to see where time was spent or an error occurred, and read the captured input and output to understand the feedback your agent produced. What you can inspect depends on what you instrument.',
+    '3. Keep the integration boundary clear',
+    'Your application would own the PR-review workflow and posting feedback. These cited records establish trace inspection and instrumentation, not an automatic PR reviewer or a guarantee that the feedback is correct.',
+    '- Limits: TypeScript instrumentation is explicit; the documented SDK has no auto-instrumentation option. Your application must flush or shut down appropriately for its process lifecycle.',
+    '- In this demo you can inspect synthetic traces. A real agent integration is not demonstrated here.',
+    sourceLine(records, knowledgeVersion),
+    ...records.map(planLine),
+  ];
+  return buyerWording(lines.join('\n\n'));
+}
+
 /** Ordinary short answers retain their detail. Broad answers reserve room for sources and availability first. */
 export function composeAnswer(cited: CapabilityRecord[], question: string, providerText: string, knowledgeVersion?: string): string {
+  const fit = codeReviewFit(cited, question, knowledgeVersion);
+  if (fit && fit.length <= MAX_ANSWER_CHARS) return fit;
   const detailed = detailedAnswer(cited, question, providerText, knowledgeVersion);
   if (detailed.length <= MAX_ANSWER_CHARS) return detailed;
   const wanted = new Set(topicTokens(question).filter(t => t.length >= 3 && !QUESTION_FILLER.has(t)));
