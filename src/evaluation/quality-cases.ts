@@ -62,6 +62,12 @@ export const RUNTIME_QUALITY_CASES: readonly RuntimeQualityCase[] = [
   { id: 'independent-insurance-requirements', turns: [{ text: 'We are shipping an insurance claims triage bot. The OCR tool returns garbage and a guardrail blocks the payout.', expect: { outcomes: ['committed'], versionDelta: 1, domainTerms: ['insurance', 'claims', 'triage'], blockedPayout: true } }] },
   { id: 'wrong-workflow-valid-proposal', script: 'wrong_workflow', turns: [{ text: 'I am developing an insurance claims triage bot. The OCR tool returns garbage and a guardrail blocks the payout.', expect: { outcomes: ['clarification'], versionDelta: 0 } }] },
   { id: 'original-headline-wrong-workflow', script: 'wrong_workflow', turns: [{ text: 'Insurance claims triage: OCR returns garbage; guardrail blocks payout.', expect: { outcomes: ['clarification'], versionDelta: 0 } }] },
+  ...[
+    'Show me an invoice extraction workflow with a missing due date.',
+    'Show me a fictional insurance workflow with a malformed OCR response.',
+    'Show me a customer support agent that gives a polite but unhelpful answer.',
+  ].map((text, i) => ({ id: `show-request-wrong-workflow-${i}`, script: 'wrong_workflow' as const, turns: [{ text, expect: { outcomes: ['clarification'] as const, versionDelta: 0 } }] })),
+  { id: 'slack-capability-limit', turns: [{ text: 'Set up Slack alerts for this project.', expect: { outcomes: ['unsupported'], versionDelta: 0, answerPattern: 'alert|Slack', forbiddenPattern: 'alerts configured|connected Slack|created webhook' } }] },
   { id: 'retry-follow-up-preserves-state', turns: [
     { text: 'My warehouse scheduling agent has a calendar API timeout followed by a successful retry.', expect: { outcomes: ['committed'], versionDelta: 1, domainTerms: ['warehouse', 'scheduling'], errors: 1, traceCount: 1 } },
     { text: 'Make the retry fail too.', expect: { outcomes: ['committed'], versionDelta: 1, domainTerms: ['warehouse', 'scheduling'], errors: 2, traceCount: 2 } },

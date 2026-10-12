@@ -9,6 +9,7 @@ import { createSpendGuard } from '../src/tailor/spend.ts';
 import { ProviderError } from '../src/tailor/provider-error.ts';
 import { travelProposalV1 } from '../src/clients/neatlogs/examples/travel-booking.ts';
 import { fakeKnowledge, fixedClock, recordingTelemetry, stubTools, SESSION_ID } from './helpers/agent.ts';
+import { harness } from './helpers/agent.ts';
 import { evaluatePolicyCases, runQualityEvaluations } from '../src/evaluation/quality-runner.ts';
 import type { ModelProvider, SessionSnapshot } from '../src/clients/neatlogs/agent-contract.ts';
 
@@ -76,6 +77,34 @@ test('input classification does not make a valid but unrelated proposal satisfy 
   for (const text of ['I am developing an insurance claims triage bot. The OCR tool returns garbage and a guardrail blocks the payout.', 'Insurance claims triage: OCR returns garbage; guardrail blocks payout.']) {
     assert.equal(proposalAlignment(travelProposalV1, text).kind, 'ask');
   }
+});
+
+test('Show/Create/Simulate noun phrases require actual candidate identity, not a quote in the summary', () => {
+  const wrong = structuredClone(travelProposalV1);
+  for (const text of [
+    'Show me an invoice extraction workflow with a missing due date.',
+    'Show me a fictional insurance workflow with a malformed OCR response.',
+    'Show me a customer support agent that gives a polite but unhelpful answer.',
+    'Create a municipal permits workflow with a records API timeout.',
+    'Simulate a mineral assay agent whose analysis tool returns malformed data.',
+  ]) {
+    wrong.story.summary = text;
+    assert.equal(proposalAlignment(wrong, text).kind, 'ask', text);
+  }
+});
+
+test('explicit Switch-to changes the mock candidate domain/root and leaves ordinary retry follow-ups intact', async () => {
+  const h = harness();
+  await h.say('I am building a travel-booking agent. Show a booking API timeout followed by a successful retry.');
+  const result = await h.say('Switch to an insurance claims agent. Show a policy lookup timing out, then a successful retry.');
+  assert.equal(result.outcome, 'committed');
+  const proposal = h.tools.proposals.at(-1)!;
+  assert.equal(proposal.mode, 'new'); assert.equal(proposal.story.domain, 'insurance claims agent');
+  const active = proposal.traces.find(t => t.key === proposal.activeScenario)!;
+  assert.match(active.name, /insurance.claims/); assert.match(active.spans.find(s => s.parentKey === null)!.name, /insurance.claims/);
+  assert.ok(active.spans.some(s => /policy_lookup/.test(s.name))); assert.doesNotMatch(active.name, /travel|booking/);
+  assert.equal((await h.say('Make the retry fail too.')).outcome, 'committed');
+  assert.equal(h.tools.proposals.at(-1)!.mode, 'edit'); assert.equal(h.tools.state.story!.domain, 'insurance claims agent');
 });
 
 test('policy codec uses bounded schema and the same spend accounting without enabling prompt caching', async () => {

@@ -136,6 +136,7 @@ const DEMO_SUBJECT = /\b(?:api|tool|guardrail|retriev\w*|execution|scenario|demo
 const FAILURE = /\b(?:fail\w*|errors?|timeouts?|timed? out|retry|retries|latency|slow|garbage|malformed|guardrail|payout|double.book|blocked|successful|success|recover\w*)\b/i;
 const FOLLOWUP = /^(?:make|add|change|remove|drop|keep|explain|compare|show|let|have|acquire|try|now|what|why|walk|summarize|summarise)\b/i;
 const UNRELATED_ACTION = /\b(?:write|compose|draft|calculate|solve|translate|summarize|summarise|research|find|book|buy|order|teach|implement|debug|fix|execute|run)\b/i;
+const CAPABILITY_REQUEST = /\b(?:set ?up|configure|enable|connect|integrate|install|run|replay)\b[^.!?]{0,70}\b(?:slack|alerts?|webhooks?|evals?|evaluations?|integrations?|replay|sso|sdk)\b/i;
 
 /** Heuristic offline substitute, NOT validated live model accuracy. Default-deny general work, not a blacklist of hobbies. */
 export function classifyOfflinePolicy(input: PolicyInput): PolicyDecision {
@@ -154,6 +155,7 @@ export function classifyOfflinePolicy(input: PolicyInput): PolicyDecision {
   const mixed = clauses.some(c => UNRELATED_ACTION.test(c) && !WORKFLOW.test(c) && !PRODUCT_TOPICS.test(c) && !/\b(?:how|does|help|use|benefit)\b/.test(c));
   if (product && unrelated && !topic && !workflow && !/\b(?:how|does|help|use|benefit)\b/.test(unquoted)) return decision('redirect_off_topic', 'off_topic');
   if (mixed && (topic || workflow)) return decision('clarify', 'ambiguous');
+  if (CAPABILITY_REQUEST.test(unquoted)) return decision('allow_demo_action', 'demo_action');
   if (input.session.hasPublishedState && /\b(?:walk me through|what happened|what went wrong|why did it)\b/.test(unquoted)) return decision('allow_demo_action', 'demo_action');
   if (/\b(?:can|could|would|will)\s+you\s+(?:show|simulate|make|create|build|add|change)\b/.test(unquoted) && (workflow || topic || DEMO_SUBJECT.test(unquoted))) return decision('allow_demo_action', 'demo_action');
   if ((product || topic) && question && !/^(?:run|execute|create|build|simulate|make|add|replay)\b/.test(unquoted)) return decision('allow_product_question', 'product_question');
@@ -165,20 +167,43 @@ export function classifyOfflinePolicy(input: PolicyInput): PolicyDecision {
   return decision('redirect_off_topic', 'off_topic');
 }
 
+/** Buyer-authored noun phrase, independent of any candidate text. No industry catalogue or inferred domain. */
+export function explicitWorkflowIdentity(text: string): { domain: string; raw: string; terms: string[] } | null {
+  const t = normalize(text);
+  const kinds = '(agent|workflow|bot|assistant|pipeline|copilot|chatbot)';
+  const noun = '([a-z0-9][a-z0-9 &/\\-]{1,65}?)';
+  const prefixes = [
+    '(?:show(?: me)?|create|simulate|build|generate|model|demonstrate|switch to|change to|move to)',
+    '(?:building|developing|shipping|testing|running|making)',
+    '(?:my|our|for|about|in|on)',
+  ];
+  const patterns = prefixes.map(prefix => new RegExp(`\\b${prefix}\\s+(?:(?:a|an|the|my|our)\\s+)?${noun}\\s+${kinds}\\b`));
+  patterns.push(new RegExp(`(?:^|[.!?;]\\s*)${noun}\\s+${kinds}\\b`));
+  const ignored = new Set(['a', 'an', 'the', 'my', 'our', 'new', 'simple', 'small', 'fictional', 'synthetic', 'own']);
+  for (const pattern of patterns) {
+    const match = pattern.exec(t);
+    if (!match) continue;
+    const words = match[1]!.trim().split(/\s+/).filter(w => !ignored.has(w));
+    const terms = words.join(' ').split(/[^a-z0-9]+/).filter(w => w.length > 2);
+    if (terms.length) return { domain: `${words.join(' ')} ${match[2]}`, raw: match[0]!, terms };
+  }
+  const headline = /^([a-z][a-z -]{1,80})\s*:/.exec(t);
+  if (!headline) return null;
+  const words = headline[1]!.split(/\s+/).filter(w => !ignored.has(w) && !['request', 'please', 'show', 'example'].includes(w));
+  const terms = words.join(' ').split(/[^a-z0-9]+/).filter(w => w.length > 2);
+  return terms.length ? { domain: `${words.join(' ')} workflow`, raw: headline[0], terms } : null;
+}
+
 /** Independent output alignment veto: a valid data shape is not proof the proposal addresses the buyer's workflow. */
 export function proposalAlignment(proposal: ScenarioProposal, text: string): PreflightDecision {
-  const t = normalize(text);
-  const domainMatch = /\b(?:building|developing|shipping|testing|running|making)\s+(?:(?:a|an|the|my|our)\s+)?([a-z][a-z -]{1,65}?)\s+(?:agent|bot|assistant|workflow|pipeline|copilot)\b/.exec(t)
-    ?? /\b(?:my|our)\s+([a-z][a-z -]{1,45}?)\s+(?:agent|bot|assistant|workflow|pipeline|copilot)\b/.exec(t);
-  // A buyer may identify the workflow with a short headline rather than an agent-shaped sentence.
-  const headline = /^([a-z][a-z -]{1,80})\s*:/.exec(t)?.[1];
-  const identity = domainMatch?.[1] ?? headline;
-  const ignored = new Set(['a', 'an', 'the', 'my', 'our', 'new', 'simple', 'fictional', 'synthetic', 'own', 'request', 'please', 'show', 'example', 'workflow', 'agent', 'bot']);
-  const required = identity?.split(/[^a-z]+/).filter(w => w.length > 2 && !ignored.has(w)) ?? [];
-  const namedTools = [...text.matchAll(/\b([A-Z][A-Z0-9_-]{1,15})\s+(?:API|tool|service|returns)\b/g)].map(m => m[1]!.toLowerCase()).filter(w => w !== 'api');
-  const actual = normalize(`${proposal.story.domain} ${proposal.story.summary}`);
-  const steps = normalize(JSON.stringify(proposal.traces.map(trace => trace.spans)));
-  if ((required.length && !required.every(w => actual.includes(w))) || namedTools.some(w => !steps.includes(w))) {
+  const required = explicitWorkflowIdentity(text)?.terms ?? [];
+  const formats = new Set(['API', 'JSON', 'HTTP', 'ERROR', 'OK', 'SYNTHETIC']);
+  const namedTools = [...text.matchAll(/\b([A-Z][A-Z0-9_-]{1,15})\s+(?:API|tool|service|returns|response|output)\b/g)].map(m => m[1]!).filter(w => !formats.has(w)).map(w => w.toLowerCase());
+  const actual = normalize(proposal.story.domain);
+  const active = proposal.traces.find(trace => trace.key === proposal.activeScenario);
+  const identity = normalize(`${active?.name ?? ''} ${active?.spans.find(span => span.parentKey === null)?.name ?? ''}`);
+  const operations = normalize(active?.spans.filter(span => span.parentKey !== null).map(span => span.name).join(' ') ?? '');
+  if ((required.length && !required.every(w => actual.includes(w) && identity.includes(w))) || namedTools.some(w => !operations.includes(w))) {
     return { kind: 'ask', reason: 'needs_context', clarification: {
       question: 'The proposed example did not match the workflow you described. Which part should I focus on?',
       choices: [{ id: 'c1', label: 'Use the workflow I described' }, { id: 'c2', label: 'Focus on its failing tool call' }, { id: 'c3', label: 'Explain Neatlogs before building an example' }], allowFreeText: true,

@@ -536,10 +536,11 @@ test('FINDING 1: the answer is composed from the cited record (behaviour, limits
 });
 
 test('FINDING 1: at most one lead sentence survives, and only if it passes the claim filter', async () => {
-  // Every content word of the lead must come from the cited record's own text (L1-05), so the lead reuses its vocabulary.
+  // The paraphrased lead is omitted; the exact vetted source statement remains in the composed body.
   const safe = harness({ provider: answerProvider('Failing steps show as ERROR in the trace detail. Neatlogs also exports to Splunk.', ['trace-detail']) });
   const safeText = (await safe.say('Can Neatlogs detect failed retries?')).messages[0]!.text;
-  assert.ok(safeText.startsWith('Failing steps show as ERROR in the trace detail.'));
+  assert.ok(safeText.includes('Failing steps show as ERROR.'));
+  assert.equal(safeText.startsWith('Failing steps show as ERROR in the trace detail.'), false);
   assert.doesNotMatch(safeText, /Splunk/);
   const planClaim = harness({ provider: answerProvider('The Enterprise plan includes trace detail for every team.', ['trace-detail']) });
   assert.doesNotMatch((await planClaim.say('Can Neatlogs detect failed retries?')).messages[0]!.text, /Enterprise plan includes/);

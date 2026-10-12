@@ -12,7 +12,7 @@ import { createOfflineProvider } from '../../tailor/mock-provider.ts';
 import type { ActiveTraceDetail, AgentContext, KnowledgeSummary } from './context.ts';
 import { parseUserMessage } from './prompts.ts';
 import { parseAgentAction } from './provider.ts';
-import { classifyOfflinePolicy, inputFromPolicyRequest } from './entry-policy.ts';
+import { classifyOfflinePolicy, explicitWorkflowIdentity, inputFromPolicyRequest } from './entry-policy.ts';
 import type { PolicyRequest, PolicyResponse } from '../../tailor/policy.ts';
 import { qualityWorkflowProposal } from './eval-fixtures.ts';
 import { requestBoundary } from './request-boundaries.ts';
@@ -91,6 +91,8 @@ const STOP = new Set(`a an the i i'm im we my our me you your that this it its i
 const TOOL_STOP = new Set(['the', 'a', 'an', 'my', 'our', 'that', 'this', 'first', 'second', 'retry', 'next', 'each', 'external', 'tool', 'same', 'any', 'one', 'your', 'its', 'another', 'other', 'and', 'or', 'with', 'if', 'when']);
 
 function extractDomain(text: string): { domain: string; raw: string } | null {
+  const explicit = explicitWorkflowIdentity(text);
+  if (explicit) return explicit;
   const t = norm(text);
   const patterns = [
     new RegExp(`\\b(?:i'?m|i am|we'?re|we are|i've|my team is)\\s+(?:building|developing|working on|running|shipping|testing|making)\\s+(?:an?|the|my|our)?\\s*([a-z0-9][a-z0-9 \\-/&]{1,60}?)\\s+(${DOMAIN_KIND})\\b`, 'i'),
@@ -116,6 +118,8 @@ function extractTool(text: string): string | null {
     if (TOOL_STOP.has(head)) continue;
     return `${under(head)}_${m[2]!.toLowerCase()}`;
   }
+  const named = /\b([A-Z][A-Z0-9_-]{1,15})\s+(?:response|output|returns)\b/.exec(text);
+  if (named && !['API', 'JSON', 'HTTP'].includes(named[1]!)) return under(named[1]!);
   return null;
 }
 
@@ -226,7 +230,7 @@ function decide(request: ProviderRequest): AgentAction {
   // A question-shaped product query beats a scenario verb it merely contains ("…detect failures and show error spans?").
   if (isProductQuestion(ctx, text, spec)) return answerFor(ctx, text, true);
 
-  const newWorkflow = ctx.story === null || NEW_WORKFLOW.test(text);
+  const newWorkflow = ctx.story === null || NEW_WORKFLOW.test(text) || (/\b(?:switch|change|move)\s+to\b/i.test(text) && explicitWorkflowIdentity(text) !== null);
   const explicit = spec.pattern !== null || spec.guardrail || spec.successOnly;
 
   if (newWorkflow) {
