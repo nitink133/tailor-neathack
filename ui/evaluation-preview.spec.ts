@@ -61,3 +61,11 @@ test('the preview bundle is served but only loaded by an explicitly opted-in eva
   const source=await page.request.get('/eval-guidance-preview.js');expect(source.status()).toBe(200);expect(await source.text()).toContain('createScriptedEvaluationPreviewAnswer');
   await page.goto(previewPath(session,detail));await expect(page.locator('.chat-panel [data-eval-preview-target]')).toHaveCount(3);expect(requests).toHaveLength(1);
 });
+
+
+test('narrow scripted criteria begins below the actual wrapped sticky workflow tabs',async({page})=>{
+ await page.setViewportSize({width:390,height:844});const {session,detail}=await fixture(page);await page.goto(previewPath(session,detail));
+ await page.locator('.chat-panel [data-eval-preview-target="evals.criteria"]').click();await expect(page.locator('.eval-criteria-summary.evaluation-preview-target')).toBeVisible();
+ const bounds=await page.evaluate(()=>({tabs:document.querySelector('.eval-preview-path')!.getBoundingClientRect().bottom,question:document.querySelector('.eval-criteria-summary .ne-field')!.getBoundingClientRect().top}));expect(bounds.question).toBeGreaterThan(bounds.tabs+8);
+ await expect(page.getByLabel('Question 1',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Dismiss evaluation highlight'}).click();await expect(page.locator('.chat-panel [data-eval-preview-target="evals.criteria"]')).toBeFocused();
+});
