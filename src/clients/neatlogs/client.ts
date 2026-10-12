@@ -597,7 +597,9 @@ function chatThread(turns: ChatTurn[], s?: DemoSession) {
 }
 function progress() {
   if (chatBusy) return `<p class="chat-steps is-working" role="status" aria-live="polite"><span class="chat-pending-indicator" aria-hidden="true"></span>Working on your request…</p>`;
-  const line = lastResult ? turnSummary(lastResult.steps, lastResult.outcome) : '';
+  const latestAnswer=current?.conversation.findLast(turn=>turn.role==='tailor');
+  const savedReview=lastResult?.outcome==='answered'&&lastResult.steps.some(step=>step.name==='save'&&step.status==='ok')&&latestAnswer?.evidence?.evaluation;
+  const line = savedReview ? 'Saved the local review and read it back. Your trace dataset is unchanged.' : lastResult ? turnSummary(lastResult.steps, lastResult.outcome) : '';
   const uncertain = lastResult?.outcome === 'readback_uncertain';
   return `${turnNote ? `<p class="chat-note${uncertain ? ' is-uncertain' : ''}" role="status">${esc(turnNote)}</p>` : ''}${line ? `<p class="chat-steps" aria-label="Latest request">${esc(line)}</p>` : ''}`;
 }
