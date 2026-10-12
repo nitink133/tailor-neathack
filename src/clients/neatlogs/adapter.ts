@@ -168,7 +168,8 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
       describe(trace, version, narrative, cited) {
         const required = citedSpanIds(trace);
         const evidence: Evidence = { version, traceIds: [trace.id], spanIds: qualityDefectNarrative(trace) ? [...new Set([...cited, ...required])] : cited.length ? cited : required };
-        return { text: `${describeTrace(trace)}${narrative ? `\n${narrative}` : ''}`, evidence };
+        const description = describeTrace(trace);
+        return { text: `${description}${narrative && !description.includes(narrative) ? `\n${narrative}` : ''}`, evidence };
       },
     },
   },

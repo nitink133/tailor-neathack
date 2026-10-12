@@ -51,6 +51,7 @@ test('all-green quality explanations cite the observed supporting source/check s
   const explained=explain.describe(trace,2,qualityDefectNarrative(trace),['root']);
   assert.deepEqual(committed.evidence.spanIds,ids);
   assert.deepEqual(explained.evidence.spanIds,ids);
+  assert.equal(explained.text.split(qualityDefectNarrative(trace)).length-1,1,'code-owned observation appears once');
   for(const id of ids)assert.ok(trace.spans.some(s=>s.id===id));
  }
 });
