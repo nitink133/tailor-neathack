@@ -281,7 +281,8 @@ function starterButtons() {
 function starterExamples() { return `<div class="chat-examples" data-starter-list aria-label="Capability-backed starter prompts">${starterButtons()}</div>`; }
 function examples(s: DemoSession | boolean) {
   if (typeof s === 'boolean' || s.story === null) return starterExamples();
-  const hasRetry = s.dataset.traces.some(t => t.spans.some(span => /retry|backoff|attempt[_ -]?(?:[2-9]|\d{2,})\b/i.test(span.name)));
+  const relevantTrace = openTrace(s) ?? s.dataset.traces.find(t => t.scenario === s.dataset.activeScenario) ?? s.dataset.traces[0];
+  const hasRetry = !!relevantTrace?.spans.some(span => /retry|backoff|attempt[_ -]?(?:[2-9]|\d{2,})\b/i.test(span.name));
   return `<div class="chat-examples" aria-label="Suggested prompts"><button type="button" data-example="Explain this trace">Explain this trace</button>${hasRetry ? '<button type="button" data-example="Make the retry fail too">Make the retry fail too</button>' : ''}</div>`;
 }
 function honestLines() {
