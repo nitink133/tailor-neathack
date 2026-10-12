@@ -1,3 +1,4 @@
+import { SYSTEM_PROMPT } from '../src/clients/neatlogs/prompts.ts';
 // Actual local chat/service/tool persistence and genuine structured provider wire; zero network/model calls.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -191,4 +192,10 @@ test('read-local-evaluation consumes actual compact wire guidance string without
     assert.equal(h.evaluations.list(h.store.read(h.session.id)).evaluations.length,1);
     assert.match(result.messages[0]!.text,/1 passed, 1 failed/);
   }finally{h.store.close();}
+});
+
+test('local eval prompt spells every closed check and question shape with numeric dataset source',()=>{
+  assert.match(SYSTEM_PROMPT,/context\.datasetVersion/);
+  for(const token of ['type:"yes_no"','type:"rating"','type:"choice"','type:"text"','kind:"no_error"','kind:"latency",maxDurationMs:integer','kind:"required_output_fields",fields:string[]','reviewer:"buyer"']) assert.ok(SYSTEM_PROMPT.includes(token),token);
+  assert.match(SYSTEM_PROMPT,/Omit min\/max\/options entirely/);
 });
