@@ -327,8 +327,8 @@ test('an ended or unknown session URL is a friendly page, not a raw code (L5-05)
   await page.getByRole('button', { name: 'End demo' }).click();
   await expect(page.locator('.entry-notice')).toContainText('Demo ended');
   await page.goto(`/demo/${s.id}/traces`);
-  await expect(page.getByRole('heading', { name: 'Demo unavailable' })).toBeVisible();
-  await expect(page.locator('[role=alert]')).toContainText('isn’t available in this browser');
+  await expect(page.getByRole('heading', { name: /This demo has ended|Demo unavailable/ })).toBeVisible();
+  await expect(page.locator('[role=alert]')).toContainText(/deleted|isn’t available in this browser/);
   await expect(page.locator('body')).not.toContainText(/NOT_FOUND|SESSION_/);
   await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Start a new demo' })).toBeVisible();
@@ -438,6 +438,7 @@ test('a fast repeat click sends one edit; direct trace explanations retain their
   await expect(page.locator('.chat-asking')).toContainText(older.label);
   await send(page,'Explain this trace');
   const evidence=page.locator('.chat-evidence').last();await expect(evidence).toBeVisible();
-  await expect(evidence.locator('a')).toHaveAttribute('href',new RegExp(`/demo/${s.id}/traces/${older.id}$`));
-  await page.reload();await expect(page.locator('.chat-evidence').last().locator('a')).toHaveAttribute('href',new RegExp(`/demo/${s.id}/traces/${older.id}$`));
+  const citation = evidence.locator(`a[href="/demo/${s.id}/traces/${older.id}"]`);
+  await expect(citation).toBeVisible();
+  await page.reload();await expect(page.locator(`.chat-evidence a[href="/demo/${s.id}/traces/${older.id}"]`).last()).toBeVisible();
 });

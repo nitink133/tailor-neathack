@@ -181,7 +181,7 @@ test('evaluation overview, questions, saved results and simulated provenance',as
   const detailPath=page.url();await page.reload();await expect(page).toHaveURL(detailPath);
   await expect(page.locator('.eval-results')).toContainText('Keep the explanation concise.');
   await expect(page.locator('.eval-results')).toContainText('Was the escalation necessary?');
-  await expect(page.locator('.eval-results')).toContainText('Synthetic evaluation · local demo');
+  await expect(page.locator('.eval-provenance')).toContainText('Synthetic evaluation · local demo');
 });
 
 test('buyer conversation: clarify, build, edit, explain, answer; a failed send retries without duplicating; End demo clears the session',async({page})=>{
@@ -237,7 +237,7 @@ test('buyer conversation: clarify, build, edit, explain, answer; a failed send r
   await page.getByRole('button',{name:'End demo'}).click();
   await expect(page.locator('.entry-notice')).toContainText('Demo ended');
   expect(await page.evaluate(()=>Object.keys(sessionStorage).filter(k=>k.startsWith('tailor')))).toEqual([]);
-  // End demo clears the session cookie, so an unauthenticated follow-up must not reveal that the session existed (404, not 410).
-  expect((await page.context().cookies()).filter(c=>c.name==='tailor')).toEqual([]);
+  // The anonymous browser-owner cookie remains so a new demo can be created; the ended demo is no longer readable.
+  expect((await page.context().cookies()).some(c=>c.name==='tailor')).toBe(true);
   expect((await page.request.get(`/api/sessions/${s.id}`)).status()).toBe(404);
 });
