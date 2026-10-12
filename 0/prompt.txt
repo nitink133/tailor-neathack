@@ -1,0 +1,58 @@
+Implement the agreed Tailor proof of concept in https://github.com/nitink133/tailor-neathack. Use Fable 5.1 as the orchestrator and coordinate a parallel team of coding agents.
+SOURCE OF TRUTH
+Read Linear NIT-269 and all its children:
+- NIT-270: Neatlogs adapter knowledge and tool contracts.
+- NIT-273: Isolated personalised demo data and session tools.
+- NIT-272: Server-side agent and buyer chat integration.
+- NIT-271: Independent tests and evidence.
+Parent: https://linear.app/nitinkhanna/issue/NIT-269/build-personalised-tailor-agent-proof
+Workshop: [Tailor product and proof workshop](https://chatgpt.com/space/page_a57ae2efb9808191ab50b99c369d35cf)
+Read AGENTS.md, the project-local Entire skill and existing handoff/audit documents. Verify the starting revision includes origin/main commit bbb2600a001c5ae8c7e364c754dae77ca7b186dc or a verified successor. Inspect the current code rather than assuming ticket descriptions prove functionality. Preserve existing changes and reuse completed work.
+TEAM AND EXECUTION
+Use actual models available in Cursor. Assign strong reasoning models to architecture, contracts, security and independent review; strong coding models to backend and agent/UI work; faster capable models to structured extraction and straightforward tests. Report actual assignments. If Fable 5.1 or mixed-model parallel execution is unavailable, explain the limitation rather than claiming it ran.
+NIT-270 should publish a small shared contract snapshot first. Then run backend/session work and agent/UI work in parallel. QA can design tests immediately and run integration tests as code arrives. Continue broader product research alongside implementation; don’t wait for an exhaustive catalogue to start.
+Give each worker explicit file ownership. Coordinate shared schemas and routes through one integration owner. Reuse an existing isolated worktree where appropriate; avoid nested duplicate worktrees. Use separate feature branches/worktrees when workers need isolation. Don’t modify main directly, merge into main, force-push, amend history or deploy.
+PRODUCT OUTCOME
+Tailor helps an anonymous buyer understand how Neatlogs could help their project through a personalised synthetic demo. It is more than a chatbot describing features.
+Example acceptance journey:
+A buyer says, “I’m building a travel-booking agent. Show me a booking API timeout followed by a successful retry.” Tailor prepares a coherent fictional trace visible in the existing Neatlogs-style UI. The buyer then says, “Make the retry fail too.” Tailor updates that session’s scenario, verifies the saved spans and explains the resulting failure and escalation.
+Current code has a working UI, SQLite state and two fixed fixtures selected by keyword matching. It does not yet establish a live agent or a source-backed vendor knowledge layer. Extend it without rebuilding the clone.
+ARCHITECTURE
+- One server-side product agent. The coding swarm does not imply a multi-agent product runtime.
+- Versioned repository files for Neatlogs product knowledge, capability definitions and tool contracts. No new memory vendor or vector database for this slice.
+- SQLite for active anonymous buyer conversations and authoritative demo state.
+- Load relevant knowledge, conversation context and current scenario version for each turn.
+- The model interprets requests, asks clarifications, proposes bounded actions and explains verified results.
+- Deterministic code enforces permissions, schemas, relationships, timing consistency, session ownership and version checks.
+- Save transactionally, read back independently and only then claim the change succeeded.
+ADAPTER KNOWLEDGE
+Reuse existing research and verify important claims against official Neatlogs documentation and pricing. Each capability record should include the buyer problem, feature behaviour, limitations, prerequisites, plan availability, source URL/date, example questions, demonstration evidence and available tools.
+Separate official product capabilities from clone capabilities. Record whether each feature can be explained, demonstrated, modified or is unsupported. Unknown pricing or entitlements must remain unknown; hackathon access is not proof of ordinary plan availability.
+Begin executable coverage with traces, spans, failures, retries and outcomes. Keep the format extensible to broader offerings. Don’t silently expand into cloning every Neatlogs feature.
+TOOLS AND DATA
+Replace exact-fixture-only validation with bounded personalised synthetic data. Allow fictional names, workflow steps, tool-call examples, retry outcomes, errors and coherent timings. Preserve consistent trace/span relationships and cross-view totals.
+Never allow arbitrary code execution, real Neatlogs product mutations, cross-buyer access or fabricated product features/pricing. Harmless changes within the buyer’s own synthetic session don’t need a confirmation click each time.
+Handle save-success/readback-failure accurately. Don’t say the old scenario is unchanged unless verified. Fix transcript concurrency and message-limit handling. Explanations must use the actual selected trace/span evidence, not merely the fixture name.
+BUYER EXPERIENCE AND MEMORY
+Preserve the Neatlogs-styled chat entry and persistent side panel. Include clear “Powered by Tailor” attribution. Keep internal adapter jargon out of buyer-facing copy without pretending that mock-backed behaviour is live AI.
+When a material detail is unclear, ask one short question with three relevant choices and optional free text. Don’t force a company-name questionnaire or ask unnecessary questions.
+Implement anonymous session-only memory: 60 minutes of inactivity, a maximum lifetime of 4 hours and an explicit End demo action. Reload works within an active session. Expiry removes access and deletes the session’s conversation/demo content. Do not recognise returning buyers across visits. Longer-term vendor analytics is outside this slice.
+MODEL AND COST GATES
+Build a provider abstraction and use a mock provider initially. Exact live provider/model, API eligibility, permitted data flow and testing budget are not approved yet. Don’t make live model calls, incur charges, create/configure credentials or send buyer content externally without my approval.
+Missing credits must not block contracts, validators, session logic or mocked integration. Start with one capable live model when later approved. Keep validation and persistence model-free. Stronger-model escalation must be bounded; cheaper-model routing can follow evaluation rather than adding complexity immediately.
+NEATLOGS RUNTIME OBSERVABILITY
+This is required implementation scope. Reuse the existing Neatlogs SDK/configuration and verify its official contract. Don’t invent endpoints or attributes.
+Instrument actual Tailor turns and relevant retrieval, model, tool, validation, save, readback and response steps. Capture clarification, refusal, retries and failures with safe correlation IDs, real latency and provider-reported usage where available. Never present estimated or missing tokens as measured values.
+Keep these separate:
+- Synthetic traces in the replica demonstrate the buyer’s fictional workflow.
+- Real Tailor telemetry goes to the configured Tailor Neatlogs project, not the demo sandbox.
+Redact before export. Don’t log credentials, raw buyer conversations or full model/tool payloads by default. Bound telemetry retries/buffers and prevent exporter failures from breaking the demo. Remote telemetry retention is separate from SQLite session deletion and needs an explicit policy.
+Backend owns exporter plumbing and tool/persistence spans; agent/UI owns turn/model/retrieval spans; QA verifies correlation, redaction and failure paths. Avoid duplicate instrumentation.
+Test with a local captured/mock exporter first. Keep external ingestion verification pending until the destination and safe payload are confirmed and I approve the run. Distinguish instrumentation implemented, local tests passed, trace actually visible in Neatlogs, and real-model execution verified. SDK send success alone is not dashboard evidence. Label mock-backed execution honestly.
+ENTIRE DEVELOPMENT RECORDING
+Follow the project-local Entire skill for each supported coding session. Preserve existing checkpoints and verify normal hook-based sync when pushing. Don’t fabricate trailers or treat the known Analytics display discrepancy as capture proof or failure. Report genuine capture gaps separately from Git publication.
+TESTS AND DELIVERY
+Independent QA must cover unfamiliar buyer wording, personalised scenario creation, follow-up changes, three-option clarification, saved-evidence explanations, navigation/reload, session isolation/expiry, concurrent updates, unsupported and prompt-injection requests, tool failure and truthful recovery. Use injected clocks where appropriate to test expiry without waiting hours.
+Run applicable type checks, build, automated and browser tests against the integrated feature branch. Report passed, failed and unrun checks separately. No live-provider or telemetry acceptance claim without actual authorised evidence.
+Update Linear with concise progress, blockers, commit links and evidence. Update handoff documentation with what works, what is mock-backed and what still needs approval. Commit and push scoped feature branches normally, verifying remote SHAs and checkpoint refs. Leave main merges and deployment for my approval.
+Start by posting a concise ownership/dependency plan, then execute NIT-270’s minimal contract milestone and the parallel implementation lanes. Don’t stop after planning. Escalate decisions that materially change scope, safety, cost or shared contracts.
