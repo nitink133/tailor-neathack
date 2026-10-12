@@ -110,7 +110,9 @@ async function showGuidance(messageId: string, suggestionId: string) {
   chatOpen=true;sessionStorage.removeItem(chatKey(s.id));
   repaint();
   if(span) {expanded.add(span.id);for(const id of selectedSpanAncestors(trace,span.id))collapsedRoots.delete(id);}
-  const rendered=await navigate(`${traceLink(trace)}${span?'?span='+encodeURIComponent(span.id):''}`);
+  const path=`${traceLink(trace)}${span?'?span='+encodeURIComponent(span.id):''}`;
+  // Repeating a suggestion reopens its target without adding another Back stop.
+  const rendered=await (location.pathname+location.search===path ? render() : navigate(path));
   if(attempt!==guidanceAttempt)return;
   if(!rendered || !current || !guidanceCurrent(g,current)) {fail('stale');return;}
   const target=span?[...root.querySelectorAll<HTMLElement>('[data-span-id]')].find(el=>el.dataset.spanId===span.id):root.querySelector<HTMLElement>(g.targetId==='trace.output'?'.root-output':'.steps');
@@ -200,7 +202,8 @@ async function request<T>(path: string, init: RequestInit = {}, durable = false)
   try { data = await response.json(); } catch { /* non-JSON error body */ }
   if (!response.ok) {
     const failure = new ApiFailure(data?.error?.code ?? String(response.status), response.status, data?.error?.message ?? 'Request failed.');
-    if (isEnded(failure)) showEnded();
+    const failedDemo = /^\/api\/sessions\/([^/]+)/.exec(path)?.[1];
+    if (isEnded(failure) && (!failedDemo || location.pathname.startsWith(`/demo/${failedDemo}/`))) showEnded();
     throw failure;
   }
   return data as T;
@@ -661,7 +664,9 @@ async function render(preserveEntry = false): Promise<boolean> {
     const route = /^\/demo\/([^/]+)\/(traces|evals)(?:\/([^/]+))?$/.exec(location.pathname);
     if (!route) throw new Error('NOT_FOUND: Page not found.');
     const s = await request<DemoSession>(`/api/sessions/${route[1]}`);
-    if (run!==generation) return false; current=s; chatOpen = sessionStorage.getItem(chatKey(s.id)) !== '1';
+    if (run!==generation) return false;
+    if (current?.id !== s.id) { pendingTurn=undefined; lastResult=undefined; turnNote=''; chatBusy=false; }
+    current=s; chatOpen = sessionStorage.getItem(chatKey(s.id)) !== '1';
     await loadBrowserSession();
     if (run!==generation) return false;
     restorePending(s);
@@ -763,6 +768,7 @@ async function refresh(): Promise<boolean> {
     for (let attempt = 0; attempt < 2; attempt++) {
       const fresh = await request<DemoSession>(`/api/sessions/${id}`, {}, true);
       const listed = onList ? await request<TraceList>(`/api/sessions/${id}/traces${location.search}`, {}, true) : undefined;
+      if (current?.id !== id) return false;
       if (listed && listed.version !== fresh.version) continue;
       current = fresh;
       if (listed) lastList = listed;
@@ -779,8 +785,9 @@ function mergeMessages(conversation: ChatTurn[], messages: ChatTurn[]): ChatTurn
   }
   return next;
 }
-async function applyResponse(response: TurnResponse) {
-  if (!current) return;
+async function applyResponse(response: TurnResponse, sessionId: string, viewGeneration: number) {
+  const ownsView = () => current?.id === sessionId && generation === viewGeneration && location.pathname.startsWith(`/demo/${sessionId}/`);
+  if (!current || !ownsView()) return;
   const echoed = response.messages.some(m => m.role === 'buyer');
   const stillOpen = pendingTurn;
   const reread = response.outcome === 'committed' || response.outcome === 'readback_uncertain' || response.outcome === 'conflict' || response.outcome === 'save_failed';
@@ -791,7 +798,7 @@ async function applyResponse(response: TurnResponse) {
     refreshed = await refresh();
     if (ended) return;
   }
-  if (!current) return;
+  if (!current || !ownsView()) return;
   let conversation = current.conversation;
   if (!echoed && stillOpen) {
     const at = conversation.findIndex(t => t.role === 'buyer' && t.text === stillOpen.turn.text && (t.status === 'pending' || t.status === 'note'));
@@ -823,6 +830,13 @@ const RETRY_COPY = 'Retrying re-sends the same request; the server recognises it
 async function runTurn(req: TurnRequest) {
   const s = current;
   if (!s) return;
+  const viewGeneration=generation;
+  const ownsView = () => current?.id === s.id && generation === viewGeneration && location.pathname.startsWith(`/demo/${s.id}/`);
+  const leaveView = () => {
+    // Keep the stored request for same-ID recovery when this demo is reopened.
+    if (pendingTurn?.request.clientTurnId === req.clientTurnId) { pendingTurn=undefined; chatBusy=false; }
+    if (location.pathname === '/entry' && !chatBusy) entry();
+  };
   chatBusy = true; turnNote = '';
   if (pendingTurn) pendingTurn = { ...pendingTurn, turn: { ...pendingTurn.turn, status: 'pending' } };
   // The base conversation version lets a reload tell "never reached the server" from "answered meanwhile"; it survives retries.
@@ -834,6 +848,7 @@ async function runTurn(req: TurnRequest) {
   try {
     response = await request<TurnResponse>(`/api/sessions/${s.id}/turns`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req) }, true);
   } catch (e) {
+    if (!ownsView()) { leaveView(); return; }
     chatBusy = false;
     if (isEnded(e) || ended) return;
     if (e instanceof ApiFailure && e.code === 'TURN_IN_FLIGHT') {
@@ -857,13 +872,15 @@ async function runTurn(req: TurnRequest) {
     repaint();
     return;
   }
+  if (!ownsView()) { leaveView(); return; }
   if (ended) return;
   // The mode label comes only from /api/execution. A turn envelope that disagrees never relabels the UI: show
   // "Provider status unavailable" and ask /api/execution again.
   if (!sameExecution(execution, response.execution)) { execution = undefined; paintExecution(); void loadExecution(); }
   lastResult = { steps: response.steps, outcome: response.outcome };
   try { sessionStorage.setItem(stepsKey(s.id), JSON.stringify({ clientTurnId: req.clientTurnId, steps: response.steps, outcome: response.outcome })); } catch { /* quota: the strip is optional */ }
-  await applyResponse(response);
+  await applyResponse(response,s.id,viewGeneration);
+  if (!ownsView()) { leaveView(); return; }
   if (!ended && response.demoId && current && response.demoId !== current.id) {
     await loadBrowserSession();
     const next = await request<DemoSession>(`/api/sessions/${response.demoId}`, {}, true);
@@ -976,7 +993,7 @@ async function selectDemo(demoId: string) {
   try {
     browserSession = await request<BrowserSession>('/api/browser-session/active-demo', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({demoId,expectedVersion:previous.version})}, true);
     const next = await request<DemoSession>(`/api/sessions/${demoId}`, {}, true);
-    current=next; lastList=undefined; pendingTurn=undefined; lastResult=undefined; turnNote='';
+    current=next; lastList=undefined; pendingTurn=undefined; lastResult=undefined; turnNote=''; chatBusy=false;
     await navigate(base(next.id));
   } catch(e) {
     await loadBrowserSession();
@@ -1057,6 +1074,15 @@ document.addEventListener('focusout', event => {
   if (wrapper && !wrapper.contains((event as FocusEvent).relatedTarget as Node | null) && !wrapper.matches(':hover')) hideTraceHelp(wrapper);
 });
 document.addEventListener('scroll', event => {
+  // Focusing a narrow filter may scroll its horizontal strip after it opens.
+  // Keep the editor attached to the moved summary instead of immediately closing it.
+  if (event.target instanceof Element && event.target.matches('.filter-scroll')) {
+    for (const details of root.querySelectorAll<HTMLDetailsElement>('.filter-popover[open]')) {
+      const anchor=details.querySelector<HTMLElement>('summary'), editor=details.querySelector<HTMLElement>('.filter-editor');
+      if (anchor && editor) positionTracePopover(anchor,editor);
+    }
+    return;
+  }
   if (event.target === document || (event.target instanceof Element && event.target.matches('.filter-scroll, .workspace, .table-scroll'))) closeTracePopovers();
 }, true);
 window.addEventListener('resize', closeTracePopovers);
