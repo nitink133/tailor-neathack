@@ -397,3 +397,5 @@ html.chat-dock{--chat-w:380px}
 @media(max-width:700px){.native-fidelity-preview .ne-editor-backdrop{position:relative;min-height:710px}.native-fidelity-preview .ne-editor{position:relative;height:710px}.native-fidelity-preview .ne-wizard{min-height:650px}}
 
 .native-fidelity-preview .routing-page:has(.routing-sheet){height:100vh;min-height:0;overflow:hidden}
+
+.native-fidelity-preview .routing-readback dl{display:block}
