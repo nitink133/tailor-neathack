@@ -334,6 +334,10 @@ export class Store {
   private runRow(id: string, clientTurnId: string): RunRow | undefined {
     return this.db.prepare('SELECT * FROM turn_runs WHERE session_id=? AND client_turn_id=?').get(id, clientTurnId) as RunRow | undefined;
   }
+  /** Checked inside the save transaction: recovery or an earlier publish revokes this worker's write authority. */
+  private assertRunningRun(id: string, clientTurnId: string): void {
+    if (this.runRow(id, clientTurnId)?.state !== 'running') throw new Failure(409, 'TURN_NOT_RUNNING', 'This turn has already finished or been recovered. Send a new request.');
+  }
   /** The durable run for this clientTurnId, or null. A different request body under the same ID is a 409. */
   findRun(id: string, clientTurnId: string, requestHash: string): TurnRun | null {
     this.live(id);
@@ -507,13 +511,14 @@ export class Store {
     if (!owner) throw notFound();
     const proposal = JSON.parse(pending.proposal) as ScenarioProposal;
     if (choice === 'keep_current') {
-      this.txn(() => { this.db.prepare('UPDATE demo_switches SET consumed_by=?, resolved_demo_id=? WHERE id=? AND consumed_by IS NULL').run(clientTurnId, id, ref); });
+      this.txn(() => { this.assertRunningRun(id, clientTurnId); this.db.prepare('UPDATE demo_switches SET consumed_by=?, resolved_demo_id=? WHERE id=? AND consumed_by IS NULL').run(clientTurnId, id, ref); });
       return { demoId: id, requestedText: pending.requested_text, result: null };
     }
     if (choice === 'adapt_current') return { demoId: id, requestedText: pending.requested_text, result: this.publish(id, proposal, { clientTurnId, confirmationRef: ref }, observer) };
     let targetId = id; let before = 1; let version = 1;
     try {
       this.txn(() => {
+        this.assertRunningRun(id, clientTurnId);
         const current = this.project(this.live(id));
         if (current.version !== pending.source_version || current.conversationVersion !== pending.source_conversation_version + 1) throw new Failure(409, 'STALE_CONFIRMATION', 'The demo changed before confirmation. Ask again.');
         if (this.faults.failSave?.()) throw new Error('Injected save failure.');
@@ -561,6 +566,7 @@ export class Store {
         if (this.expired(row)) { this.db.prepare('DELETE FROM sessions WHERE id=?').run(id); this.purgeRuns(id); return { kind: 'expired' }; }
         const s = this.project(row);
         if (s.version !== expectedVersion) return { kind: 'conflict', current: s.version };
+        if (turn) this.assertRunningRun(id, turn.clientTurnId);
         if (this.ownerOf(id) && (materialSwitchReason(s, proposal, verdict.dataset, turn?.requestedText) || this.db.prepare('SELECT id FROM demo_switches WHERE demo_id=? AND source_version=? AND consumed_by IS NULL AND proposal=?').get(id, s.version, JSON.stringify(proposal)))) {
           const pending = turn?.confirmationRef ? this.db.prepare('SELECT * FROM demo_switches WHERE id=? AND demo_id=?').get(turn.confirmationRef, id) as PendingSwitchRow | undefined : undefined;
           if (!pending || pending.consumed_by !== null || pending.source_version !== s.version || pending.source_conversation_version + 1 !== s.conversationVersion || pending.owner_version !== this.browserRow(this.ownerOf(id)!).version || pending.proposal !== JSON.stringify(proposal)) return { kind: 'rejected', result: { state: 'rejected', version: s.version, problems: [{ path: 'mode', code: 'UNSUPPORTED_CAPABILITY', message: 'Confirm how to switch this workflow before replacing the current demo.' }] } };

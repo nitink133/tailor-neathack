@@ -457,3 +457,30 @@ test('developer routes (L2-12): constant-time key check, metadata-only session l
     assert.equal((await h.call('/api/dev/telemetry', 'GET', undefined, '', { 'x-tailor-dev-key': 'nope' })).status, 403);
   } finally { await h.close(); }
 });
+
+test('a worker resuming after sweep cannot save or overwrite the recovered response', async () => {
+  const h = await harness();
+  let release = () => {};
+  try {
+    const created = await h.call('/api/sessions', 'POST', { description: 'Fictional delayed worker' });
+    const id = created.data.id;
+    h.agent.gate = new Promise<void>(resolve => { release = resolve; });
+    const pending = h.call(`/api/sessions/${id}/turns`, 'POST', travelBuyerTurn1, created.cookie);
+    await until(() => h.agent.calls === 1, 'the delayed worker');
+    h.clock.advance(TURN_DEADLINE_MS + 1);
+    assert.equal(h.store.sweep().interrupted, 1);
+    const recovered = h.store.recoverRun(id, travelBuyerTurn1.clientTurnId);
+    const snapshot = h.store.read(id);
+    release();
+    const completed = await pending;
+    assert.equal(completed.status, 200);
+    assert.deepEqual(completed.data, recovered);
+    assert.deepEqual(h.store.read(id), snapshot, 'no late dataset save or extra transcript message');
+    const retry = await h.call(`/api/sessions/${id}/turns`, 'POST', travelBuyerTurn1, created.cookie);
+    assert.deepEqual(retry.data, recovered);
+    assert.equal(h.agent.calls, 1);
+    await h.restart();
+    assert.deepEqual(h.store.recoverRun(id, travelBuyerTurn1.clientTurnId), recovered);
+    assert.equal(h.store.read(id).version, 1);
+  } finally { release(); await h.close(); }
+});
