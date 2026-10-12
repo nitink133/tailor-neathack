@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4Q2SMH6B2HT70VX7R61VZ9W",
+  "strategy": "manual-commit",
+  "branch": "codex/tailor-20261012-review-fixes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/tailor-entry-review.md",
+    "docs/tailor-entry-review/after-1440.png",
+    "docs/tailor-entry-review/after-390.png",
+    "docs/tailor-entry-review/after-790.png",
+    "docs/tailor-entry-review/before-1440.png",
+    "docs/tailor-entry-review/before-390.png",
+    "docs/tailor-entry-review/before-790.png",
+    "public/assets/ai-search-background.webp",
+    "public/assets/ai-search-background.webp.json",
+    "public/style.css",
+    "src/clients/neatlogs/client.ts",
+    "src/clients/neatlogs/entry-state.ts",
+    "src/infrastructure/server.ts",
+    "test/entry-state.test.ts",
+    "ui/agent.spec.ts",
+    "ui/entry-review.spec.ts",
+    "ui/replica.spec.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 138505,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5818496,
+    "output_tokens": 12036,
+    "api_call_count": 51,
+    "subagent_tokens_complete": false
+  }
+}
