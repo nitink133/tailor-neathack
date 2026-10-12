@@ -16,9 +16,9 @@ import { ProviderError } from '../tailor/provider-error.ts';
 import { POLICY_VERSION, type PolicyDecision, type PolicyInput, type PolicyOutcome } from '../tailor/policy.ts';
 import type { ModelProvider, TurnResponse } from '../clients/neatlogs/agent-contract.ts';
 import type { Trace } from '../clients/neatlogs/contracts.ts';
-import { POLICY_QUALITY_CASES, RUNTIME_QUALITY_CASES, type RuntimeQualityCase } from './quality-cases.ts';
+import { POLICY_QUALITY_CASES, RUNTIME_QUALITY_CASES, type QualityTurn, type RuntimeQualityCase } from './quality-cases.ts';
 
-export const QUALITY_EVAL_VERSION = 'tailor-quality-2026-10-12.1';
+export const QUALITY_EVAL_VERSION = 'tailor-quality-2026-10-12.2';
 export interface CheckResult { name: string; passed: boolean }
 export interface QualityCaseResult {
   id: string; passed: boolean; checks: CheckResult[];
@@ -31,6 +31,43 @@ export interface QualityReport {
   buyerNeatlogsEvaluations: 'separate_not_run'; passed: boolean;
   policy: { cases: PolicyCaseResult[]; falseBlocks: number; offTopicEscapes: number };
   runtime: QualityCaseResult[];
+}
+
+type QualityResponse = Pick<TurnResponse, 'outcome' | 'messages' | 'evidence'>;
+/** Score only the assistant: an echoed buyer requirement is never evidence of a good answer. */
+export function tailorReply(result: Pick<TurnResponse, 'messages'>): string {
+  return result.messages.filter(m => m.role === 'tailor').map(m => m.text).join('\n');
+}
+
+/** Deterministic fact and citation checks. Passing these is not a human judgment of relevance or clarity. */
+export function evaluateResponseQuality(result: QualityResponse, expected: QualityTurn['expect'], traces: readonly Trace[], version: number, activeTraceId?: string): CheckResult[] {
+  const checks: CheckResult[] = [];
+  const check = (name: string, passed: boolean) => checks.push({ name, passed });
+  const reply = tailorReply(result);
+  if (expected.answerPattern) check('answer_addresses_requirement', new RegExp(expected.answerPattern, 'i').test(reply));
+  if (expected.forbiddenPattern) check('truthful_copy', !new RegExp(expected.forbiddenPattern, 'i').test(reply));
+  const passages = reply.split(/(?<=[.!?])\s+|\n+/).filter(s => s.trim());
+  for (const requirement of expected.answerRequirements ?? []) {
+    const supported = requirement.alternatives.some(patterns => patterns.length > 0 && passages.some(p => patterns.every(pattern => new RegExp(pattern, 'i').test(p))));
+    const forbidden = requirement.forbiddenPatterns?.some(pattern => new RegExp(pattern, 'i').test(reply)) ?? false;
+    check(`answer_requirement:${requirement.key}`, supported && !forbidden);
+  }
+  const messages = result.messages.filter(m => m.role === 'tailor');
+  const citations = [...messages.flatMap(m => m.evidence ? [m.evidence] : []), ...(result.evidence ? [result.evidence] : [])];
+  const required = result.outcome === 'committed' || expected.requireTraceEvidence === true;
+  if (required) {
+    check('required_message_evidence', messages.some(m => !!m.evidence && m.evidence.traceIds.length > 0 && m.evidence.spanIds.length > 0));
+    if (result.outcome === 'committed') check('required_readback_evidence', !!result.evidence && result.evidence.traceIds.length > 0 && result.evidence.spanIds.length > 0);
+    check('required_current_trace_evidence', !!activeTraceId && messages.some(m => m.evidence?.traceIds.includes(activeTraceId) && m.evidence.spanIds.some(id => traces.find(t => t.id === activeTraceId)?.spans.some(s => s.id === id))));
+  }
+  for (const [i, evidence] of citations.entries()) {
+    const citedTraces = traces.filter(t => evidence.traceIds.includes(t.id));
+    check(`citation${i}:nonempty`, evidence.traceIds.length > 0 && evidence.spanIds.length > 0);
+    check(`citation${i}:current_version`, evidence.version === version);
+    check(`citation${i}:trace_ids_exist`, evidence.traceIds.every(id => traces.some(t => t.id === id)));
+    check(`citation${i}:spans_belong_to_cited_traces`, evidence.spanIds.every(id => citedTraces.some(t => t.spans.some(s => s.id === id))));
+  }
+  return checks;
 }
 
 export function evaluatePolicyCases(classify: (input: PolicyInput) => PolicyDecision = classifyOfflinePolicy): QualityReport['policy'] {
@@ -109,23 +146,20 @@ async function evaluateRuntimeCase(spec: RuntimeQualityCase): Promise<QualityCas
       const result = posted.data as TurnResponse;
       const after = await call(`/api/sessions/${id}`, 'GET', undefined, cookie);
       const list = await call(`/api/sessions/${id}/traces`, 'GET', undefined, cookie);
-      const reply = result.messages?.map(m => m.text).join('\n') ?? '';
+      const reply = tailorReply(result);
       const plannerDelta = plannerCalls - start.plannerCalls, publishDelta = publishCalls - start.publishCalls;
       check(`turn${ordinal}:expected_outcome`, expected.outcomes.includes(result.outcome));
       check(`turn${ordinal}:independent_version`, after.data.version === before.data.version + expected.versionDelta);
       if (expected.versionDelta === 0) check(`turn${ordinal}:dataset_unchanged`, JSON.stringify(after.data.dataset) === JSON.stringify(before.data.dataset));
       if (expected.noPlanner) { check(`turn${ordinal}:no_planner`, plannerDelta === 0); check(`turn${ordinal}:no_publish`, publishDelta === 0); }
-      if (expected.answerPattern) check(`turn${ordinal}:answer_addresses_requirement`, new RegExp(expected.answerPattern, 'i').test(reply));
-      if (expected.forbiddenPattern) check(`turn${ordinal}:truthful_copy`, !new RegExp(expected.forbiddenPattern, 'i').test(reply));
       const active: Trace | undefined = list.data.traces?.find((t: Trace) => t.scenario === list.data.activeScenario);
+      for (const resultCheck of evaluateResponseQuality(result, expected, list.data.traces ?? [], after.data.version, active?.id)) check(`turn${ordinal}:${resultCheck.name}`, resultCheck.passed);
       let independentReadback = false;
-      if (result.outcome === 'committed' && active) {
+      if ((result.outcome === 'committed' || expected.requireTraceEvidence) && active) {
         const detail = await call(`/api/sessions/${id}/traces/${active.id}`, 'GET', undefined, cookie);
         const actual: Trace = detail.data.trace;
         independentReadback = detail.status === 200 && JSON.stringify(actual) === JSON.stringify(active);
         check(`turn${ordinal}:list_detail_agree`, independentReadback);
-        const actualIds = new Set(actual.spans.map(s => s.id));
-        check(`turn${ordinal}:reply_citations_exist`, result.messages.every(m => !m.evidence || m.evidence.spanIds.every(s => actualIds.has(s))));
         if (expected.domainTerms) check(`turn${ordinal}:buyer_workflow_preserved`, expected.domainTerms.every(w => `${after.data.story?.domain} ${after.data.story?.summary}`.toLowerCase().includes(w)));
         if (expected.errors !== undefined) check(`turn${ordinal}:expected_error_count`, actual.spans.filter(s => s.status === 'ERROR').length === expected.errors);
         if (expected.blockedPayout) {
@@ -142,7 +176,8 @@ async function evaluateRuntimeCase(spec: RuntimeQualityCase): Promise<QualityCas
         }
         if (expected.outputQuality === 'missing_due_date') check(`turn${ordinal}:missing_field_evidence`, output.dueDate === null && actual.spans.some(s => (s.input as Record<string, unknown> | null)?.dueDate === '2026-11-01'));
         if (expected.outputQuality === 'unresolved_support') check(`turn${ordinal}:unresolved_support_evidence`, output.resolved === false && actual.spans.some(s => typeof (s.output as Record<string, unknown> | null)?.nextStep === 'string'));
-        for (const spanId of result.evidence?.spanIds ?? []) {
+        const citedSpanIds = new Set([...result.messages.filter(m => m.role === 'tailor').flatMap(m => m.evidence?.spanIds ?? []), ...(result.evidence?.spanIds ?? [])]);
+        for (const spanId of citedSpanIds) {
           const containing: Trace | undefined = list.data.traces.find((trace: Trace) => trace.spans.some(s => s.id === spanId));
           const span = containing ? await call(`/api/sessions/${id}/traces/${containing.id}/spans/${spanId}`, 'GET', undefined, cookie) : null;
           check(`turn${ordinal}:independent_span_get`, span?.status === 200 && span.data.span.id === spanId);
