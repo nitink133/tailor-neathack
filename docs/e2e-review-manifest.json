@@ -1,0 +1,76 @@
+{
+  "schema": "tailor-mobile-evidence-2026-10-12.1",
+  "status": "partial_first_verified_batch",
+  "evalRoutingStatus": "isolated awaiting Nitin screenshot approval; not on main",
+  "providerBudget": {
+    "cumulativeApprovedUsd": 20,
+    "plannedRuntimeCeilingUsd": 19,
+    "spentBeforeExpandedTestsUsd": 1.619646,
+    "newPaidE2ECalls": 0
+  },
+  "scenarios": [
+    {
+      "id": "actual-code-review-fit-original",
+      "provenance": "actual inspected original buyer turn; historical recovery kept separate from later corrected responses",
+      "sessionId": "4709b42c-8bbe-4d7f-99b8-6c72c7544456",
+      "turnId": "12bc2031-1de9-47c7-84db-94648ec729a9",
+      "provider": {
+        "mode": "live",
+        "provider": "anthropic",
+        "model": "claude-sonnet-5-5",
+        "effort": "medium"
+      },
+      "codeVersion": null,
+      "codeVersionNote": "Exact original code version was not retained in the inspected turn/hosted metadata; do not infer it.",
+      "input": "I am building a code review agent for my team to auto review their PRs and give feedbacks. Does it make sense to use Neatlog for this agent usecase?",
+      "fullVisibleAnswer": "1. Neatlogs traces and span detail\nNeatlogs documents traces as complete agent runs made of nested spans with inputs, outputs, timing, metadata, and kind-specific detail.\n- Limits: What appears depends on what the application instrumentation captures. The Tailor demo does not reproduce every official span kind or column.\n- This demo uses synthetic data.\n\n2. TypeScript SDK instrumentation\nThe TypeScript SDK documents explicit wrappers, handlers, processors, hooks, and plugins plus span and trace APIs for capturing inputs, outputs, timing, errors, prompts, sessions, and custom steps.\n- Limits: TypeScript integrations are explicit; the docs say there is no auto-instrumentation option. Applications must flush or shut down appropriately for their process lifecycle.\n- In this demo I can describe this capability but not run it.\n\nSources: Neatlogs traces and span detail (verified 2026-10-11); TypeScript SDK instrumentation (verified 2026-10-11); knowledge version 2026-10-12.1.\n\nPlan availability for Neatlogs traces and span detail; TypeScript SDK instrumentation: unknown.",
+      "expected": "Direct grounded explanation of Neatlogs fit for the buyer PR-review workflow, with captured approved question/answer for diagnosis.",
+      "observed": "Original answer gave generic traces/SDK descriptions. Original hosted trace had no input/output text. Guard/planner raw detail unavailable.",
+      "originalTraceId": "75f1884e335f8e9cf91f0c570dac9190",
+      "originalHostedTraceLink": "https://app.neatlogs.com/traces/75f1884e335f8e9cf91f0c570dac9190?orgId=8186e5df-b745-4e66-a01d-94c420459c43&projectId=18c4b4b6-0b1e-4d41-9405-7960fc2d0aa8",
+      "historicalRecovery": {
+        "traceId": "2bfc909f62ac914032e3ebf728b62a31",
+        "projectId": "18c4b4b6-0b1e-4d41-9405-7960fc2d0aa8",
+        "sourceTraceId": "75f1884e335f8e9cf91f0c570dac9190",
+        "sourceTurnId": "12bc2031-1de9-47c7-84db-94648ec729a9",
+        "kind": "historical_recovery",
+        "newModelCalls": 0,
+        "originalRecordsChanged": false,
+        "inputChars": 148,
+        "answerChars": 1080,
+        "visible": true,
+        "httpStatus": 200,
+        "exactInputPreserved": true,
+        "exactAnswerAndFactsPreserved": true
+      },
+      "failureFixRetestStatus": "Response/UI/capture correction published in8c6b519; historical recovery exact readback verified; same-question fresh live retest pending. Original conversation not rewritten.",
+      "screenshots": [
+        {
+          "library_file_id": "libfile_b9794a8281e08191ab38b2fdad9314d8",
+          "file_id": "file_000000000c6482088756e5fe2c9982a8",
+          "name": "01-original-code-review-question-answer.png",
+          "kind": "actual user-supplied screenshot of exact original question and answer",
+          "captureTimestamp": "unavailable; existing source screenshot, not captured during E2E"
+        },
+        {
+          "library_file_id": "libfile_13ef4d87e22c8191a908e574b2f8844a",
+          "file_id": "file_000000008e3c820884c28cb1675b269f",
+          "name": "02-original-missing-input-reference.png",
+          "kind": "earlier actual dashboard reference showing missing inputs; not exact75f trace and not recovered record",
+          "captureTimestamp": "unavailable; existing user-supplied dashboard screenshot"
+        }
+      ]
+    }
+  ],
+  "checks": {
+    "independentBranchUnitApi": "417pass0fail after8901902",
+    "independentBrowser": "84pass at0306e39; subsequent bounded mock identity correction covered by unit/API regression and affected feature9browser tests",
+    "combinedFeatureUnitApi": "440pass atb4d91a9; subsequent identity regression added",
+    "combinedFeatureBrowser": "92pass1fail atb4d91a9; exact failure fixed in9db94c3; affected9browser tests pass; no claim fresh full93 allgreen"
+  },
+  "entire": {
+    "liveCapture": "unverified",
+    "callerSession": "01a12f26-8424-749c-adff-b171d9f5d048",
+    "boundary": "Recognized caller has no Entire session state; no checkpoint trailers added."
+  }
+}
