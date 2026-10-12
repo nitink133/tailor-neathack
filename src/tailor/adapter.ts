@@ -1,9 +1,10 @@
+import type { PolicyDecision, PolicyResponse } from './policy.ts';
 // The ProductAdapter contract: everything product-specific the Tailor core needs, injected at construction.
 // The core owns sequencing, permissions, budgets, the deadline, idempotency and outcome classification; an adapter
 // supplies schemas, context, tools, validation, readback and grounding. Types only (no runtime imports).
 
 import type {
-  ChatStatus, Clarification, Clock, CoreSession, CoreTurnRequest, ProviderMessage, TurnStep, ValidationIssue,
+  ChatStatus, Clarification, Clock, CoreSession, CoreTurnRequest, ModelProvider, ProviderMessage, TurnStep, ValidationIssue,
 } from './contract.ts';
 
 /** Type map for one product. Each slot is the product's own shape; the core never inspects them. */
@@ -67,6 +68,8 @@ export type PreflightDecision =
   | { kind: 'continue' }
   | { kind: 'ask'; clarification: Clarification; reason?: 'needs_context' | 'material_switch' }
   | { kind: 'refuse'; text: string; reason: RefusalReason };
+
+export type AdapterPreflightResult = PreflightDecision & { policy?: PolicyDecision; accounting?: PolicyResponse };
 
 export interface Reply<TEvidence> { text: string; evidence?: TEvidence }
 
@@ -147,8 +150,8 @@ export interface Grounding<T extends AdapterTypes> {
 
 export interface ProductAdapter<T extends AdapterTypes = AdapterTypes> {
   readonly id: string;
-  /** Cheap, synchronous relevance/safety check before retrieval, context construction or model calls. */
-  preflight?(input: { session: T['session']; request: T['request']; buyerText: string; choice: { id: string; label: string } | null }): PreflightDecision;
+  /** Bounded relevance/safety check before retrieval, context construction or model calls. */
+  preflight?(input: { session: T['session']; request: T['request']; buyerText: string; choice: { id: string; label: string } | null; provider: ModelProvider<T['action'], T['explanation']>; signal?: AbortSignal }): AdapterPreflightResult | Promise<AdapterPreflightResult>;
   /** Product names model prose must not make capability/plan claims about (fed to the core's claim filters). */
   readonly productNames: readonly string[];
   /** Planning call: system prompt and the response-schema name the provider satisfies. */

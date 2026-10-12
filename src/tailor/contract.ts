@@ -1,3 +1,4 @@
+import type { PolicyRequest, PolicyResponse } from './policy.ts';
 import type { EvidenceObserver } from './evidence.ts';
 // Product-agnostic Tailor contract: chat shapes, turn envelope, core limits, the model-provider and telemetry seams.
 // Types and constants only (no Node imports): the browser build reaches this file through the client's contract.
@@ -195,6 +196,8 @@ export interface ModelProvider<TAction = unknown, TExplanation = unknown> {
   /** Effort setting when the provider exposes one; null for the mock. */
   readonly effort?: string | null;
   complete(request: ProviderRequest, signal?: AbortSignal): Promise<ProviderResponse<TAction>>;
+  /** Separate bounded policy classifier; its result cannot authorize a mutation. */
+  classifyPolicy?(request: PolicyRequest, signal?: AbortSignal): Promise<PolicyResponse>;
   /** Absent on providers without a separate explanation step (mock); the core then keeps the planning narrative. */
   explain?(request: ExplanationRequest, signal?: AbortSignal): Promise<ExplanationResponse<TExplanation>>;
 }
