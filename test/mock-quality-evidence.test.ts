@@ -67,3 +67,13 @@ test('quality predicates do not infer a defect from labels or execute payload in
   trace.spans[1]!.output = { text: 'The Widget SDK supports offline sync automatically.' };
   assert.equal(qualityDefectNarrative(trace), '', 'supporting evidence cannot be called absent');
 });
+
+test('documentation retrieval identity matches the fixture’s actual retrieval operation', async () => {
+  const h = harness();
+  const reply = await h.say('Show a documentation retrieval agent that invents an unsupported answer absent from the source.');
+  assert.equal(reply.outcome, 'committed');
+  const trace = h.tools.state.dataset.traces.find(t => t.scenario === 'retrieval-quality')!;
+  assert.ok(trace.spans.some(span => span.kind === 'RETRIEVAL'));
+  assert.match(reply.messages.map(message => message.text).join(' '), /answer claims offline sync.*source says offline behavior is not documented/i);
+  assert.equal(h.tools.publishCount(), 1);
+});
