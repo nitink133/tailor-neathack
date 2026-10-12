@@ -524,7 +524,7 @@ test('FINDING 1: the answer is composed from the cited record (behaviour, limits
   }];
   const h = harness({ provider: answerProvider('Anything at all that is not allowed: Enterprise customers get 5 percent off.', ['sourced', 'sourced']), knowledge: fakeKnowledge(records) });
   const text = (await h.say('Tell me about sourced grouping')).messages[0]!.text;
-  assert.match(text, /^Sourced capability: Sourced capability groups failing steps by error type\./);
+  assert.match(text, /^1\. Sourced capability\nSourced capability groups failing steps by error type\./);
   assert.match(text, /Limits: Only synthetic data here; Second limit\./);
   assert.doesNotMatch(text, /Third limit/);
   assert.match(text, /You’d need: An instrumented agent; An API key\./);
@@ -552,7 +552,7 @@ test('L1-05: a lead sentence with words the cited record never uses is dropped e
   for (const lead of ['Failed retries show up as ERROR steps in the trace.', 'Neatlogs offers SSO and SOC 2 compliance out of the box.', 'Neatlogs keeps your traces for 90 days.', 'Neatlogs is available on every plan at no extra charge.', 'Neatlogs can page PagerDuty as well.']) {
     const h = harness({ provider: answerProvider(lead, ['trace-detail']) });
     const text = (await h.say('Can Neatlogs detect failed retries?')).messages[0]!.text;
-    assert.ok(text.startsWith('Trace detail and spans: '), `no lead for: ${lead}`);
+    assert.ok(text.startsWith('1. Trace detail and spans\nTrace detail shows each step as a span'), `no lead for: ${lead}`);
     assert.doesNotMatch(text, /SSO|90 days|every plan|no extra charge|PagerDuty|SOC/);
   }
 });

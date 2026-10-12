@@ -3,6 +3,7 @@ import type { ExecutionInfoResponse, ExecutionLabel, TurnOutcome, TurnRequest, T
 import type { BrowserSession } from '../../tailor/demo-contract.ts';
 import type { EvaluationDetail, EvaluationList, EvaluationQuestion, ReviewEvaluationRequest } from './eval-contract.ts';
 import { entrySavedState, entrySuggestions, suggestionBatch } from './entry-state.ts';
+import { replyBlocks, type ReplyTextBlock } from './reply-format.ts';
 import { recommendedTrace, selectedSpanAncestors, traceGuideFacts } from './trace-guide.ts';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
@@ -263,6 +264,14 @@ function statusLabel(turn: ChatTurn, next?: ChatTurn) {
   }
   return turn.status === 'question' || turn.status === 'uncertain' ? STATUS_LABEL[turn.status]! : '';
 }
+function assistantReply(text: string, groupReferences: boolean): string {
+  const prose = (block: ReplyTextBlock) => block.kind === 'paragraph' ? `<p>${esc(block.text)}</p>` : `<ul class="reply-points">${block.items.map(item=>`<li>${esc(item)}</li>`).join('')}</ul>`;
+  return `<div class="assistant-reply">${replyBlocks(buyerText(text), {groupReferences}).map(block=>{
+    if(block.kind === 'steps') return `<ol class="reply-steps" start="${block.start}">${block.items.map(item=>`<li><strong class="reply-step-title">${esc(item.title)}</strong>${item.body.map(prose).join('')}</li>`).join('')}</ol>`;
+    if(block.kind === 'references') return `<details class="reply-reference"><summary>${block.unknownPlans ? 'Sources · plan availability unverified' : 'Sources and plan availability'}</summary>${block.lines.map(line=>`<p>${esc(line)}</p>`).join('')}</details>`;
+    return prose(block);
+  }).join('')}</div>`;
+}
 function chatThread(turns: ChatTurn[], s?: DemoSession) {
   const trimmed = s?.conversationTruncated ? `<p class="chat-trimmed" role="note">Older messages were trimmed</p>` : '';
   const lastIndex = turns.length - 1;
@@ -277,7 +286,7 @@ function chatThread(turns: ChatTurn[], s?: DemoSession) {
     const choiceGroup = turn.clarification?.kind === 'demo_switch' ? 'Choose how to handle this workflow change' : 'Choose one';
     const choices = turn.clarification && i === lastIndex ? `<div class="chat-choices" role="group" aria-label="${esc(choiceGroup)}">${turn.clarification.choices.map(c => `<button type="button" data-choice="${esc(c.id)}" ${confirmationRef ? `data-confirmation-ref="${esc(confirmationRef)}"` : ''} ${chatBusy ? 'disabled' : ''}>${esc(c.label)}</button>`).join('')}</div><small>or type your own answer below</small>` : '';
     const retry = pendingTurn && pendingTurn.turn.id === turn.id && (turn.status === 'failed' || turn.status === 'uncertain') && !chatBusy ? `<button type="button" class="chat-retry" data-retry-turn>Retry</button>` : '';
-    return `<article class="chat-turn is-${turn.role}${turn.status === 'uncertain' ? ' is-uncertain' : ''}" data-status="${turn.status}"${label === 'Declined' ? ' data-declined' : ''}><p>${esc(turn.role === 'tailor' ? buyerText(turn.text) : turn.text)}</p>${label ? `<small class="turn-status">${label}</small>` : ''}${retry}${evidence}${choices}</article>`;
+    return `<article class="chat-turn is-${turn.role}${turn.status === 'uncertain' ? ' is-uncertain' : ''}" data-status="${turn.status}"${label === 'Declined' ? ' data-declined' : ''}>${turn.role === 'tailor' ? assistantReply(turn.text, !turn.evidence) : `<p>${esc(turn.text)}</p>`}${label ? `<small class="turn-status">${label}</small>` : ''}${retry}${evidence}${choices}</article>`;
   }).join('');
 }
 /** Buyer-language summary of what the last turn did. Internal step names are never shown. */

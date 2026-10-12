@@ -332,14 +332,19 @@ export interface CommitExplanation { text: string; evidence: Evidence }
 export function describeCommit(readback: ReadbackEvidence, trace: Trace | null, narrative: string): CommitExplanation {
   const entry = readback.traces.find(t => t.key === readback.activeScenario) ?? readback.traces.find(t => t.id === readback.traceIds[0]) ?? readback.traces[0];
   if (!entry) {
-    return { text: `Saved and verified as version ${readback.version}.${narrative ? ` ${narrative}` : ''}`, evidence: { version: readback.version, traceIds: [...readback.traceIds], spanIds: [...readback.spanIds] } };
+    return { text: `Saved and verified as version ${readback.version}.${narrative ? `\n\n1. Read the saved evidence\n${narrative}` : ''}`, evidence: { version: readback.version, traceIds: [...readback.traceIds], spanIds: [...readback.spanIds] } };
   }
   const failed = trace ? trace.spans.filter(s => entry.errorSpanIds.includes(s.id)) : [];
   let failure: string;
   if (entry.errorSpanIds.length === 0) failure = 'No step failed.';
   else if (failed.length) failure = `${plural(failed.length, 'step')} failed: ${failed.map(s => `${s.name} (${clip(s.error ?? 'error', 160)})`).join('; ')}.`;
   else failure = `${plural(entry.errorSpanIds.length, 'step')} ended in an error (names could not be read back just now).`;
-  const text = `Saved and verified as version ${readback.version}. “${entry.label}” runs ${ms(entry.rootDurationMs)} end to end across ${plural(entry.spanCount, 'step')} and ends as ${entry.outcome}. ${failure}${narrative ? ` ${narrative}` : ''}`;
+  const text = [
+    `Saved and verified as version ${readback.version}.`,
+    `1. Review the run\n“${entry.label}” runs ${ms(entry.rootDurationMs)} end to end across ${plural(entry.spanCount, 'step')} and ends as ${entry.outcome}.`,
+    `2. Inspect failed steps\n${failure}`,
+    ...(narrative ? [`3. Read the saved evidence\n${narrative}`] : []),
+  ].join('\n\n');
   const spanIds = entry.errorSpanIds.length ? [...entry.errorSpanIds] : trace ? citedSpanIds(trace) : [];
   const traceIds = [entry.id, ...readback.traceIds.filter(id => id !== entry.id)];
   return { text, evidence: { version: readback.version, traceIds, spanIds } };

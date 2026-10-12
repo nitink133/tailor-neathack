@@ -317,6 +317,7 @@ export function appServer(store: Store, options: AppServerOptions) {
       if (path === '/app.js') file = '../dist/clients/neatlogs/client.js';
       else if (path === '/entry-state.js') file = '../dist/clients/neatlogs/entry-state.js';
       else if (path === '/trace-guide.js') file = '../dist/clients/neatlogs/trace-guide.js';
+      else if (path === '/reply-format.js') file = '../dist/clients/neatlogs/reply-format.js';
       else if (path === '/adapter.js') file = '../dist/adapter.js';
       else if (path === '/agent.js') file = '../dist/agent.js';
       else if (path === '/style.css' || /^\/assets\/[a-zA-Z0-9_.-]+$/.test(path)) file = path;

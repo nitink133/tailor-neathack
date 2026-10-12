@@ -99,14 +99,14 @@ function planLine(r: CapabilityRecord): string {
  */
 export function composeAnswer(cited: CapabilityRecord[], question: string, providerText: string, knowledgeVersion?: string): string {
   const blocks: string[] = [];
-  for (const r of cited) {
-    const lines = [`${r.title}: ${endSentence(clip(r.behaviour, 420))}`];
-    if (r.limitations.length) lines.push(`Limits: ${r.limitations.slice(0, 2).map(l => clip(l, 160).replace(/[.!?]+$/, '')).join('; ')}.`);
-    if (r.prerequisites.length) lines.push(`You’d need: ${r.prerequisites.slice(0, 2).map(l => clip(l, 160).replace(/[.!?]+$/, '')).join('; ')}.`);
-    lines.push(demonstrationLine(r));
-    blocks.push(lines.join(' '));
+  for (const [index, r] of cited.entries()) {
+    const lines = [`${index + 1}. ${r.title}`, endSentence(clip(r.behaviour, 420))];
+    if (r.limitations.length) lines.push(`- Limits: ${r.limitations.slice(0, 2).map(l => clip(l, 160).replace(/[.!?]+$/, '')).join('; ')}.`);
+    if (r.prerequisites.length) lines.push(`- You’d need: ${r.prerequisites.slice(0, 2).map(l => clip(l, 160).replace(/[.!?]+$/, '')).join('; ')}.`);
+    lines.push(`- ${demonstrationLine(r)}`);
+    blocks.push(lines.join('\n'));
   }
-  const body = blocks.join('\n');
+  const body = blocks.join('\n\n');
   const lead = filteredLead(providerText, cited, body);
   const pricing = PRICING_QUESTION.test(question) || cited.some(r => /pric/i.test(`${r.id} ${r.title} ${r.topics.join(' ')}`));
   const out: string[] = [];
@@ -114,6 +114,6 @@ export function composeAnswer(cited: CapabilityRecord[], question: string, provi
   out.push(...blocks, sourceLine(cited, knowledgeVersion));
   if (pricing) out.push('I don’t have verified prices, so I won’t quote any.');
   // Plan lines come last so a pricing answer always ends with the record's own unknown statement.
-  out.push(...cited.map(planLine));
-  return buyerWording(out.join('\n'));
+  out.push(cited.map(planLine).join('\n'));
+  return buyerWording(out.join('\n\n'));
 }

@@ -108,7 +108,7 @@ test('R2-01: answer drops full-width numerals and composes the mixed reply from 
     assert.deepEqual(leaksIn(allText(result)), [], lead);
   }
   const mixed = await run([{ type: 'answer', text: `Failing steps show as ERROR in the trace detail. ${FULLWIDTH_RETRY}`, knowledgeIds: ['trace-detail'] }], { text: 'Can Neatlogs detect failed retries?' });
-  assert.ok(allText(mixed.result).startsWith('Trace detail and spans: '));
+  assert.ok(allText(mixed.result).startsWith('1. Trace detail and spans\nTrace detail shows each step as a span'));
   assert.match(allText(mixed.result), /Failing steps show as ERROR\./);
   assert.deepEqual(leaksIn(allText(mixed.result)), []);
 });
