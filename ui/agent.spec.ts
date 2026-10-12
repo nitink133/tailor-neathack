@@ -394,14 +394,15 @@ test('390 px: the conversation keeps a usable thread height and nothing overflow
 });
 
 test('material workflow switches wait for confirmation; keep, adapt and separate preserve demo history',async({page})=>{
-  const original=await buildTravel(page),originalUrl=page.url(),originalTraceIds=original.dataset.traces.map(t=>t.id);
+  const original=await buildTravel(page),originalUrl=page.url();
   const askSwitch=async(text:string)=>{
+    const before=await sessionOf(page),beforeTraceIds=before.dataset.traces.map(t=>t.id);
     await send(page,text);
     const choices=page.locator('.chat-choices button[data-choice]');
     await expect(choices).toHaveCount(3,{timeout:15000});
     await expect(choices).toHaveText(['Adapt current demo','Start separate demo','Keep current demo']);
     await expect(choices.first()).toHaveAttribute('data-confirmation-ref',/.+/);
-    const unchanged=await sessionOf(page);expect(unchanged.version).toBe(original.version);expect(unchanged.dataset.traces.map(t=>t.id)).toEqual(originalTraceIds);
+    const unchanged=await sessionOf(page);expect(unchanged.version).toBe(before.version);expect(unchanged.dataset.traces.map(t=>t.id)).toEqual(beforeTraceIds);
     await page.reload();await expect(page.locator('.chat-choices button[data-choice]')).toHaveCount(3);
   };
   const claims='Switch to an insurance claims agent. Show a policy lookup timing out, then a successful retry.';

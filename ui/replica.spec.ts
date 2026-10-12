@@ -251,5 +251,5 @@ test('buyer conversation: clarify, build, edit, explain, answer; a failed send r
   expect(await page.evaluate(()=>Object.keys(sessionStorage).filter(k=>k.startsWith('tailor')))).toEqual([]);
   // The anonymous browser-owner cookie remains so a new demo can be created; the ended demo is no longer readable.
   expect((await page.context().cookies()).some(c=>c.name==='tailor')).toBe(true);
-  expect((await page.request.get(`/api/sessions/${s.id}`)).status()).toBe(404);
+  expect((await page.request.get(`/api/sessions/${s.id}`)).status()).toBe(410);
 });
