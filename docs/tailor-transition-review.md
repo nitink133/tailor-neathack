@@ -6,7 +6,7 @@ Base `1ab0ac22c3c6e2c4698310b21d72588422792e3e`; isolated branch `codex/tailor-2
 
 Files: `src/clients/neatlogs/client.ts` owns preparation state, readiness, first-turn durability and native/fallback rendering; `public/style.css` owns the compact loading status and scoped motion; `ui/transition-review.spec.ts` verifies the journey and recovery.
 
-Reference: linked Neatlogs conversation was inspected read-only at https://app.neatlogs.com/ai-search/3c6c4c77-6784-43c7-9288-ce9c8500a091. Its user prompt, Analysis disclosure, response and composer informed continuity. No reference prompt was submitted and no claim is made that its live loading animation was reproduced exactly. The supplied annotation screenshot is before evidence.
+Reference: linked Neatlogs conversation was inspected read-only at the user-provided signed-in conversation under https://app.neatlogs.com/ai-search (private identifiers omitted). Its user prompt, Analysis disclosure, response and composer informed continuity. No reference prompt was submitted and no claim is made that its live loading animation was reproduced exactly. The supplied annotation screenshot is before evidence.
 
 Focused browser checks: 7 passed. Coverage includes gated create/read/turn stages, one create and one turn, original prompt visible, honest mode/synthetic chips, no generic loading-page flash, original idempotency on retry, reduced-motion/unsupported native API, throwing API fallback, interrupted create/metadata completion, and failed trace read recovery with the same original clientTurnId. Interrupted tests await released network completion and a browser frame before checking that no hidden redirect/send occurred.
 

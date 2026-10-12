@@ -199,8 +199,9 @@ html.entry-view-transition::view-transition-new(root){animation:entry-view-in 22
 .trace-help>button svg{width:13px;height:13px}
 .trace-workspace .trace-help>button{display:inline-flex;align-items:center;gap:5px;width:auto;height:auto;min-height:24px;max-width:100%;padding:2px 4px;border-radius:6px;color:var(--ink);font-size:10px;line-height:14px;text-align:left;white-space:nowrap}
 .trace-workspace .trace-help>button>span[aria-hidden=true]{display:inline-grid;flex:0 0 14px;place-items:center;width:14px;height:14px;border:1px solid var(--line);border-radius:50%;font-size:9px;line-height:12px}
-.trace-tooltip[popover]{position:fixed;inset:auto;z-index:50;width:max-content;max-width:min(280px,calc(100vw - 24px));margin:0;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--ink);color:var(--ground);box-shadow:0 4px 16px rgb(0 0 0 / .16);font-size:11px;line-height:1.45;white-space:normal}
-.trace-tooltip:popover-open,.trace-tooltip.is-open{display:block}
+.trace-tooltip{display:none;position:fixed;inset:auto;z-index:50;width:max-content;max-width:min(280px,calc(100vw - 24px));margin:0;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--ink);color:var(--ground);box-shadow:0 4px 16px rgb(0 0 0 / .16);font-size:11px;line-height:1.45;white-space:normal}
+.trace-tooltip:popover-open{display:block}
+.trace-tooltip.is-open{display:block}
 @container trace-workspace (max-width:700px){
   .trace-workspace .list-header{gap:8px 10px;padding:10px 14px 8px}
   .trace-workspace .list-header h1{gap:6px;font-size:15px}

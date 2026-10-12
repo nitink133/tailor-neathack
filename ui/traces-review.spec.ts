@@ -77,8 +77,15 @@ test('recommended step reopens collapsed ancestors without preventing explicit c
 
 test('field help fallback closes on Escape',async({page})=>{
  await page.addInitScript(()=>{Object.defineProperty(HTMLElement.prototype,'showPopover',{value:undefined,configurable:true});Object.defineProperty(HTMLElement.prototype,'hidePopover',{value:undefined,configurable:true});});
- await enter(page);const help=page.getByRole('button',{name:'About Status',exact:true});await help.click();
- await expect(page.getByRole('tooltip').filter({hasText:/processed/i})).toBeVisible();
+ await enter(page);
+ // Simulate both missing native hiding and an unrecognized native pseudo-class.
+ const css=await(await page.request.get('/style.css')).text();
+ await page.locator('link[href="/style.css"]').evaluate(el=>el.remove());
+ await page.addStyleTag({content:css.replaceAll(':popover-open',':unsupported-popover-state')});
+ await page.locator('.trace-tooltip').evaluateAll(nodes=>nodes.forEach(node=>node.removeAttribute('popover')));
+ const tip=page.getByRole('tooltip').filter({hasText:/processed/i});await expect(tip).toBeHidden();
+ const help=page.getByRole('button',{name:'About Status',exact:true});await help.click();
+ await expect(tip).toBeVisible();
  await page.keyboard.press('Escape');await expect(page.getByRole('tooltip').filter({hasText:/processed/i})).toBeHidden();
 });
 
