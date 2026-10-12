@@ -1,0 +1,23 @@
+.tailor-site {margin:0;background:#fff;color:#20221f;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;font-synthesis:none}
+.tailor-site * {box-sizing:border-box}
+.tailor-site a {color:inherit;text-decoration:none}
+.tailor-site button {font:inherit}
+.tailor-site img {display:block;max-width:100%}
+.tailor-site h1,.tailor-site h2,.tailor-site h3,.tailor-site p {margin:0}
+.tailor-site .container {width:calc(100% - 144px);max-width:1296px;margin-inline:auto}
+.tailor-site .site-header {display:flex;justify-content:space-between;align-items:center;padding-block:34px;gap:32px}
+.tailor-site .wordmark {font-size:34px;line-height:42px;font-weight:500;letter-spacing:-.05em}
+.tailor-site nav {display:flex;gap:36px;align-items:center;font-size:16px;line-height:24px}
+.tailor-site nav a {padding-block:4px}
+.tailor-site nav a:hover,.tailor-site nav a[aria-current] {color:#2449c9}
+.tailor-site a:focus-visible,.tailor-site button:focus-visible {outline:2px solid #2449c9;outline-offset:5px}
+.tailor-site .button {display:inline-flex;align-items:center;justify-content:space-between;gap:30px;padding:18px 24px;background:#2449c9;color:#fff;font-size:18px;line-height:24px;align-self:flex-start;border:0;cursor:pointer}
+.tailor-site .button:hover {background:#193cad}
+.tailor-site .eyebrow {font-size:14px;line-height:18px;letter-spacing:.08em;color:#2449c9;font-weight:400}
+.tailor-site .site-footer {display:flex;justify-content:space-between;align-items:center;gap:28px;padding-block:34px;color:#606875;font-size:15px;line-height:24px}
+.tailor-site .site-footer nav {font-size:15px;gap:24px}
+.tailor-site .skip-link {position:absolute;top:8px;left:8px;padding:12px;background:white;z-index:10;transform:translateY(-160%)}
+.tailor-site .skip-link:focus {transform:translateY(0)}
+@media(min-width:1441px) {.tailor-site .site-header {padding-block:34px}}
+@media(max-width:1000px) {.tailor-site .container {width:calc(100% - 80px)}.tailor-site .site-footer {align-items:flex-start;flex-direction:column}}
+@media(max-width:767px) {.tailor-site .container {width:calc(100% - 40px)}.tailor-site .site-header {padding-block:24px;gap:16px;align-items:flex-start;flex-wrap:wrap}.tailor-site .wordmark {font-size:30px;line-height:36px}.tailor-site nav {font-size:14px;gap:20px;flex-wrap:wrap}.tailor-site .site-footer {padding-block:28px}.tailor-site .button {font-size:16px;padding:16px 20px}.tailor-site .eyebrow {font-size:12px;letter-spacing:.07em}}

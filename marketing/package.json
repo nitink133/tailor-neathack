@@ -1,0 +1,7 @@
+{
+  "name": "tailor-website",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=26.7.0" },
+  "scripts": { "dev": "node server.mjs", "start": "node server.mjs", "test": "node --test tests/server.test.mjs" }
+}
