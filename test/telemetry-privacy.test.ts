@@ -22,7 +22,7 @@ const STRING_KEYS = [
   'turnId', 'correlationId', 'traceId', 'requestId', 'providerRequestId', 'provider', 'providerMode', 'mode', 'model',
   'outcome', 'status', 'state', 'reason', 'action', 'step', 'code', 'errorCode', 'errorClass', 'stopReason', 'kind',
   'providerErrorKind', 'purpose', 'effort', 'attemptResult', 'resultState', 'detailState', 'source', 'adapterId',
-  'knowledgeVersion', 'promptVersion', 'sourceIds', 'issueCodes', 'decision', 'toolName', 'argKeys',
+  'knowledgeVersion', 'promptVersion', 'sessionRef', 'demoRef', 'sourceDemoRef', 'requestRef', 'clientTurnRef', 'reservationRef', 'codeVersion', 'adapterVersion', 'policyVersion', 'contractVersion', 'policyOutcome', 'policyReason', 'guardOutcome', 'guardClassification', 'guardReason', 'guardStage', 'guardModel', 'settlement', 'evidencePhase', 'evidenceStatus', 'evidenceKey', 'operation', 'estimationVersion', 'sourceComponent', 'sourceIds', 'issueCodes', 'decision', 'toolName', 'argKeys',
   // Count/measure/numeric/boolean keys must refuse strings too.
   'version', 'attempt', 'escalated', 'argCount', 'argBytes', 'latencyMs', 'costUsd', 'spanCount',
 ];
@@ -123,4 +123,10 @@ test('R2-03: model-authored tool names and refusal reasons never reach any span 
     const decisions = t.captured().filter(s => s.name === 'tailor.turn').map(s => s.attributes['tailor.decision']);
     assert.ok(decisions.includes('plan→invalid_name:not_permitted→refused'), JSON.stringify(decisions));
   } finally { await t.shutdown(); }
+});
+
+
+test('export mask rejects unknown numeric/boolean keys and negative accounting values', () => {
+  const masked = maskSpanData({ name: 'safe', attributes: { 'tailor.unknown_number': 12, 'tailor.unknown_flag': true, 'tailor.usage.input_tokens': -1, 'tailor.arg_bytes': 5, 'tailor.usage.available': false }, events: [] }) as { attributes: Record<string, unknown> };
+  assert.deepEqual(masked.attributes, { 'tailor.arg_bytes': 5, 'tailor.usage.available': false });
 });

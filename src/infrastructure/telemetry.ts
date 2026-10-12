@@ -18,6 +18,7 @@ import { createEvidenceObserver, compareEvidence, type EvidenceObserver, type Ev
 
 export type TelemetryMode = 'disabled' | 'captured' | 'neatlogs';
 export interface TelemetryOptions {
+  versions?: RuntimeVersions;
   mode: TelemetryMode;
   /** Server-side secret for opaque correlation IDs (never exported). */
   secret: string;
@@ -79,12 +80,13 @@ export interface ExportErrorSummary { name: string | null; code: string | null; 
 /** turnId → opaque correlation id (HMAC of the session id) for the operator; the HMAC secret is never included. */
 /** `traceId` is the exported root's OTel trace id (the hosted read API key); null when nothing was recorded. */
 /** `turnRef` is the exported (hashed) turn id; `turnId` stays local to the operator diagnostics. */
-export interface TurnCorrelation { turnId: string; turnRef: string; correlationId: string; sessionRef?: string; demoRef?: string; requestRef?: string; clientTurnRef?: string; traceId: string | null; status: 'ok' | 'failed' | null; outcome: string | null; version?: number; conversationVersion?: number; evidence?: EvidenceManifestSnapshot; completeness?: EvidenceComparison }
+export interface TurnCorrelation { turnId: string; turnRef: string; correlationId: string; sessionRef?: string; demoRef?: string; requestRef?: string; clientTurnRef?: string; sourceDemoRef?: string; traceId: string | null; status: 'ok' | 'failed' | null; outcome: string | null; version?: number; conversationVersion?: number; evidence?: EvidenceManifestSnapshot; completeness?: EvidenceComparison }
 export interface TelemetryDiagnostics {
   mode: TelemetryMode;
   /** Export acknowledgement is separate from hosted receipt verification. */
   receiptState: 'unverified';
   evidenceFailures: number;
+  captureEvictions: number;
   missingEvents: number;
   failedEvents: number;
   deliveryState: DeliveryState;
@@ -104,7 +106,7 @@ export interface TelemetryDiagnostics {
   /** Spans waiting in the batch queue; null when the SDK queue cannot be inspected (unavailable, not zero). */
   queued: number | null;
   /**
-   * Tailor spans estimated delivered (ended − failed − dropped, settled at each flush). The SDK's internal
+   * Tailor spans estimated exported (not verified received) (ended − failed − dropped, settled at each flush). The SDK's internal
    * `neatlogs.trace.complete` marker spans are excluded here and reported in `markerSpans`. `failed`/`dropped` come
    * from SDK counters that do not say which spans failed, so they may include markers: the estimate errs low.
    */
@@ -210,7 +212,7 @@ function declareInto(into: Vocabulary, v: SafeVocabulary): void {
   const add = (set: Set<string>, ids: readonly string[] | undefined, shape: RegExp) => {
     for (const id of ids ?? []) {
       if (set.size >= MAX_DECLARED) return;
-      if (typeof id === 'string' && shape.test(id) && !UUID_LIKE.test(id) && !looksSensitive(id)) set.add(id);
+      if (typeof id === 'string' && shape.test(id) && !UUID_LIKE.test(id) && (!looksSensitive(id) || (set === into.codeVersions && /^[0-9a-f]{7,40}$/.test(id)))) set.add(id);
     }
   };
   add(into.adapterIds, v.adapterIds, DECLARED_ID); add(into.toolNames, v.toolNames, TOOL_ID); add(into.recordIds, v.recordIds, DECLARED_ID);
@@ -258,7 +260,7 @@ const VALIDATED: Record<string, Check> = {
   requestId: format(/^req_[A-Za-z0-9]{3,64}$/),
   provider: inEnum(ENUMS.provider), providerMode: inEnum(ENUMS.mode), mode: inEnum(ENUMS.mode),
   model: (v, vocab) => str(v) && (Object.hasOwn(MODEL_RATES, v) || vocab.modelIds.has(v)),
-  sessionRef: format(/^s[0-9a-f]{16}$/), demoRef: format(/^d[0-9a-f]{16}$/), requestRef: format(/^q[0-9a-f]{16}$/), clientTurnRef: format(/^c[0-9a-f]{16}$/), reservationRef: format(/^z[0-9a-f]{16}$/),
+  sessionRef: format(/^s[0-9a-f]{16}$/), sourceDemoRef: format(/^d[0-9a-f]{16}$/), demoRef: format(/^d[0-9a-f]{16}$/), requestRef: format(/^q[0-9a-f]{16}$/), clientTurnRef: format(/^c[0-9a-f]{16}$/), reservationRef: format(/^z[0-9a-f]{16}$/),
   codeVersion: declared(v => v.codeVersions), adapterVersion: declared(v => v.adapterVersions), policyVersion: declared(v => v.policyVersions), contractVersion: declared(v => v.contractVersions),
   policyOutcome: inEnum(ENUMS.policyOutcome), guardClassification: inEnum(ENUMS.policyOutcome), policyReason: inEnum(ENUMS.policyReason), guardReason: inEnum(ENUMS.policyReason), guardOutcome: inEnum(ENUMS.guardOutcome), guardStage: inEnum(ENUMS.guardStage), guardModel: (v, vocab) => str(v) && vocab.modelIds.has(v),
   settlement: inEnum(ENUMS.settlement), evidencePhase: inEnum(ENUMS.evidencePhase), evidenceStatus: inEnum(ENUMS.evidenceStatus), operation: inEnum(ENUMS.operation), evidenceKey: format(/^(?:turn|load_context|context|retrieve_knowledge|model|repair|escalate|validate|tool|save|readback|explain|guard|response):[1-9][0-9]{0,4}:(?:start|end)$/), estimationVersion: inEnum(ENUMS.estimationVersion), sourceComponent: inEnum(ENUMS.sourceComponent),
@@ -326,7 +328,8 @@ export function cleanAttributes(attrs: Record<string, unknown> | undefined, hash
     }
     // A 32-hex OTel trace id is a long mixed run by construction; its strict format is the whole check.
     const strictTraceId = k === 'traceId' && VALIDATED.traceId!(v, vocab);
-    if (!strictTraceId && looksSensitive(v)) { dropped++; redacted++; continue; }
+    const strictCodeVersion = k === 'codeVersion' && VALIDATED.codeVersion!(v, vocab) && typeof v === 'string' && /^[0-9a-f]{7,40}$/.test(v);
+    if (!strictTraceId && !strictCodeVersion && looksSensitive(v)) { dropped++; redacted++; continue; }
     if (k === 'toolName') {
       const known = typeof v === 'string' && (vocab.toolNames.has(v) || v === INVALID_TOOL_NAME);
       clean['tailor.tool_name'] = known ? v : INVALID_TOOL_NAME;
@@ -350,14 +353,17 @@ function exportValidators(): Record<string, Check> {
 }
 const EXPORT_VALIDATORS = exportValidators();
 function exportable(key: string, value: unknown, vocab: Vocabulary): boolean {
-  if (looksSensitive(value)) return false;
+  if (looksSensitive(value) && !(key === 'tailor.code_version' && typeof value === 'string' && /^[0-9a-f]{7,40}$/.test(value) && vocab.codeVersions.has(value))) return false;
   if (key.startsWith('tailor.')) {
     if (typeof value === 'string') {
       const check = EXPORT_VALIDATORS[key];
       if (!check || (UUID_LIKE.test(value) && !key.startsWith('tailor.synthetic_'))) return false;
       return check(value, vocab);
     }
-    return typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
+    if (key === 'tailor.usage.available' || key === 'tailor.model_call' || key === 'tailor.synthetic') return typeof value === 'boolean';
+    if (/^tailor\.usage\.(?:input_tokens|output_tokens|cache_read_input_tokens|cache_creation_input_tokens|thinking_tokens)$/.test(key)) return finiteNonNegative(value);
+    const rawKey = key.slice('tailor.'.length).replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    return keyAccepts(rawKey, value, vocab);
   }
   if (key === 'neatlogs.end_user.id') return typeof value === 'string' && /^u[0-9a-f]{16}$/.test(value);
   if (!SDK_KEY.test(key) || PAYLOAD_KEY.test(key)) return false;
@@ -421,6 +427,7 @@ class BoundedRetryExporter implements SpanExporter {
 
 /** Keeps the last N finished spans locally (captured mode) so tests can assert with zero network. */
 class CaptureProcessor implements SpanProcessor {
+  evictions = 0;
   spans: CapturedSpan[] = [];
   onStart(): void {}
   onEnd(span: ReadableSpan): void {
@@ -432,7 +439,7 @@ class CaptureProcessor implements SpanProcessor {
         events: span.events.map(e => ({ name: e.name, attributes: { ...(e.attributes ?? {}) } })),
         status: { code: span.status.code, ...(span.status.message ? { message: span.status.message } : {}) },
       });
-      if (this.spans.length > LIMITS.telemetryQueueMax) this.spans.shift();
+      if (this.spans.length > LIMITS.telemetryQueueMax) { this.spans.shift(); this.evictions++; }
     } catch { /* never throw from a processor */ }
   }
   async forceFlush() {}
@@ -536,7 +543,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
       },
       flush: async () => ({ ...quiet }), shutdown: async () => ({ ...quiet }), captured: () => [],
       diagnostics: () => ({
-        mode, receiptState: 'unverified', evidenceFailures: 0, missingEvents: 0, failedEvents: 0, deliveryState: 'disabled', droppedSteps: 0, droppedAttributes: 0, sdkFailures: 0, redactedValues: 0,
+        mode, receiptState: 'unverified', evidenceFailures: 0, captureEvictions: 0, missingEvents: 0, failedEvents: 0, deliveryState: 'disabled', droppedSteps: 0, droppedAttributes: 0, sdkFailures: 0, redactedValues: 0,
         syntheticPayloads: false, endpoint: null, exportFailures: 0, droppedExports: 0,
         droppedSpans: 0, queued: 0, exportedSpans: 0, markerSpans: 0, lastExportError: null, lastSuccessfulExportAt: null, recentTurns: turns.snapshot(),
       }),
@@ -654,6 +661,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
     return r;
   };
   const forTurn = (turnId: string, sessionId: string, turnOptions: TurnOptions = {}): RuntimeTurnTelemetry => {
+    turnOptions = { ...options.versions, ...turnOptions };
     const correlationId = correlationIdFor(secret, sessionId);
     const turnRef = turnRefFor(turnId);
     const sessionRef = `s${correlationId}`;
@@ -684,7 +692,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
         try {
           const { clean, dropped } = scrub({ ...versions, ...attributes });
           const attrs: Record<string, AttrValue> = { ...clean, 'tailor.turn_id': turnRef, 'tailor.correlation_id': correlationId, 'tailor.step': name, 'tailor.session_ref': sessionRef, 'tailor.demo_ref': demoRef, 'tailor.request_ref': requestRef, 'tailor.client_turn_ref': clientTurnRef };
-          if (name === 'model') attrs['tailor.model_call'] = true;
+          if (['model', 'repair', 'escalate'].includes(name)) attrs['tailor.model_call'] = true;
           if (dropped) attrs['tailor.dropped_attributes'] = dropped;
           const traceOptions: TraceOptions = name === 'turn'
             ? { name: 'tailor.turn', kind: 'WORKFLOW', sessionId: correlationId, ...(turnOptions.endUserId ? { endUserId: safeRef('u', turnOptions.endUserId) } : {}), attributes: attrs }
@@ -702,8 +710,9 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
               box.result = { ok: true, value };
               guard(() => {
                 span.setAttribute('tailor.status', 'ok');
-                const v = value as { outcome?: unknown; version?: unknown; conversationVersion?: unknown } | null;
+                const v = value as { outcome?: unknown; version?: unknown; conversationVersion?: unknown; demoId?: unknown } | null;
                 if (v && typeof v === 'object') {
+                  if (name === 'turn' && typeof v.demoId === 'string') { const targetDemoRef = safeRef('d', v.demoId); if (targetDemoRef !== demoRef) { summary.sourceDemoRef = demoRef; summary.demoRef = targetDemoRef; span.setAttribute('tailor.source_demo_ref', demoRef); span.setAttribute('tailor.demo_ref', targetDemoRef); } }
                   if (typeof v.outcome === 'string' && TURN_OUTCOMES.has(v.outcome)) span.setAttribute('tailor.outcome', v.outcome);
                   if (typeof v.version === 'number' && Number.isFinite(v.version)) { span.setAttribute('tailor.version', v.version); if (name === 'turn') summary.version = v.version; }
                   if (typeof v.conversationVersion === 'number' && Number.isFinite(v.conversationVersion)) { span.setAttribute('tailor.conversation_version', v.conversationVersion); if (name === 'turn') summary.conversationVersion = v.conversationVersion; }
@@ -777,10 +786,10 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
           if (ok) {
             span.setAttribute('tailor.usage.input_tokens', usage.inputTokens); span.setAttribute('tailor.usage.output_tokens', usage.outputTokens);
             // Optional provider-reported detail; absent means not reported (never written as zero).
-            if (Number.isFinite(usage.cacheReadInputTokens)) span.setAttribute('tailor.usage.cache_read_input_tokens', usage.cacheReadInputTokens as number);
+            if (finiteNonNegative(usage.cacheReadInputTokens)) span.setAttribute('tailor.usage.cache_read_input_tokens', usage.cacheReadInputTokens as number);
             // Cache writes keep the provider's name (cache_creation); prompt caching is not enabled yet, so normally absent.
-            if (Number.isFinite(usage.cacheCreationInputTokens)) span.setAttribute('tailor.usage.cache_creation_input_tokens', usage.cacheCreationInputTokens as number);
-            if (Number.isFinite(usage.thinkingTokens)) span.setAttribute('tailor.usage.thinking_tokens', usage.thinkingTokens as number);
+            if (finiteNonNegative(usage.cacheCreationInputTokens)) span.setAttribute('tailor.usage.cache_creation_input_tokens', usage.cacheCreationInputTokens as number);
+            if (finiteNonNegative(usage.thinkingTokens)) span.setAttribute('tailor.usage.thinking_tokens', usage.thinkingTokens as number);
           }
         });
       },
@@ -868,7 +877,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
       const t = totals();
       if (!closed) logBurst(false);
       return {
-        mode, receiptState: 'unverified', missingEvents: turns.snapshot().reduce((n, t) => n + (t.completeness?.missing.length ?? 0), 0), failedEvents: turns.snapshot().reduce((n, t) => n + (t.completeness?.failed.length ?? 0), 0), deliveryState: stateNow(), ...diag, syntheticPayloads, endpoint,
+        mode, receiptState: 'unverified', captureEvictions: capture.evictions, missingEvents: turns.snapshot().reduce((n, t) => n + (t.completeness?.missing.length ?? 0), 0), failedEvents: turns.snapshot().reduce((n, t) => n + (t.completeness?.failed.length ?? 0), 0), deliveryState: stateNow(), ...diag, syntheticPayloads, endpoint,
         exportFailures: t.failed, droppedExports: t.dropped, droppedSpans: t.dropped,
         queued: queuedNow(), exportedSpans: settledExported, markerSpans: counter.markers,
         lastExportError: exporter?.lastError ?? lastError, lastSuccessfulExportAt: lastSuccessAt,

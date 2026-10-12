@@ -9,6 +9,7 @@ import { createRequire } from 'node:module';
 import type { Socket } from 'node:net';
 import { gunzipSync } from 'node:zlib';
 import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
+import { verifyHostedTrace, RUNTIME_PROJECT_ID } from '../src/infrastructure/hosted-verification.ts';
 import { createTelemetry, type Telemetry } from '../src/infrastructure/telemetry.ts';
 
 const FAKE_KEY = 'nl_fake_test_key';
@@ -307,5 +308,47 @@ test('R1-F1: exportedSpans counts Tailor spans only; SDK marker spans are report
     assert.equal(d.markerSpans, markers.length, 'marker spans are counted separately');
     assert.equal(markers.length, 2, 'one SDK marker per trace reached the wire');
     assert.ok(markers.every(m => m.name === 'neatlogs.trace.complete'), markers.map(m => m.name).join(','));
+  } finally { await t.shutdown(); await rx.close(); }
+});
+
+
+test('decoded offline OTLP proves native session grouping and independent complete receipts without hosted delivery claims', async () => {
+  const rx = await listen(200);
+  const t = await createTelemetry(hostedLike(rx, [], { versions: { codeVersion: 'test-build-1', adapterVersion: 'adapter-1', contractVersion: 'contract-1' } }));
+  const expected = [];
+  try {
+    for (let n = 1; n <= 3; n++) {
+      const tt = t.forTurn(`turn-wire-${n}`, SESSION, { demoId: 'demo-wire', requestId: `request-${n}`, clientTurnId: `client-${n}` });
+      for (const op of ['turn', 'guard', 'context', 'model', 'repair', 'save', 'readback'] as const) tt.evidence.expect(op);
+      await tt.step('turn', {}, async () => {
+        await tt.step('guard', { policyOutcome: 'allow_demo_action', policyReason: 'demo_action', preventedDispatch: false }, async () => null);
+        await tt.step('context', { contextBeforeBytes: 200, contextAfterBytes: 150, trimmedTurns: 1 }, async () => null);
+        await assert.rejects(tt.step('model', { purpose: 'plan', attempt: 1 }, async () => { tt.recordUsage({ inputTokens: 10, outputTokens: 5 }, 'claude-sonnet-5-5'); throw new Error('PRIVATE_BUYER_WIRE_TEXT'); }));
+        await tt.step('repair', { purpose: 'repair', attempt: 2 }, async () => null);
+        await tt.step('save', { versionBefore: 1, versionAfter: 2 }, async () => null);
+        await tt.step('readback', { version: 2 }, async () => null);
+        return { outcome: 'committed', version: 2 };
+      });
+      expected.push({ tt, manifest: tt.evidence.snapshot() });
+    }
+    const flushed = await t.flush();
+    assert.equal(flushed.ok, true); assert.equal(flushed.receiptState, 'unverified');
+    const wireSpans: any[] = [];
+    for (const packet of rx.seen) {
+      const decoded = ExportRequest.decode(packet.protobuf);
+      for (const rs of decoded.resourceSpans ?? []) for (const ss of rs.scopeSpans ?? []) for (const sp of ss.spans ?? []) {
+        wireSpans.push({ ...sp, traceId: Buffer.from(sp.traceId).toString('hex'), spanId: Buffer.from(sp.spanId).toString('hex'), parentSpanId: sp.parentSpanId?.length ? Buffer.from(sp.parentSpanId).toString('hex') : null });
+      }
+    }
+    for (const { tt, manifest } of expected) {
+      const traceId = t.diagnostics().recentTurns.find(turn => turn.turnRef === tt.turnRef)!.traceId!;
+      const traceSpans = wireSpans.filter(s => s.traceId === traceId);
+      const result = verifyHostedTrace({ _id: traceId, projectId: RUNTIME_PROJECT_ID, spans: traceSpans }, { traceId, sessionId: tt.correlationId, turnRef: tt.turnRef, demoRef: tt.demoRef, requestRef: tt.requestRef, manifest, outcome: 'committed', version: 2, requiredRootAttributes: ['tailor.code_version', 'tailor.adapter_version', 'tailor.contract_version'] });
+      assert.equal(result.ok, true, JSON.stringify(result));
+      assert.deepEqual(result.completeness.failed, ['model:1:end']);
+    }
+    assert.equal(new Set(expected.map(e => e.tt.sessionRef)).size, 1);
+    assert.equal(JSON.stringify(wireSpans).includes('PRIVATE_BUYER_WIRE_TEXT'), false);
+    assert.ok(rx.seen.every(packet => packet.apiKeyIsFake));
   } finally { await t.shutdown(); await rx.close(); }
 });

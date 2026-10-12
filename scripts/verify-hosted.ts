@@ -7,6 +7,10 @@
 //            and reads every trace back by id.
 //   Failure: env -u NEATLOGS_API_KEY -u ANTHROPIC_API_KEY node scripts/verify-hosted.ts --expect-failure
 //            Fully offline: a 127.0.0.1 listener answers 401 to a fake key; delivery must be `failing` and flush not ok.
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import * as adapterModule from '../src/clients/neatlogs/adapter.ts';
+import { CONTRACT_VERSION } from '../src/clients/neatlogs/agent-contract.ts';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -19,6 +23,7 @@ import { createProvider } from '../src/clients/neatlogs/provider.ts';
 import { loadKnowledge } from '../src/clients/neatlogs/knowledge.ts';
 import { PROMPT_VERSION } from '../src/clients/neatlogs/prompts.ts';
 import { travelBuyerTurn1, nonProposalRequests } from '../src/clients/neatlogs/examples/travel-booking.ts';
+import { verifyHostedTrace } from '../src/infrastructure/hosted-verification.ts';
 import type { DemoSession } from '../src/contracts.ts';
 
 const EXPECTED_PROJECT = '18c4b4b6-0b1e-4d41-9405-7960fc2d0aa8';
@@ -75,10 +80,17 @@ if (expectFailure) {
 }
 const origin = new URL(endpoint).origin;
 
+// Version identities are established from code before enabling export. No guessed adapter version.
+const adapterVersion = (adapterModule as unknown as Record<string, unknown>).NEATLOGS_ADAPTER_VERSION;
+if (typeof adapterVersion !== 'string' || !adapterVersion) refuse('Adapter version is unavailable; update the adapter before hosted verification.');
+let codeVersion: string;
+try { codeVersion = execFileSync('git', ['-C', fileURLToPath(new URL('../', import.meta.url)), 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); }
+catch { refuse('Code version is unavailable; nothing was sent.'); }
+
 const dir = mkdtempSync(join('/tmp', 'tailor-verify-hosted-'));
 const store = new Store(join(dir, 'sessions.sqlite'));
 const devKey = randomBytes(32).toString('hex');
-const telemetry = await createTelemetry({ mode: 'neatlogs', secret: store.secret, apiKey, endpoint, log: line => emit('stderr', line) });
+const telemetry = await createTelemetry({ mode: 'neatlogs', secret: store.secret, apiKey, endpoint, versions: { codeVersion, adapterVersion, contractVersion: CONTRACT_VERSION }, log: line => emit('stderr', line) });
 const knowledge = loadKnowledge();
 const provider = createProvider({ kind: 'mock' });
 if (provider.mode !== 'mock') refuse('Provider is not the mock; aborting.');
@@ -131,6 +143,7 @@ try {
     if (!shown) exitCode = 1;
   } else {
     if (!flush.ok) exitCode = 1;
+    const expectedTurns = new Map<string, any>(diagnostics.recentTurns.filter((t: any) => t.traceId).map((t: any) => [t.traceId, t]));
     const traceIds: string[] = diagnostics.recentTurns.map((t: { traceId: string | null }) => t.traceId).filter(Boolean);
     if (traceIds.length !== turns.length) { emit('error', `expected ${turns.length} trace ids, got ${traceIds.length}`); exitCode = 1; }
     const deadline = Date.now() + READBACK_MS;
@@ -142,7 +155,10 @@ try {
           if (r.body) {
             const spans: any[] = r.body.spans ?? [];
             const orgId = r.body.orgId ?? r.body.organizationId ?? KNOWN_ORG;
+            const expected = expectedTurns.get(id);
+            const verified = verifyHostedTrace(r.body, { traceId: id, sessionId: expected.correlationId, turnRef: expected.turnRef, demoRef: expected.demoRef, requestRef: expected.requestRef, manifest: expected.evidence, outcome: expected.outcome, version: expected.version, requiredRootAttributes: ['tailor.code_version', 'tailor.prompt_version', 'tailor.adapter_version', 'tailor.contract_version', 'tailor.knowledge_version'] });
             results.set(id, {
+              verification: verified,
               traceId: id, found: true, idMatches: r.body._id === id, projectId: r.body.projectId ?? null, status: r.body.status ?? null, spanCount: spans.length,
               spanNames: [...new Set(spans.map(sp => sp?.node_name))],
               dashboard: `https://app.neatlogs.com/traces?orgId=${orgId}&projectId=${r.body.projectId ?? EXPECTED_PROJECT}`,
@@ -155,7 +171,7 @@ try {
     for (const id of traceIds) {
       const r = results.get(id) ?? { traceId: id, found: false, reason: 'not visible within 60 s' };
       emit('trace', r);
-      if (!r.found || r.projectId !== EXPECTED_PROJECT) exitCode = 1;
+      if (!r.found || r.projectId !== EXPECTED_PROJECT || !(r.verification as { ok?: boolean } | undefined)?.ok) exitCode = 1;
     }
   }
 } catch (e) {
