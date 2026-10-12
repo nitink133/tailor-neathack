@@ -615,7 +615,12 @@ async function startSession(text: string) {
   saveDraft([stamp('buyer', text, 'pending')]);
   entry();
   let created: DemoSession;
+  let createStarted = false;
   try {
+    // Establish the owner cookie before the first create so a lost create response can
+    // be retried with the same idempotency key and still resolve to the same demo.
+    if (!browserSession) browserSession = await request<BrowserSession>('/api/browser-session', { method: 'POST' }, true);
+    createStarted = true;
     created = await request<DemoSession>('/api/browser-session/demos', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operation }, body: payload }, true);
   } catch (e) {
     chatBusy = false;
@@ -623,8 +628,8 @@ async function startSession(text: string) {
     saveDraft(draft.map(t => ({ ...t, status: 'failed' as const })));
     entry();
     const failure = e instanceof ApiFailure ? e : undefined;
-    const copy = !failure ? 'Tailor could not reach the server; your message was not sent. Send again to retry.'
-      : failure.status >= 500 ? 'Tailor hit a server error and can’t confirm whether your demo was created. Send again; the server recognises the same request and will not create it twice.'
+    const copy = !failure ? createStarted ? 'Tailor could not reach the server; your message was not sent. Send again to retry.' : 'Tailor could not reach the server to prepare this browser session. No demo was created. Send again to retry.'
+      : failure.status >= 500 ? createStarted ? 'Tailor hit a server error and can’t confirm whether your demo was created. Send again; the server recognises the same request and will not create it twice.' : 'Tailor could not prepare this browser session. No demo was created. Send again to retry.'
       : `${plain(failure.message)} Nothing was created. Send again to retry.`;
     document.querySelector('.form-error')?.replaceChildren(document.createTextNode(copy));
     return;

@@ -137,13 +137,15 @@ test('entry makes the synthetic scope clear and keeps suggestions editable',asyn
   await expect(page.locator('[data-starter-list] button')).toHaveCount(3);
   const first=page.locator('[data-starter-list] button').first(),prompt=await first.getAttribute('data-example');
   expect(prompt).toBeTruthy();expect(await first.getAttribute('data-capability-id')).toBeTruthy();
-  let creates=0;await page.route('**/api/browser-session/demos',async route=>{creates++;await route.continue();});
+  let creates=0;const ownerCalls:string[]=[];
+  await page.route('**/api/browser-session',async route=>{if(route.request().method()==='POST')ownerCalls.push('bootstrap');await route.continue();});
+  await page.route('**/api/browser-session/demos',async route=>{creates++;ownerCalls.push('create');await route.continue();});
   await first.click();
   const composer=page.getByLabel('Ask anything');await expect(composer).toHaveValue(prompt!);await expect(composer).toBeFocused();
   expect(creates).toBe(0);expect(await page.evaluate(()=>sessionStorage.getItem('creation-operation'))).toBeNull();
   await composer.fill(`${prompt} Use one fictional retry.`);
   await page.getByRole('button',{name:'Send message'}).click();await expect(page).toHaveURL(/\/demo\/[^/]+\/traces$/);
-  expect(creates).toBe(1);await expect(page.locator('.chat-panel')).toContainText('Powered by Tailor');
+  expect(creates).toBe(1);expect(ownerCalls).toEqual(['bootstrap','create']);await expect(page.locator('.chat-panel')).toContainText('Powered by Tailor');
 });
 
 test('clarification offers exactly three choices and accepts an editable free-text answer',async({page})=>{
