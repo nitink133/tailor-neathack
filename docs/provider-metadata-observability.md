@@ -4,6 +4,8 @@ The first controlled live suite recorded 29 turns and 60 provider calls. Its est
 
 The accompanying [first-pass audit](provider-cost-context-audit-first-pass.json) preserves aggregate usage, per-turn costs, quality groups, and offline reconstructed request sizes for baseline commit `ea7d0f028c3570a6ee834138c33717bdddf39bc9`. Its byte counts are reconstructed from the approved synthetic records and baseline source, not API tokenizer counts or captured wire requests. Historical gaps remain unavailable; this change does not backfill them.
 
+A subsequent [approved hosted reconciliation](provider-cost-hosted-reconciliation.md) recovers the existing per-attempt token counters, latency, stop reasons and explicit aggregate cache zeros for all 60 baseline calls, and validates all reconstructed request sizes. API-resolved IDs and raw cache-TTL usage remain unavailable historically. The instrumentation below adds those missing fields for future calls.
+
 ## New evidence
 
 Every dispatched Anthropic call carries a bounded `providerMetadata` object through successful planning, explanation and guard responses, and through provider errors after dispatch:
