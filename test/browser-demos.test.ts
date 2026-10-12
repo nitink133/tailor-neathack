@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { request as httpRequest } from 'node:http';
 import { harness, tempStore, op, type Harness } from './helpers/backend.ts';
 import { travelProposalV1 } from '../src/clients/neatlogs/examples/travel-booking.ts';
 import type { DemoSwitchChoice } from '../src/tailor/demo-contract.ts';
@@ -294,4 +295,46 @@ test('reusing trace keys, domain and root names cannot disguise a complete paylo
     assert.equal(t.store.publish(saved.id, proposal).state, 'rejected');
     assert.deepEqual(t.store.read(saved.id).dataset, saved.dataset);
   } finally { t.cleanup(); }
+});
+
+for (const route of ['selection', 'evaluation'] as const) test(`${route} body cannot race a newly started owner turn`, async () => {
+  const h = await harness(); let release = () => {};
+  try {
+    const created = await established(h); const id = created.data.id;
+    await h.call('/api/browser-session/demos', 'POST', { description: 'Other owned demo' }, created.cookie);
+    const browser = await h.call('/api/browser-session', 'GET', undefined, created.cookie);
+    const s = h.store.read(id);
+    const path = route === 'selection' ? '/api/browser-session/active-demo' : `/api/sessions/${id}/evaluations`;
+    const payload = route === 'selection' ? { demoId: id, expectedVersion: browser.data.version }
+      : { clientOperationId: randomUUID(), datasetVersion: s.version, name: 'Concurrent review', traceIds: [s.dataset.traces[0]!.id] };
+    let entered = false;
+    if (route === 'selection') {
+      const original = h.store.browserForCookie.bind(h.store);
+      h.store.browserForCookie = (cookie, upgrade) => { const owner = original(cookie, upgrade); entered = true; return owner; };
+    } else {
+      const original = h.store.read.bind(h.store);
+      h.store.read = demoId => { const session = original(demoId); entered = true; return session; };
+    }
+    let slow!: ReturnType<typeof httpRequest>;
+    const completed = new Promise<{status:number;body:any}>((resolve, reject) => {
+      slow = httpRequest({ hostname: '127.0.0.1', port: h.port, path, method: 'POST', headers: { cookie: created.cookie, 'content-type': 'application/json', connection: 'close' } }, response => {
+        const chunks: Buffer[] = []; response.on('data', c => chunks.push(c)); response.on('end', () => resolve({ status: response.statusCode!, body: JSON.parse(Buffer.concat(chunks).toString()) }));
+      });
+      slow.on('error', reject);
+    });
+    slow.write('{');
+    for (let n = 0; !entered && n < 500; n++) await new Promise(r => setTimeout(r, 2));
+    assert.equal(entered, true, 'the mutation route reached its pre-body read');
+    const priorCalls = h.agent.calls;
+    h.agent.gate = new Promise<void>(r => { release = r; });
+    const running = h.call(`/api/sessions/${id}/turns`, 'POST', turn('Explain this fictional workflow'), created.cookie);
+    for (let n = 0; h.agent.calls === priorCalls && n < 500; n++) await new Promise(r => setTimeout(r, 2));
+    assert.ok(h.agent.calls > priorCalls, 'a turn now holds the owner gate');
+    slow.end(JSON.stringify(payload).slice(1));
+    const response = await completed;
+    assert.equal(response.status, 409); assert.equal(response.body.error.code, 'TURN_IN_FLIGHT');
+    release(); h.agent.gate = null; await running;
+    assert.equal(h.store.browserSession(browser.data.id).activeDemoId, browser.data.activeDemoId);
+    assert.equal(h.store.listArtifacts(id, 'evaluations').length, 0);
+  } finally { release(); h.agent.gate = null; await h.close(); }
 });
