@@ -1317,6 +1317,7 @@ document.addEventListener('click', event => {
 }, true);
 function saveNativeEvaluationDraft() {
   const host=root.querySelector('.native-eval-host');if(!host)return;
+  const countInput=host.querySelector<HTMLInputElement>('[name="recent-count"]');if(countInput&&current){const limit=evaluation?.evaluation.traceIds.length??current.dataset.traces.length;const value=Number(countInput.value);nativeWizard.recentCount=Math.max(1,Math.min(Math.max(1,limit),Number.isFinite(value)?Math.trunc(value):limit));}
   const instructions=host.querySelector<HTMLTextAreaElement>('[name="instructions"]');if(instructions)nativeEditor.instructions=instructions.value;
   for(const [field,key] of [['reasoning','reasoning'],['custom-output','customOutput'],['skills','skills']] as const){const input=host.querySelector<HTMLInputElement>(`[name="${field}"]`);if(input)nativeEditor[key]=input.checked;}
 }
@@ -1334,6 +1335,7 @@ function nativeEvaluationAction(action:string) {
   else if(action==='editor-back'||action==='editor-continue')nativeEditor.step=editorSteps[Math.max(0,Math.min(5,editorSteps.indexOf(nativeEditor.step)+(action==='editor-back'?-1:1)))]!;
   else if(action.startsWith('step:')){const step=action.slice(5);if(wizardSteps.some(value=>value===step)){nativeWizard.step=step as EvalWizardState['step'];evaluationPreviewStage=step==='form'?'criteria':'dataset';}}
   else if(action==='back'||action==='continue'){nativeWizard.step=wizardSteps[Math.max(0,Math.min(5,wizardSteps.indexOf(nativeWizard.step)+(action==='back'?-1:1)))]!;evaluationPreviewStage=nativeWizard.step==='form'?'criteria':'dataset';}
+  else if(action==='recent-increment'||action==='recent-decrement'){const count=evaluation?.evaluation.traceIds.length??current.dataset.traces.length;nativeWizard.recentCount=Math.max(1,Math.min(Math.max(1,count),(nativeWizard.recentCount??count)+(action==='recent-increment'?1:-1)));}
   else if(action.startsWith('choose:')){const choice=action.slice(7);if(choice==='trace'||choice==='span')nativeWizard.level=choice;else if(choice==='agent'||choice==='llm'||choice==='code')nativeEditor.kind=choice;else if(choice==='buyer'||choice==='simulated_judge')nativeWizard.reviewer=choice;else toast('Scheduling remains unavailable in this unsaved preview.');}
   else {toast(action==='create-local'?'Unsaved UI preview. No evaluator or evaluation was created.':'This control is a visual preview; no hosted action runs.');return;}
   if(evaluation)evaluationPage(current,evaluation);else if(evaluations)evaluationsPage(current,evaluations);
