@@ -4,8 +4,11 @@ import {fileURLToPath} from 'node:url';
 import {resolve, extname} from 'node:path';
 
 const publicDir = fileURLToPath(new URL('./public/', import.meta.url));
-export function createWebsiteServer({demoOrigin = process.env.TAILOR_DEMO_ORIGIN || 'http://127.0.0.1:4328', demoEntryPath = process.env.TAILOR_DEMO_ENTRY_PATH || '/entry'} = {}) {
+export function createWebsiteServer({demoOrigin = process.env.TAILOR_DEMO_ORIGIN || 'http://127.0.0.1:4328', demoEntryPath = process.env.TAILOR_DEMO_ENTRY_PATH || '/entry', publicOrigin = null} = {}) {
   const target = new URL(demoOrigin);
+  const publicUrl = publicOrigin ? new URL(publicOrigin) : null;
+  if (publicUrl && (publicUrl.protocol !== 'https:' || publicUrl.username || publicUrl.password || publicUrl.pathname !== '/' || publicUrl.search || publicUrl.hash)) throw new Error('Public origin must be a single HTTPS origin.');
+  let windowAt = Date.now(), writes = 0, turns = 0, activeTurn = null;
   if (target.protocol !== 'http:' || !['localhost','127.0.0.1'].includes(target.hostname) || target.username || target.password || target.pathname !== '/' || target.search || target.hash) throw new Error('Demo origin must be a loopback HTTP origin.');
   if (!/^\/(?!\/)[a-zA-Z0-9/_?=&.%+-]*$/.test(demoEntryPath) || ['/', '/try-demo', '/manifesto', '/how-it-works'].includes(demoEntryPath)) throw new Error('Demo entry must be a local demo route.');
   const files = new Map([
@@ -15,9 +18,17 @@ export function createWebsiteServer({demoOrigin = process.env.TAILOR_DEMO_ORIGIN
   ]);
   return createServer(async (req,res) => {
     const host = req.headers.host || '';
-    if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) {res.writeHead(403);res.end('Use the local loopback server.');return;}
-    if (req.headers.origin && req.headers.origin !== `http://${host}`) {res.writeHead(403);res.end('Cross-origin requests are not supported.');return;}
-    const url = new URL(req.url, `http://${host}`);
+    if (publicUrl && req.url === '/healthz' && ['GET','HEAD'].includes(req.method)) {res.writeHead(200, {'Cache-Control':'no-store'});res.end(req.method === 'HEAD' ? undefined : 'ok');return;}
+    if (publicUrl ? host !== publicUrl.host : !/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) {res.writeHead(403);res.end('Use the local loopback server.');return;}
+    if (req.headers.origin && req.headers.origin !== (publicUrl?.origin ?? `http://${host}`)) {res.writeHead(403);res.end('Cross-origin requests are not supported.');return;}
+    const url = new URL(req.url, publicUrl?.origin ?? `http://${host}`);
+    if (publicUrl && url.pathname.startsWith('/api/dev/')) {res.writeHead(404);res.end();return;}
+    const isTurn = publicUrl && req.method === 'POST' && /\/turns$/.test(url.pathname);
+    if (publicUrl && !['GET','HEAD'].includes(req.method)) {
+      if (req.headers.origin !== publicUrl.origin) {res.writeHead(403);res.end('Same-origin browser requests are required.');return;}
+      if (Date.now() - windowAt >= 60000) {windowAt = Date.now();writes = 0;turns = 0;}
+      if (++writes > 30 || (isTurn && (++turns > 10 || activeTurn))) {res.writeHead(429, {'Retry-After':'60','Content-Type':'application/json'});res.end(JSON.stringify({error:{code:'PUBLIC_RATE_LIMIT',message:'The shared demo is busy. Please try again in a minute.'}}));return;}
+    }
     if (url.pathname === '/try-demo') {
       if (!['GET','HEAD'].includes(req.method)) {res.writeHead(405);res.end();return;}
       res.writeHead(302, {'Location':demoEntryPath,'Cache-Control':'no-store'});res.end();return;
@@ -35,11 +46,23 @@ export function createWebsiteServer({demoOrigin = process.env.TAILOR_DEMO_ORIGIN
     }
     // Preserve Host and Origin together: the existing demo validates their equality.
     // Forward cookies, query strings, body and response headers without touching demo code.
+    const turnToken = isTurn ? Symbol('public-turn') : null;
+    if (turnToken) activeTurn = turnToken;
+    const release = () => {if (turnToken && activeTurn === turnToken) activeTurn = null;};
+    res.once('close', release);
+    res.once('finish', release);
     const headers = {...req.headers};
+    if (publicUrl) {
+      headers.host = target.host;
+      if (headers.origin) headers.origin = target.origin;
+      // Never trust caller-supplied forwarding headers at the private upstream.
+      for (const key of Object.keys(headers)) if (key.startsWith('x-forwarded-') || key === 'forwarded') delete headers[key];
+    }
     for (const key of ['connection','proxy-connection','keep-alive','upgrade','te','trailer','transfer-encoding']) delete headers[key];
     const upstream = request({hostname:target.hostname,port:target.port || 80,path:req.url,method:req.method,headers}, response => {
       const responseHeaders = {...response.headers};
       delete responseHeaders.connection;
+      if (publicUrl && responseHeaders['set-cookie']) responseHeaders['set-cookie'] = responseHeaders['set-cookie'].map(cookie => /;\s*Secure(?:;|$)/i.test(cookie) ? cookie : cookie + '; Secure');
       res.writeHead(response.statusCode || 502,responseHeaders);
       response.pipe(res);
     });

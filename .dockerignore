@@ -1,0 +1,17 @@
+.git
+.git*
+.env*
+.local
+**/.local
+node_modules
+dist
+.claude
+.codex
+.ao
+.entire
+.cursor
+test-results
+playwright-report
+docs
+.agents
+.DS_Store

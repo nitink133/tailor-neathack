@@ -407,3 +407,5 @@ html.chat-dock{--chat-w:380px}
 .chat-composer textarea:focus,.chat-composer textarea:focus-visible{outline:none}
 .chat-composer:has(textarea:focus){border-color:var(--muted)}
 html.keyboard-navigation .chat-composer:has(textarea:focus-visible){outline:2px solid #2766c7;outline-offset:3px}
+
+.entry-privacy{max-width:620px;margin:12px auto;font-size:12px;line-height:1.5;color:var(--muted);text-align:center}

@@ -16,6 +16,7 @@
     "smoke:trace": "node --env-file-if-exists=.env.local scripts/smoke-trace.ts",
     "env:check": "node --env-file-if-exists=.env.local -e \"for (const k of ['NEATLOGS_API_KEY','ANTHROPIC_API_KEY']) { const v=process.env[k]; console.log(k+':', v ? 'set' : 'empty-or-missing'); } const cap=process.env.TAILOR_LIVE_CAP_USD; console.log('TAILOR_LIVE_CAP_USD:', cap ? cap : 'unset'); console.log('TAILOR_MODEL:', process.env.TAILOR_MODEL ?? 'unset (default claude-sonnet-5-5)'); console.log('TAILOR_EFFORT:', process.env.TAILOR_EFFORT ?? 'unset (default medium)');\"",
     "build": "tsc -p tsconfig.browser.json",
+    "start": "node src/main.ts",
     "dev": "npm run build && node src/main.ts",
     "test:ui": "playwright test",
     "fixture": "node scripts/fixture.ts",

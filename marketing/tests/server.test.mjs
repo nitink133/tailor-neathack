@@ -39,3 +39,39 @@ test('unavailable demo has recoverable error page',async()=>{
   const website=createWebsiteServer({demoOrigin:target});const origin=await listen(website);
   try {const result=await raw(origin+'/entry');assert.equal(result.status,502);assert.match(result.body,/Return to Tailor/);}finally{await close(website);}
 });
+
+test('public HTTPS boundary pins authority, secures cookies, hides dev routes and limits writes',async()=>{
+  const seen=[];
+  const demo=createServer(async(req,res)=>{for await(const c of req){}seen.push(req.headers);res.writeHead(200,{'set-cookie':'tailor=owned; HttpOnly; SameSite=Strict; Path=/'});res.end('ok');});
+  const upstream=await listen(demo);
+  const website=createWebsiteServer({demoOrigin:upstream,publicOrigin:'https://tailor.example'});const origin=await listen(website);
+  const headers={Host:'tailor.example',Origin:'https://tailor.example'};
+  try {
+    assert.equal((await raw(origin+'/healthz',{headers:{Host:'healthcheck.railway.app'}})).status,200);
+    assert.equal((await raw(origin+'/entry',{headers:{Host:'evil.example'}})).status,403);
+    assert.equal((await raw(origin+'/api/dev/spend',{headers})).status,404);
+    assert.equal((await raw(origin+'/api/browser-session',{method:'POST',headers:{Host:'tailor.example'}})).status,403);
+    assert.equal((await raw(origin+'/api/browser-session',{method:'POST',headers:{...headers,Origin:'https://evil.example'}})).status,403);
+    const good=await raw(origin+'/api/browser-session',{method:'POST',headers:{...headers,Cookie:'tailor=owned','X-Forwarded-Host':'evil.example'}});
+    assert.equal(good.status,200);assert.match(good.headers['set-cookie'][0],/; Secure$/);
+    assert.equal(seen.at(-1).host,new URL(upstream).host);assert.equal(seen.at(-1).origin,upstream);assert.equal(seen.at(-1).cookie,'tailor=owned');assert.equal(seen.at(-1)['x-forwarded-host'],undefined);
+    for(let i=0;i<29;i++) assert.equal((await raw(origin+'/api/browser-session',{method:'POST',headers})).status,200);
+    const limited=await raw(origin+'/api/browser-session',{method:'POST',headers});assert.equal(limited.status,429);assert.equal(limited.headers['retry-after'],'60');assert.equal(seen.length,30);
+  } finally {await close(website);await close(demo);}
+});
+
+test('public turn gate admits one provider-bound request at a time and releases on completion',async()=>{
+  let finish;let count=0;
+  const demo=createServer((req,res)=>{count++;finish=()=>res.end('ok');});
+  const upstream=await listen(demo);const website=createWebsiteServer({demoOrigin:upstream,publicOrigin:'https://tailor.example'});const origin=await listen(website);
+  const options={method:'POST',headers:{Host:'tailor.example',Origin:'https://tailor.example'}};
+  try {
+    const first=raw(origin+'/api/sessions/a/turns',options);
+    for(let i=0;i<100&&!finish;i++) await new Promise(resolve=>setTimeout(resolve,5));
+    assert.ok(finish);assert.equal((await raw(origin+'/api/sessions/b/turns',options)).status,429);assert.equal(count,1);
+    finish();assert.equal((await first).status,200);
+    const next=raw(origin+'/api/sessions/b/turns',options);finish=null;
+    for(let i=0;i<100&&!finish;i++) await new Promise(resolve=>setTimeout(resolve,5));
+    assert.ok(finish);finish();assert.equal((await next).status,200);assert.equal(count,2);
+  } finally {await close(website);await close(demo);}
+});
