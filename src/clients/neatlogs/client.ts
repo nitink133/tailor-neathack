@@ -1,3 +1,4 @@
+import type { EvaluationPreviewContext, EvaluationPreviewGuide, EvaluationPreviewTarget } from './eval-guidance-preview.ts';
 import type { GuidanceSuggestion } from '../../tailor/contract.ts';
 import { isCurrentGuidance, sanitiseStoredGuidance } from './guidance.ts';
 import type { ChatTurn, DemoSession, Json, Span, Trace, TraceList } from './contracts.ts';
@@ -60,6 +61,88 @@ const expanded = new Set<string>();
 let returnTo = '';
 let activeGuidance: { messageId: string; suggestion: GuidanceSuggestion; state: 'loading'|'shown'|'failed'; reason?: 'stale'|'missing'|'navigation'|'loading'|'render' } | undefined;
 let guidanceAttempt = 0;
+const SCRIPTED_EVAL_QUESTION = 'How can I measure whether my agent resolved its request, and where can I configure the review?';
+const SCRIPTED_EVAL_ANSWER = 'SCRIPTED UI PREVIEW: Start with the saved request dataset and review the outcome the customer needed.\n1. Evaluator setup\nThis local preview separates buyer input, illustrative simulated scores and bounded local checks. No AI evaluator is connected or executed.\n2. Criteria\nAsk whether the answer resolved the request. Keep politeness separate: a polite response can still leave the request unresolved. The no-error check covers execution only.\n3. Saved results\nCompare the recorded buyer answer with local checks and illustrative scores. A passed no-error check does not establish task success.\nThis scripted setup is a proposal for the local UI. The official native evaluator editor and completed-results layout remain unverified.';
+let evaluationPreviewStage: 'dataset'|'evaluator'|'criteria'|'results' = 'dataset';
+type EvaluationPreviewModule = typeof import('./eval-guidance-preview.ts');
+let evaluationPreviewModule: EvaluationPreviewModule | undefined;
+let evaluationPreview: { demoId: string; evaluationId: string; answer: ReturnType<EvaluationPreviewModule['createScriptedEvaluationPreviewAnswer']> } | undefined;
+let activeEvaluationPreview: { guide: EvaluationPreviewGuide; state: 'loading'|'shown'|'failed'; message?: string } | undefined;
+let evaluationPreviewAttempt = 0;
+const isEvaluationPreview = () => new URLSearchParams(location.search).get('preview') === 'eval-guidance';
+const evaluationPreviewSelector = (target: EvaluationPreviewTarget) => target === 'evals.evaluator' ? '.eval-evaluator-guide' : target === 'evals.criteria' ? '.eval-criteria-summary' : '.eval-results';
+function evaluationPreviewContext(s: DemoSession, detail: EvaluationDetail): EvaluationPreviewContext | undefined {
+  if (!browserSession) return;
+  return { browserSession, session:s, selectedEvaluationId:detail.evaluation.id, evaluations:{read(session,id) {
+    if(session.id!==s.id || id!==detail.evaluation.id) throw new Error('Evaluation unavailable');
+    return detail;
+  }} };
+}
+function prepareEvaluationPreview(s: DemoSession, detail: EvaluationDetail) {
+  if (!isEvaluationPreview()) { evaluationPreview=undefined; activeEvaluationPreview=undefined; return; }
+  if (evaluationPreview?.demoId===s.id && evaluationPreview.evaluationId===detail.evaluation.id) return;
+  activeEvaluationPreview=undefined; evaluationPreviewAttempt++;evaluationPreviewStage=evaluationTab==='Questions'?'criteria':evaluationTab==='Results'?'results':'dataset';
+  const context=evaluationPreviewContext(s,detail);
+  evaluationPreview=context ? {demoId:s.id,evaluationId:detail.evaluation.id,answer:{...evaluationPreviewModule!.createScriptedEvaluationPreviewAnswer(context),text:SCRIPTED_EVAL_ANSWER}} : undefined;
+}
+function evaluationPreviewThread(s: DemoSession): string {
+  const preview=evaluationPreview;
+  if (!isEvaluationPreview() || !preview || preview.demoId!==s.id || evaluation?.evaluation.id!==preview.evaluationId) return '';
+  const active=activeEvaluationPreview;
+  const cards=preview.answer.guidance.map(guide=>`<button type="button" class="contextual-suggestion" data-eval-preview-target="${esc(guide.targetId)}" aria-pressed="${active?.guide.targetId===guide.targetId}"><span class="contextual-suggestion-symbol" aria-hidden="true">↗</span><span><strong>${esc(guide.label)}</strong><small>${esc(guide.purpose)}</small></span><span class="contextual-suggestion-arrow" aria-hidden="true">›</span></button>`).join('');
+  const recovery=preview.answer.recovery?.state==='recovery' ? `<p class="eval-preview-recovery" role="status">${esc(preview.answer.recovery.message)} ${link(evalBase(s.id),'Back to Evals')}</p>` : '';
+  const note=active ? `<div class="contextual-guide-note eval-preview-note${active.state==='failed'?' is-recovery':''}" role="status"><div><span>${active.state==='shown'?'Showing this saved evaluation':active.state==='loading'?'Opening the saved evaluation area':'Evaluation suggestion unavailable'}</span><button type="button" data-eval-preview-dismiss aria-label="Dismiss evaluation highlight">×</button></div><strong>${esc(active.guide.label)}</strong><p>${esc(active.state==='shown'?active.guide.purpose:active.state==='loading'?'Checking the current owner, demo and saved evaluation before showing it.':active.message)}</p>${active.state==='failed'?link(evalBase(s.id),'Back to Evals'):''}</div>` : '';
+  return `<p class="eval-preview-label" role="note">SCRIPTED UI PREVIEW · saved synthetic review · no model or AI evaluator ran</p><article class="chat-turn is-buyer"><div class="contextual-question-label">Example question</div><p>${esc(SCRIPTED_EVAL_QUESTION)}</p></article><article class="chat-turn is-tailor"><div class="contextual-answer-identity"><span aria-hidden="true">✳</span><small>Scripted Tailor answer</small></div>${assistantReply(preview.answer.text,false)}<section class="contextual-suggestions" aria-label="Scripted evaluation suggestions"><div class="contextual-suggestion-heading"><span>Inspect this saved review</span><small>Read-only preview</small></div>${cards}${recovery}${note}</section></article>`;
+}
+function clearEvaluationPreview(focus=true) {
+  const active=activeEvaluationPreview; activeEvaluationPreview=undefined; evaluationPreviewAttempt++;
+  root.querySelectorAll('.evaluation-preview-target').forEach(el=>el.classList.remove('evaluation-preview-target','contextual-guide-target'));
+  if(focus && active){repaint();root.querySelector<HTMLElement>(`.chat-panel [data-eval-preview-target="${active.guide.targetId}"]`)?.focus();}
+}
+function restoreEvaluationPreviewHighlight() {
+  const active=activeEvaluationPreview;
+  if(!active || active.state!=='shown' || !current || !evaluation) return;
+  const context=evaluationPreviewContext(current,evaluation);
+  const resolved=context && evaluationPreviewModule?.revalidateEvaluationPreviewGuidance(active.guide,context);
+  const target=root.querySelector<HTMLElement>(evaluationPreviewSelector(active.guide.targetId));
+  if(isEvaluationPreview() && resolved && resolved.state==='resolved' && location.pathname===evalLink(current.id,active.guide.binding.evaluationId) && target?.getClientRects().length){target.classList.add('contextual-guide-target','evaluation-preview-target');return;}
+  active.state='failed';active.message=resolved?.state==='recovery'?resolved.message:'The saved evaluation area is unavailable here. Return to Evals and select a current review.';
+  queueMicrotask(()=>{if(activeEvaluationPreview===active)repaint();});
+}
+async function showEvaluationPreview(targetId: string) {
+  const preview=evaluationPreview, s=current;
+  const guide=preview?.answer.guidance.find(guide=>guide.targetId===targetId);
+  if(!preview || !s || !guide || !isEvaluationPreview()) return;
+  const attempt=++evaluationPreviewAttempt, run=generation;
+  clearGuidance('navigation',false);activeEvaluationPreview={guide,state:'loading'};repaint();
+  const fail=(message:string)=>{if(attempt!==evaluationPreviewAttempt)return;activeEvaluationPreview={guide,state:'failed',message};repaint();};
+  try {
+    const owner=await request<BrowserSession>('/api/browser-session',{},true);
+    const fresh=await request<DemoSession>(`/api/sessions/${s.id}`,{},true);
+    const detail=await request<EvaluationDetail>(`/api/sessions/${s.id}/evaluations/${guide.binding.evaluationId}`,{},true);
+    if(attempt!==evaluationPreviewAttempt || run!==generation || current?.id!==s.id || !isEvaluationPreview()) return;
+    browserSession=owner;current=fresh;evaluation=detail;
+    const context=evaluationPreviewContext(fresh,detail)!;
+    const resolved=evaluationPreviewModule!.revalidateEvaluationPreviewGuidance(guide,context);
+    if(resolved.state==='recovery'){fail(resolved.message);return;}
+    evaluationPreviewStage=resolved.guide.targetId==='evals.evaluator'?'evaluator':resolved.guide.targetId==='evals.criteria'?'criteria':'results';
+    evaluationTab=resolved.guide.tab;sessionStorage.setItem(evaluationTabKey(detail.evaluation.id),evaluationTab);
+    evaluationPage(fresh,detail);
+    await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
+    if(attempt!==evaluationPreviewAttempt || run!==generation || !isEvaluationPreview()) return;
+    const target=root.querySelector<HTMLElement>(evaluationPreviewSelector(resolved.guide.targetId));
+    if(!target || !target.isConnected || !target.getClientRects().length){fail('The saved evaluation area could not be shown. Return to Evals and select a current review.');return;}
+    activeEvaluationPreview={guide:resolved.guide,state:'shown'};evaluationPage(fresh,detail);
+    const shown=root.querySelector<HTMLElement>('.evaluation-preview-target');
+    if(!shown || !shown.getClientRects().length){fail('The saved evaluation area could not be shown. Return to Evals and select a current review.');return;}
+    shown.scrollIntoView({block:'start',behavior:'auto'});
+    requestAnimationFrame(()=>{const card=root.querySelector<HTMLElement>(`.chat-panel [data-eval-preview-target="${resolved.guide.targetId}"]`),thread=root.querySelector<HTMLElement>('.chat-thread');if(card&&thread)thread.scrollTop=Math.max(0,card.offsetTop-thread.offsetTop-8);});
+  } catch(error) {
+    if(ended || attempt!==evaluationPreviewAttempt || run!==generation) return;
+    fail(error instanceof ApiFailure && error.status===404?'This saved evaluation is unavailable in this demo. Your demo and conversation are still available.':'This saved evaluation could not be checked. Return to Evals or try again.');
+  }
+}
+
 function guidanceCurrent(g: GuidanceSuggestion, s: DemoSession): boolean {
   return isCurrentGuidance(g,s);
 }
@@ -182,6 +265,7 @@ function clearLocalState() {
   // `tailor-exec:` is a legacy key (provider mode used to be cached per tab); it is no longer read.
   for (const key of Object.keys(sessionStorage)) if (key.startsWith('tailor-chat-collapsed:') || key.startsWith('tailor-exec:') || key.startsWith('tailor-steps:') || key.startsWith('tailor-entry-awaiting:') || key.startsWith('tailor-auto-guidance:')) sessionStorage.removeItem(key);
   activeGuidance=undefined;guidanceAttempt++;
+  evaluationPreview=undefined;activeEvaluationPreview=undefined;evaluationPreviewAttempt++;
   draft = []; pendingTurn = undefined; lastResult = undefined; turnNote = ''; chatBusy = false; current = undefined; lastList = undefined;
 }
 function showEnded() {
@@ -205,6 +289,10 @@ function showUnavailable() {
   entryPreparation = undefined;
   document.documentElement.classList.remove('chat-dock', 'rail-open');
   root.innerHTML = `<main class="ended request-error"><h1>Demo unavailable</h1><p role="alert">This demo isn’t available in this browser. It may have ended or expired, or it was started somewhere else.</p>${link('/entry','Start a new demo','solid')}</main>`;
+}
+function showEvaluationUnavailable(s: DemoSession) {
+  clearGuidance('navigation',false);clearEvaluationPreview(false);evaluationPreview=undefined;evaluation=undefined;evaluations=undefined;
+  root.innerHTML=shell(s,`<main class="eval-page evaluation-unavailable"><h1>Evaluation unavailable</h1><p role="alert">This saved evaluation isn't available in this demo. Your demo and conversation are still available.</p><div class="evaluation-recovery-actions">${link(evalBase(s.id),'Back to Evals','solid')} ${link(base(s.id),'Explore saved traces')}</div></main>${notice(s)}`);
 }
 const plain = (message: string) => message.replace(/^[A-Z][A-Z_]+: /, '');
 async function request<T>(path: string, init: RequestInit = {}, durable = false): Promise<T> {
@@ -484,8 +572,8 @@ function payloadCaptureStatus(s: DemoSession): string {
   return `<details class="payload-capture-status" data-payload-capture="${enabled?'on':'off'}"><summary title="${esc(explanation)}">Trace text capture ${enabled?'on':'off'} <span aria-hidden="true">ⓘ</span></summary><p>${esc(explanation)}</p></details>`;
 }
 function chatPanel(s: DemoSession) {
-  const turns = turnsOf(s);
-  return `<aside class="chat-panel${activeGuidance?' has-contextual-guidance':''}" aria-label="Playground"><header><span class="contextual-tailor-mark" aria-hidden="true">✳</span><div class="playground-heading"><strong>Tailor</strong><span class="contextual-tailor-subtitle">Explore this product with me</span></div><span class="chat-actions"><button type="button" data-end-demo class="end-demo">End demo</button><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></span></header><div class="chat-thread">${turns.length?chatThread(turns, s):`<p class="chat-empty">Describe the agent you’re building, or ask me to explain the open trace.</p>`}${progress()}</div><footer class="contextual-conversation-footer">${examples(s)}${composer(chatBusy, openTrace(s))}${payloadCaptureStatus(s)}<div class="contextual-powered">Powered by Tailor <span>Synthetic data · ${esc(execChip())}</span></div></footer></aside>`;
+  const turns = turnsOf(s), scripted=evaluationPreviewThread(s);
+  return `<aside class="chat-panel${activeGuidance||activeEvaluationPreview?' has-contextual-guidance':''}" aria-label="Playground"><header><span class="contextual-tailor-mark" aria-hidden="true">✳</span><div class="playground-heading"><strong>Tailor</strong><span class="contextual-tailor-subtitle">${scripted?'Scripted saved-evaluation preview':'Explore this product with me'}</span></div><span class="chat-actions"><button type="button" data-end-demo class="end-demo">End demo</button><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></span></header><div class="chat-thread">${scripted || (turns.length?chatThread(turns, s):`<p class="chat-empty">Describe the agent you’re building, or ask me to explain the open trace.</p>`)}${scripted?'':progress()}</div><footer class="contextual-conversation-footer">${scripted?`<p class="eval-preview-recovery">Scripted example: the question and answer are fixed. ${link(evalLink(s.id,evaluationPreview!.evaluationId),'Return to saved review')}</p>`:examples(s)}${composer(chatBusy||!!scripted, openTrace(s))}${payloadCaptureStatus(s)}<div class="contextual-powered">Powered by Tailor <span>Synthetic data · ${esc(execChip())}</span></div></footer></aside>`;
 }
 function landing() {
   document.documentElement.classList.remove('chat-dock', 'rail-open');
@@ -617,21 +705,27 @@ function evaluationsPage(s: DemoSession, data: EvaluationList) {
 function evaluationPage(s: DemoSession, result: EvaluationDetail) {
   evaluation=result; evaluations=undefined;
   const e=result.evaluation;
+  prepareEvaluationPreview(s,result);
   const tabs=(['Overview','Questions','Results'] as const).map(t=>`<button type="button" data-eval-tab="${t}" aria-pressed="${evaluationTab===t}">${t}</button>`).join('');
   let panel='';
   if(evaluationTab==='Overview') panel=`<section class="eval-overview"><dl><div><dt>State</dt><dd>${e.state==='completed'?'Complete':'In progress'}</dd></div><div><dt>Source</dt><dd>Synthetic · local demo</dd></div><div><dt>Version</dt><dd>v${e.version} · traces v${e.datasetVersion}</dd></div></dl><h2>Questions</h2><ul>${e.questions.map(q=>`<li>${esc(q.label)} · ${q.reviewer==='buyer'?'Your review':'Simulated score — no AI evaluator ran'}</li>`).join('')}</ul><h2>Saved traces</h2><ul>${e.traceSnapshot.map(t=>`<li>${link(traceLink(t),esc(t.label))} · ${esc(t.outcomeKind)}</li>`).join('')}</ul></section>`;
+  if(isEvaluationPreview() && evaluationTab==='Overview') panel=`<section class="eval-preview-dataset"><h2>Dataset: saved synthetic request</h2><p>${e.traceIds.length} fictional request${e.traceIds.length===1?'':'s'} from saved trace snapshot v${e.datasetVersion}. Start with examples of what your agent must accomplish.</p><ul>${e.traceSnapshot.map(t=>`<li>${link(traceLink(t),esc(t.label))} · recorded outcome: ${esc(t.outcomeKind)}</li>`).join('')}</ul><p>This scripted review uses the saved local trace. No real customer records are present.</p></section><section class="eval-evaluator-guide" aria-label="Reviewer setup"><h2>Evaluator setup preview</h2><p>Read-only local counterpart for the proposed guided workflow. No evaluator is created or run here.</p><div class="eval-preview-editor"><label>Name<input readonly value="${esc(e.name)}"></label><label>Purpose<input readonly value="Request resolution"></label><label>Review method<select disabled><option>Buyer review + illustrative simulated reviewer</option></select></label></div><dl><div><dt>Your review</dt><dd>${e.responses.filter(r=>r.source==='buyer').length} recorded buyer answers · scripted fixture input</dd></div><div><dt>Illustrative simulated reviewer</dt><dd>${e.responses.filter(r=>r.source==='simulated_judge').length} saved values · deterministic demo data, no AI reviewer ran</dd></div><div><dt>Local sample checks</dt><dd>${e.checkResults?.length??0} executed rules · saved fields, errors or duration only</dd></div></dl><p>The official native evaluator editor is not reproduced or verified by this prototype.</p></section>`;
   if(evaluationTab==='Questions') {
     const qs=e.questions.filter(q=>q.reviewer==='buyer'),sims=e.questions.filter(q=>q.reviewer==='simulated_judge');
     const simRows=e.responses.filter(r=>r.source==='simulated_judge').map(r=>{const q=e.questions.find(x=>x.key===r.questionKey),t=e.traceSnapshot.find(x=>x.id===r.traceId);return `<tr><td>${esc(t?.label??r.traceId)}</td><td>${esc(q?.label??r.questionKey)}</td><td>${esc(String(r.value))}</td><td>Simulated score — no AI evaluator ran</td></tr>`}).join('');
     panel=`<section class="eval-questions"><h2>Your review</h2><form id="review-eval-form">${qs.length?e.traceSnapshot.map(t=>`<fieldset><legend>${esc(t.label)}</legend>${qs.map(q=>`<label class="eval-answer"><span>${esc(q.label)}</span>${evalInput(q,t.id)}</label>`).join('')}</fieldset>`).join(''):'<p>No questions are assigned to you.</p>'}${sims.length?`<div class="eval-simulation-note"><strong>Simulated reviewer · no AI evaluator ran</strong><table><thead><tr><th>Trace</th><th>Question</th><th>Saved value</th><th>Source</th></tr></thead><tbody>${simRows||`<tr><td colspan="4">${sims.length} simulated question${sims.length===1?'':'s'}; no saved score yet.</td></tr>`}</tbody></table></div>`:''}<button type="submit" ${evalBusy||!qs.length?'disabled':''}>Save review</button></form></section>`;
   }
+  if(isEvaluationPreview() && evaluationTab==='Questions') panel=`<section class="eval-criteria-summary"><h2>Criteria for this saved review</h2><p>One question per requirement. A clean trace can still leave the customer's request unresolved.</p><ul>${e.questions.map(q=>`<li><strong>${esc(q.label)}</strong> · ${q.reviewer==='buyer'?'Your review':'Illustrative simulated reviewer'}${q.required?' · required':''}</li>`).join('')}</ul><h3>Bounded local checks</h3><ul>${e.checks?.map(c=>`<li>${esc(c.label)} · ${esc(c.kind)}</li>`).join('')||'<li>No deterministic checks selected.</li>'}</ul></section>`;
   if(evaluationTab==='Results') {
     const aggs=e.aggregates.map(a=>{const q=e.questions.find(x=>x.key===a.questionKey);const val=a.value!==null?(q?.type==='yes_no'?`${Math.round(a.value*100)}% yes`:String(a.value)):a.answeredCount>0?(q?.type==='text'?`${a.answeredCount} text response${a.answeredCount===1?'':'s'} · no numeric score`:`${a.answeredCount} response${a.answeredCount===1?'':'s'} saved · no numeric score`):'No saved responses';return `<tr><td>${esc(q?.label??a.questionKey)}</td><td>${a.answeredCount} / ${a.totalCount}</td><td>${esc(val)}</td><td>${a.source==='simulated_judge'?'Simulated score — no AI evaluator ran':a.source==='buyer'?'Your review':'Mixed sources'}</td></tr>`}).join('');
     const responses=e.responses.map(r=>{const q=e.questions.find(x=>x.key===r.questionKey),t=e.traceSnapshot.find(x=>x.id===r.traceId);return `<tr><td>${t?link(traceLink(t),esc(t.label)):esc(r.traceId)}</td><td>${esc(q?.label??r.questionKey)}</td><td>${esc(String(r.value))}</td><td>${r.source==='simulated_judge'?'Simulated score — no AI evaluator ran':'Your review'}</td></tr>`}).join('');
-    panel=`<section class="eval-results">${evaluationCheckTable(e)}<h2>Per-question summary</h2><table><thead><tr><th>Question</th><th>Answered</th><th>Result</th><th>Source</th></tr></thead><tbody>${aggs||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table><h2>Saved responses</h2><table><thead><tr><th>Trace</th><th>Question</th><th>Response</th><th>Source</th></tr></thead><tbody>${responses||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table></section>`;
+    const previewSummary=isEvaluationPreview()?`<section class="eval-preview-results-summary"><h2>What the saved results show</h2><div><article><strong>Executed local checks</strong><p>${e.checkResults?.filter(r=>r.passed).length??0} pass · ${e.checkResults?.filter(r=>r.status==='failed').length??0} fail</p><small>Bounded trace rules; a pass does not establish request resolution.</small></article><article><strong>Buyer answers · scripted fixture</strong>${e.responses.filter(r=>r.source==='buyer').map(r=>`<p>${esc(e.questions.find(q=>q.key===r.questionKey)?.label)} <b>${esc(typeof r.value==='boolean'?r.value?'Yes':'No':String(r.value))}</b></p>`).join('')||'<p>No recorded buyer answers.</p>'}</article><article><strong>Illustrative simulated scores</strong>${e.responses.filter(r=>r.source==='simulated_judge').map(r=>`<p>${esc(e.questions.find(q=>q.key===r.questionKey)?.label)} <b>${esc(String(r.value))}</b></p>`).join('')||'<p>No illustrative values.</p>'}<small>Deterministic demo values; no AI reviewer ran.</small></article></div></section>`:'';
+    panel=`<section class="eval-results">${previewSummary}${evaluationCheckTable(e)}<h2>Per-question summary</h2><table><thead><tr><th>Question</th><th>Answered</th><th>Result</th><th>Source</th></tr></thead><tbody>${aggs||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table><h2>Saved responses</h2><table><thead><tr><th>Trace</th><th>Question</th><th>Response</th><th>Source</th></tr></thead><tbody>${responses||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table></section>`;
   }
-  root.innerHTML=shell(s,`<main class="eval-page"><header class="eval-detail-header">${link(evalBase(s.id),'← Evals')}<div>${evalHeader(e.name)}<p>${esc(e.description||'Review of saved synthetic traces')}</p></div><span class="eval-local-label">Docs-grounded reconstruction</span></header><p class="eval-provenance">Synthetic evaluation · local demo · no AI evaluator ran</p>${result.stale?'<p role="status" class="eval-stale">Saved trace snapshot · the current dataset has changed.</p>':''}<nav class="eval-tabs" aria-label="Evaluation detail">${tabs}</nav>${panel}</main>${notice(s)}`);
+  const previewPath=isEvaluationPreview()?`<nav class="eval-preview-path" aria-label="Scripted review workflow"><button type="button" data-eval-preview-dataset ${evaluationPreviewStage==='dataset'?'aria-current="step"':''}>1. Dataset</button>${[['evals.evaluator','evaluator','2. Evaluator'],['evals.criteria','criteria','3. Criteria'],['evals.results','results','4. Saved results']].map(([target,stage,label])=>`<button type="button" data-eval-preview-target="${target}" ${evaluationPreviewStage===stage?'aria-current="step"':''}>${label}</button>`).join('')}</nav><p class="eval-preview-fidelity">SCRIPTED LOCAL UI PROPOSAL · saved synthetic review · official evaluator editor and completed-results fidelity unverified</p>`:'';
+  root.innerHTML=shell(s,`<main class="eval-page"><header class="eval-detail-header">${link(evalBase(s.id),'← Evals')}<div>${evalHeader(e.name)}<p>${esc(e.description||'Review of saved synthetic traces')}</p></div><span class="eval-local-label">Docs-grounded reconstruction</span></header><p class="eval-provenance">Synthetic evaluation · local demo · no AI evaluator ran</p>${previewPath}${result.stale?'<p role="status" class="eval-stale">Saved trace snapshot · the current dataset has changed.</p>':''}${isEvaluationPreview()?'':`<nav class="eval-tabs" aria-label="Evaluation detail">${tabs}</nav>`}${panel}</main>${notice(s)}`);
   restoreGuidanceHighlight();
+  restoreEvaluationPreviewHighlight();
 }
 async function createEvaluation(form: HTMLFormElement) {
   if(!current||evalBusy)return;
@@ -695,6 +789,7 @@ async function submitRouting(form:HTMLFormElement){
   try{const result=await request<RoutingDetail>(`/api/sessions/${s.id}/routing`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientOperationId:crypto.randomUUID(),datasetVersion:s.version,name:d.name,traceIds:d.traceIds,rule:d.type==='per_event'?{type:'per_event'}:{type:'threshold',failedTraceThreshold:Number(d.threshold)},recipient:d.recipient,destination:d.destination,severity:d.severity,cooldownMs:Number(d.cooldown)})},true);await navigate(`${routingBase(s.id)}/${result.preview.id}`);}catch(error){toast(plain((error as Error).message));}finally{routingBusy=false;}
 }
 async function render(preserveEntry = false): Promise<boolean> {
+  if (!isEvaluationPreview()) { evaluationPreview=undefined;activeEvaluationPreview=undefined;evaluationPreviewAttempt++; }
   stopEntryRotation();
   entryViewTransition?.skipTransition();
   entryViewTransition = undefined;
@@ -727,8 +822,12 @@ async function render(preserveEntry = false): Promise<boolean> {
       else{routingList=await request<RoutingList>(`/api/sessions/${s.id}/routing`);routingDetail=undefined;routingStep=0;}
       routingPage(s);
     } else if (route[2] === 'evals') {
+      if (isEvaluationPreview()) evaluationPreviewModule ??= await import('./eval-guidance-preview.ts');
       evaluationTab = route[3] ? (sessionStorage.getItem(evaluationTabKey(route[3])) as typeof evaluationTab | null) ?? 'Overview' : 'Overview';
-      if (route[3]) evaluationPage(s, await request<EvaluationDetail>(`/api/sessions/${s.id}/evaluations/${route[3]}`));
+      if (route[3]) {
+        try { evaluationPage(s, await request<EvaluationDetail>(`/api/sessions/${s.id}/evaluations/${route[3]}`)); }
+        catch(error) { if(error instanceof ApiFailure && error.status===404){showEvaluationUnavailable(s);return false;}throw error; }
+      }
       else evaluationsPage(s, await request<EvaluationList>(`/api/sessions/${s.id}/evaluations`));
     } else if (route[3]) {
       const t=s.dataset.traces.find(t=>t.id===route[3]); if (!t) throw new Error('NOT_FOUND: Trace not found in this session.');
@@ -1144,6 +1243,7 @@ document.addEventListener('scroll', event => {
 window.addEventListener('resize', closeTracePopovers);
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
+  if(activeEvaluationPreview) clearEvaluationPreview();
   if(activeGuidance) clearGuidance();
   const nativeHelpOpen = [...root.querySelectorAll<HTMLElement>('.trace-tooltip')].some(tooltip => typeof tooltip.showPopover === 'function' && tooltip.matches(':popover-open'));
   if (nativeHelpOpen || root.querySelector('.filter-popover[open], .trace-tooltip.is-open')) closeTracePopovers();
@@ -1160,6 +1260,9 @@ document.addEventListener('click', event => {
 document.addEventListener('click',async event=>{
   const el=(event.target as Element).closest<HTMLElement>('a,button'); if (!el || el.hasAttribute('data-clear-filter')) return;
   if(el.hasAttribute('data-routing-back')&&current){const form=root.querySelector<HTMLFormElement>('#routing-form');if(form)saveRoutingDraft(form);routingStep=Math.max(0,routingStep-1);routingPage(current);return;}
+  if(el.hasAttribute('data-eval-preview-dataset') && current && evaluation) {clearEvaluationPreview(false);evaluationPreviewStage='dataset';evaluationTab='Overview';sessionStorage.setItem(evaluationTabKey(evaluation.evaluation.id),evaluationTab);evaluationPage(current,evaluation);root.querySelector('.eval-preview-dataset')?.scrollIntoView({block:'start'});return;}
+  if(el.hasAttribute('data-eval-preview-target')) {event.preventDefault();await showEvaluationPreview(el.dataset.evalPreviewTarget!);return;}
+  if(el.hasAttribute('data-eval-preview-dismiss')) {clearEvaluationPreview();return;}
   if(el.hasAttribute('data-guidance-id')) { event.preventDefault();await showGuidance(el.dataset.guidanceMessage!,el.dataset.guidanceId!);return; }
   if(el.hasAttribute('data-guidance-dismiss')) {clearGuidance();return;}
   const traceHelp = el.closest<HTMLElement>('.trace-help');
@@ -1185,6 +1288,7 @@ document.addEventListener('click',async event=>{
     const editor=el.closest('#eval-question-editor');if(editor?.querySelectorAll('[data-question-row]').length===1){toast('Keep at least one question.');return;}el.closest('[data-question-row]')?.remove();return;
   }
   if (el.hasAttribute('data-eval-tab') && current && evaluation) {
+    clearEvaluationPreview(false);
     evaluationTab = el.dataset.evalTab as typeof evaluationTab;
     sessionStorage.setItem(evaluationTabKey(evaluation.evaluation.id), evaluationTab);
     evaluationPage(current,evaluation);
@@ -1200,7 +1304,7 @@ document.addEventListener('click',async event=>{
   if (el.matches('a[data-nav]') && !(event as MouseEvent).metaKey && !(event as MouseEvent).ctrlKey) {
     event.preventDefault();
     const href = (el as HTMLAnchorElement).getAttribute('href')!;
-    clearGuidance('navigation',false);
+    clearGuidance('navigation',false);clearEvaluationPreview(false);
     if (el.classList.contains('back-link')) {
       if (historyDepth() > 0) { history.back(); return; }
       navigate(href);
@@ -1265,9 +1369,11 @@ document.addEventListener('change',event=>{
   if(el.id==='select-all')document.querySelectorAll<HTMLInputElement>('[data-select]').forEach(x=>x.checked=el.checked);
   if(el.matches('[data-q-type]')){const options=el.closest('[data-question-row]')?.querySelector<HTMLElement>('[data-q-options]');if(options)options.hidden=el.value!=='choice';}
 });
+// A scripted target removed after painting must also lose its shown claim.
+new MutationObserver(()=>{if(activeEvaluationPreview?.state==='shown')restoreEvaluationPreviewHighlight();}).observe(root,{childList:true,subtree:true});
 // Keep the newest message (and any clarification buttons) in view after every repaint.
 new MutationObserver(() => { const thread = document.querySelector<HTMLElement>('.chat-panel .chat-thread'); if (thread) thread.scrollTop = thread.scrollHeight; }).observe(root, { childList: true });
-window.addEventListener('popstate',()=>{clearGuidance('navigation',false);void render();});
+window.addEventListener('popstate',()=>{clearGuidance('navigation',false);clearEvaluationPreview(false);void render();});
 window.addEventListener('pagehide',()=>stopEntryRotation());
 window.addEventListener('pageshow', event => {
   if (event.persisted && location.pathname === '/entry') { stopEntryRotation(); startEntryRotation(); }
