@@ -1,3 +1,5 @@
+import type { DemoSwitchConfirmation } from '../../tailor/demo-contract.ts';
+export type { BrowserSession, DemoSummary, DemoSwitchConfirmation, DemoSwitchChoice, TurnIdentity, RequestIdentity } from '../../tailor/demo-contract.ts';
 // Neatlogs demo seam contract. Owner: orchestrator / NIT-270. Frozen snapshot for NIT-272 / NIT-273 / NIT-271.
 // Product-agnostic shapes (chat, turn envelope, provider/telemetry seams, core limits) live in src/tailor/contract.ts;
 // this module specialises them for the synthetic trace demo and keeps every exported name stable for the client.
@@ -133,6 +135,8 @@ export interface SessionTools {
   readTrace(traceId: string): Promise<{ version: number; trace: Trace } | null>;
   /** Validate, save transactionally, read back independently. Never partially publishes. */
   publishScenario(proposal: ScenarioProposal): Promise<PublishResult>;
+  /** Optional for legacy test adapters; managed demos must pass this code-owned confirmation gate. */
+  prepareScenario?(proposal: ScenarioProposal): Promise<{ state: 'ready' } | { state: 'confirmation_required'; confirmation: DemoSwitchConfirmation }>;
   /** Validation only, no write. Used for repair loops. */
   validateProposal(proposal: ScenarioProposal): Promise<{ ok: true } | { ok: false; problems: ValidationProblem[] }>;
 }
@@ -152,6 +156,8 @@ export interface SessionSnapshot {
 // Turn request / response envelope. Route: POST /api/sessions/:id/turns (owning cookie).
 // ---------------------------------------------------------------------------
 export interface TurnRequest extends CoreTurnRequest {
+  /** Binds a fixed confirmation choice to the persisted server-owned candidate. */
+  confirmationRef?: string;
   /**
    * Trace the buyer currently has open in the UI (persisted trace id), when any. "Explain this trace" must explain
    * THIS trace; the server verifies it belongs to the session and the agent never silently substitutes the active one.
@@ -167,6 +173,9 @@ export interface ExecutionInfoResponse {
   execution: ExecutionLabel;
 }
 export interface TurnResponse {
+  /** Present for browser-owned demos; older adapters may omit it. */
+  demoId?: string;
+  sessionId?: string;
   turnId: string;
   outcome: TurnOutcome;
   /** Dataset version after this turn (authoritative, read back). */

@@ -61,11 +61,20 @@ export interface ToolContext<T extends AdapterTypes> {
   step<V>(name: TurnStep['name'], attributes: Record<string, string | number | boolean>, fn: () => Promise<V>, detail?: (value: V) => string | undefined): Promise<V>;
 }
 
+export type RefusalReason = 'injection' | 'arbitrary_code' | 'cross_session' | 'real_mutation' | 'off_topic';
+/** A deterministic adapter decision. It cannot grant additional tool permissions. */
+export type PreflightDecision =
+  | { kind: 'continue' }
+  | { kind: 'ask'; clarification: Clarification; reason?: 'needs_context' | 'material_switch' }
+  | { kind: 'refuse'; text: string; reason: RefusalReason };
+
 export interface Reply<TEvidence> { text: string; evidence?: TEvidence }
 
 /** A tool that changes product state. The core runs `validate` (when given) before `execute`; a rejected action never executes. */
 export interface MutatingTool<T extends AdapterTypes, TArgs = unknown> {
   readonly mutates: true;
+  /** Optional code-owned confirmation gate, before validation or execution. Calls use budgeted ports. */
+  beforeMutation?(args: TArgs, ctx: ToolContext<T>): Promise<PreflightDecision> | PreflightDecision;
   /** Structural argument check. null = malformed model output (retried inside the repair budget). */
   parseArgs(args: unknown): TArgs | null;
   /**
@@ -138,6 +147,8 @@ export interface Grounding<T extends AdapterTypes> {
 
 export interface ProductAdapter<T extends AdapterTypes = AdapterTypes> {
   readonly id: string;
+  /** Cheap, synchronous relevance/safety check before retrieval, context construction or model calls. */
+  preflight?(input: { session: T['session']; request: T['request']; buyerText: string; choice: { id: string; label: string } | null }): PreflightDecision;
   /** Product names model prose must not make capability/plan claims about (fed to the core's claim filters). */
   readonly productNames: readonly string[];
   /** Planning call: system prompt and the response-schema name the provider satisfies. */

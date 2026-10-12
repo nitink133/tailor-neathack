@@ -52,6 +52,9 @@ export type ChatRole = 'buyer' | 'tailor';
 export type ChatStatus = 'pending' | 'applied' | 'failed' | 'uncertain' | 'question' | 'note';
 export interface ClarificationChoice { id: string; label: string }
 export interface Clarification {
+  /** Server-issued reference for a persisted confirmation, when present. */
+  referenceId?: string;
+  kind?: 'clarification' | 'demo_switch';
   question: string;
   /** Exactly three relevant choices. */
   choices: [ClarificationChoice, ClarificationChoice, ClarificationChoice];
