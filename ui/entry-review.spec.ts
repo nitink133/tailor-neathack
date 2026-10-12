@@ -27,8 +27,9 @@ test('saved picker and resume reflect browser ownership and active selection', a
   await page.goto('/entry');
   await page.getByLabel('Ask anything').fill('I am building a travel-booking agent. Show a booking API timeout followed by a successful retry.');
   await page.getByRole('button', {name:'Send message'}).click();
-  await expect(page).toHaveURL(/\/demo\/[^/]+\/traces$/);
-  const demoUrl=page.url();
+  await expect(page.locator('.contextual-guide-target')).toHaveCount(1);
+  const id=/\/demo\/([^/]+)/.exec(page.url())![1];
+  const demoUrl=new URL(`/demo/${id}/traces`,page.url()).href;
   await page.goto('/entry');
   await expect(page.locator('.saved-demos')).toBeVisible();
   await expect(page.locator('[data-select-demo]')).toHaveCount(1);
@@ -119,9 +120,10 @@ test('choosing current direct-linked demo updates active selection used by resum
     await page.goto('/entry');
     await page.getByLabel('Ask anything').fill(prompt);
     await page.getByRole('button',{name:'Send message'}).click();
-    await expect(page).toHaveURL(/\/demo\/[^/]+\/traces$/);
+    await expect(page.locator('.contextual-guide-target')).toHaveCount(1);
     await expect(page.locator('.chat-panel [data-status=applied]').first()).toBeVisible();
-    return page.url();
+    const id=/\/demo\/([^/]+)/.exec(page.url())![1];
+    return new URL(`/demo/${id}/traces`,page.url()).href;
   };
   const a=await build('I am building a travel-booking agent. Show a booking API timeout followed by a successful retry.');
   const b=await build('I am building an invoice extraction workflow. Show a valid JSON output missing the due date.');

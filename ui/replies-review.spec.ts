@@ -13,7 +13,8 @@ test('capability answers are stepwise in stored API and skim-friendly in the doc
  await references.locator('summary').click();
  for(const [width,height]of[[980,729],[1440,900],[390,844]]){await page.setViewportSize({width,height});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);await page.screenshot({path:`.local/review-evidence/replies-after-${width}.png`,fullPage:true});}
  await page.setViewportSize({width:980,height:729});await page.getByRole('button',{name:'Toggle local theme'}).click();
- await expect(reply.locator('.assistant-reply')).toHaveCSS('background-color','rgb(21, 21, 24)');
+ await expect(reply.locator('.assistant-reply')).toHaveCSS('background-color','rgba(0, 0, 0, 0)');
+ await expect(page.locator('.chat-panel')).toHaveCSS('background-color','rgb(21, 21, 24)');
  await expect(reply.locator('.assistant-reply')).toHaveCSS('color','rgb(238, 238, 240)');
  await page.screenshot({path:'.local/review-evidence/replies-after-dark.png',fullPage:true});
  await page.reload();await expect(page.locator('.chat-panel .reply-steps')).toBeVisible();
