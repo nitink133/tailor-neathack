@@ -101,7 +101,7 @@ tr.is-active-fixture{background:#f4f8ff}
   .chat-panel .chat-composer{padding:10px 12px;border-radius:18px}
   .chat-panel .chat-composer textarea{min-height:24px}
   .chat-panel .chat-tools{margin-top:6px}
-  .chat-panel .chat-tools .chat-chip:first-child{display:none}
+  .chat-panel .chat-tools .chat-chip:first-child{display:inline-block}
 }
 
 /* Buyer-facing synthetic evaluation pages. */
@@ -113,3 +113,14 @@ tr.is-active-fixture{background:#f4f8ff}
 .chat-stage .entry-suggestions button,.chat-stage .entry-suggestions button[data-capability-id]{border:0;border-radius:0;background:transparent;color:#5e6067;padding:4px 0;font-size:13px;line-height:20px}
 .chat-stage .entry-suggestions button:hover,.chat-stage .entry-suggestions button[data-capability-id]:hover{border:0;background:transparent;color:#303034;text-decoration:underline;text-underline-offset:3px}
 .chat-stage .entry-suggestions .suggestion-lead{color:#2766c7}
+.chat-panel header{min-width:0;gap:8px;flex:0 0 auto}
+.chat-panel .playground-heading{display:flex;flex:1 1 auto;flex-direction:column;align-items:flex-start;gap:2px;min-width:0}
+.chat-panel .playground-heading strong{font-size:12px;font-weight:550;line-height:16px;white-space:nowrap}
+.chat-panel .playground-attribution{display:flex;align-items:center;gap:4px;min-width:0;max-width:100%;overflow:hidden;color:var(--muted);font-size:10px;line-height:15px;white-space:nowrap}
+.chat-panel .playground-attribution .tailor-pill{flex:0 0 auto;margin:0;padding:0 6px;border:1px solid var(--line);border-radius:999px;background:var(--subtle);color:var(--ink);font-size:10px;line-height:14px}
+.chat-panel header .chat-actions{flex:0 0 auto;gap:4px}
+.chat-panel .chat-examples{display:flex;flex:0 0 auto;flex-direction:row;flex-wrap:nowrap;justify-content:flex-start;gap:6px;width:100%;min-width:0;max-width:100%;overflow-x:auto;overflow-y:hidden}
+.chat-panel .chat-examples button{flex:0 0 auto;width:max-content;max-width:100%;white-space:nowrap;overflow:hidden;overflow-wrap:normal;text-overflow:ellipsis}
+.dark .chat-panel .chat-composer{background:var(--ground);color:var(--ink);border-color:var(--line)}
+.dark .chat-panel .chat-composer textarea{color:var(--ink)}
+.dark .chat-panel .chat-composer textarea::placeholder{color:var(--muted);opacity:1}

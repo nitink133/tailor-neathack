@@ -33,9 +33,9 @@ test('Personalised agent journey: entry, proposal, error grounding, follow-up, r
   await expect(chatPanel.locator('[data-status=applied]').first()).toBeVisible({ timeout: 15000 });
 
   // Powered by Tailor and Mock label visible
-  await expect(chatPanel.locator('.chat-label', { hasText: /Powered by Tailor/i })).toBeVisible();
+  await expect(chatPanel.locator('.playground-attribution')).toBeVisible();
   // The side panel must not pretend the mock is a live model.
-  await expect(chatPanel.locator('.chat-mock')).toContainText(/mock-backed/i);
+  await expect(chatPanel.locator('[data-exec-chip]')).toHaveText('Mock-backed');
 
   // Trace list shows the personalised label (e.g. 'Timeout, retry succeeds'), NOT 'Order lookup'
   const traceTable = page.locator('tbody tr');
@@ -160,7 +160,7 @@ test('provider label comes from the server on every page; unknown is neutral, ne
   const s = await buildTravel(page);
   const tab = await page.context().newPage();
   await tab.goto(`/demo/${s.id}/traces`);
-  await expect(tab.locator('.chat-panel .chat-mock')).toContainText(/mock-backed/i);
+  await expect(tab.locator('.chat-panel [data-exec-chip]')).toHaveText('Mock-backed');
   await expect(tab.locator('.chat-panel [data-exec-chip]')).toHaveText('Mock-backed');
   expect(await tab.evaluate(() => Object.keys(sessionStorage).filter(k => k.startsWith('tailor-exec:')))).toEqual([]);
   await tab.reload();
@@ -210,7 +210,7 @@ test('R2-02: a turn envelope that claims live never relabels the UI when /api/ex
   await forged;
   await expect.poll(() => bubbles.count(), { timeout: 15000 }).toBeGreaterThan(before + 1); // buyer bubble + the reply
   expect(await page.locator('.chat-panel [data-exec-chip]').textContent()).toBe('Provider status unavailable');
-  expect(await page.locator('.chat-panel [data-exec-line]').textContent()).toBe('Provider status unavailable');
+  await expect(page.locator('.chat-panel [data-exec-line]')).toHaveCount(0);
   const seen = await page.evaluate(() => (window as unknown as { seenLabels: string[] }).seenLabels);
   expect(seen.length).toBeGreaterThan(0);
   expect(seen.filter(l => /live/i.test(l))).toEqual([]);

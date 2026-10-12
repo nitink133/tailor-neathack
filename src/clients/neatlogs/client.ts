@@ -208,12 +208,9 @@ function startEntryRotation() {
 const sameExecution = (a: ExecutionLabel | undefined, b: ExecutionLabel | undefined) =>
   !!a && !!b && a.mode === b.mode && a.provider === b.provider && (a.model ?? null) === (b.model ?? null) && (a.effort ?? null) === (b.effort ?? null);
 const execChip = () => execution?.mode === 'mock' ? 'Mock-backed' : execution?.mode === 'live' ? `Live model${execution.model ? ` · ${execution.model}` : ''}` : 'Provider status unavailable';
-const execLine = () => execution?.mode === 'mock' ? 'Mock-backed prototype — no live model yet' : execution?.mode === 'live' ? `Live model${execution.model ? ` · ${execution.model}` : ''}` : 'Provider status unavailable';
-const execClass = () => execution?.mode === 'mock' ? 'chat-mock' : execution?.mode === 'live' ? 'chat-live' : 'chat-unknown';
 /** Updates the label in place so typing in the composer is never disturbed. */
 function paintExecution() {
   for (const el of document.querySelectorAll<HTMLElement>('[data-exec-chip]')) el.textContent = execChip();
-  for (const el of document.querySelectorAll<HTMLElement>('[data-exec-line]')) { el.textContent = execLine(); el.classList.remove('chat-mock', 'chat-live', 'chat-unknown'); el.classList.add(execClass()); }
 }
 /** Buyer-facing wording only: the knowledge base uses internal terms (repo paths, "clone", "slice", "explain-only"). */
 function buyerText(text: string) {
@@ -313,12 +310,9 @@ function examples(s: DemoSession | boolean) {
   const hasRetry = !!relevantTrace?.spans.some(span => /retry|backoff|attempt[_ -]?(?:[2-9]|\d{2,})\b/i.test(span.name));
   return `<div class="chat-examples" aria-label="Suggested prompts"><button type="button" data-example="Explain this trace">Explain this trace</button>${hasRetry ? '<button type="button" data-example="Make the retry fail too">Make the retry fail too</button>' : ''}</div>`;
 }
-function honestLines() {
-  return `<p class="chat-label">Powered by Tailor · synthetic data</p><p class="chat-label ${execClass()}" data-exec-line>${esc(execLine())}</p>`;
-}
 function chatPanel(s: DemoSession) {
   const turns = turnsOf(s);
-  return `<aside class="chat-panel" aria-label="Conversation"><header><strong>chats</strong><span class="chat-actions"><button type="button" data-end-demo class="end-demo">End demo</button><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></span></header>${honestLines()}<div class="chat-thread">${turns.length?chatThread(turns, s):`<p class="chat-empty">Describe the agent you’re building, or ask me to explain the open trace.</p>`}</div>${progress()}${examples(s)}${composer(chatBusy, openTrace(s))}</aside>`;
+  return `<aside class="chat-panel" aria-label="Playground"><header><div class="playground-heading"><strong>Playground</strong><span class="playground-attribution">Powered by <span class="tailor-pill">Tailor</span></span></div><span class="chat-actions"><button type="button" data-end-demo class="end-demo">End demo</button><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></span></header><div class="chat-thread">${turns.length?chatThread(turns, s):`<p class="chat-empty">Describe the agent you’re building, or ask me to explain the open trace.</p>`}</div>${progress()}${examples(s)}${composer(chatBusy, openTrace(s))}</aside>`;
 }
 function landing() {
   document.documentElement.classList.remove('chat-dock', 'rail-open');
