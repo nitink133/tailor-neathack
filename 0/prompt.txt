@@ -1,0 +1,1 @@
+Go ahead and fix all the findings and everything is updated on main. We will setup a new worktree to work on the Tailor buyer-led experience after that.
