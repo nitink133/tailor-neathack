@@ -381,10 +381,13 @@ export class Store {
       : moved
         ? `Tailor was interrupted and could not confirm whether this request was saved. The demo now reports version ${current}; reload it before relying on the change.`
         : `Tailor was interrupted before finishing this request, so nothing changed. Version ${current} is still live.`;
+    const recoveredTarget = target && target.id !== id && targetRow && target.conversation.length === 0
+      ? this.appendIn(target.id, targetRow, [{ role: 'buyer', text: switchRow!.requested_text, status }, { role: 'tailor', text, status }], {}).session
+      : target;
     const { session, appended } = this.appendIn(id, row, [{ role: 'tailor', text, status }], { settle: { id: run.buyerTurnId, status } });
     const buyer = session.conversation.find(t => t.id === run.buyerTurnId);
     const response: TurnResponse = {
-      turnId: run.turnId, outcome, version: current, conversationVersion: target?.conversationVersion ?? session.conversationVersion,
+      turnId: run.turnId, outcome, version: current, conversationVersion: recoveredTarget?.conversationVersion ?? session.conversationVersion,
       ...(this.ownerOf(id) ? { demoId: target?.id ?? id, sessionId: this.ownerOf(id)! } : {}),
       messages: [...(buyer ? [buyer] : []), ...appended],
       steps: [{ name: 'model', status: 'failed', detail: 'Tailor was interrupted before this turn finished.' }],
@@ -402,6 +405,7 @@ export class Store {
     this.db.prepare(`DELETE FROM turn_runs WHERE session_id=? AND state='settled' AND rowid NOT IN
       (SELECT rowid FROM turn_runs WHERE session_id=? AND state='settled' ORDER BY rowid DESC LIMIT ?)`).run(id, id, TURN_RUNS_PER_SESSION);
     this.db.prepare("DELETE FROM demo_artifacts WHERE demo_id=? AND namespace='turn-evidence' AND artifact_id NOT IN (SELECT client_turn_id FROM turn_runs WHERE session_id=?)").run(id, id);
+    this.db.prepare('DELETE FROM demo_switches WHERE demo_id=? AND consumed_by IS NOT NULL AND consumed_by NOT IN (SELECT client_turn_id FROM turn_runs WHERE session_id=?)').run(id, id);
   }
   /** Developer inspection only: live sessions (tombstones and expired rows excluded). */
   list(): DemoSession[] {

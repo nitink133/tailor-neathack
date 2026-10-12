@@ -187,3 +187,31 @@ test('opaque artifact persistence supports a second adapter without product evid
     reopened.close();
   } finally { t.cleanup(); }
 });
+
+test('crash after separate publication recovers the same child and original context without rerunning', () => {
+  const t = tempStore();
+  try {
+    const created = t.store.createOwned(null, 'Fictional travel agent', undefined, op());
+    const id = created.session.id;
+    assert.equal(t.store.publish(id, travelProposalV1).state, 'committed');
+    const before = t.store.read(id);
+    t.store.appendTurns(id, [{ role: 'buyer', text: 'Switch to insurance claims', status: 'pending' }]);
+    const prepared = t.store.prepareScenario(id, { ...travelProposalV1, expectedVersion: 2, story: { domain: 'insurance claims', summary: 'Fictional insurance lookup.', assumptions: [] } }, 'Switch to insurance claims');
+    assert.equal(prepared.state, 'confirmation_required');
+    if (prepared.state !== 'confirmation_required') return;
+    t.store.appendTurns(id, [{ role: 'tailor', text: prepared.confirmation.question, status: 'question', clarification: prepared.confirmation }]);
+    const clientTurnId = randomUUID();
+    t.store.assertSwitch(id, prepared.confirmation.referenceId, 'start_separate');
+    t.store.beginTurn(id, { clientTurnId, requestHash: 'confirmed-request', text: 'Start separate demo', turnId: randomUUID(), execution: { mode: 'mock', provider: 'stub', model: null } });
+    const resolved = t.store.resolveSwitch(id, prepared.confirmation.referenceId, 'start_separate', clientTurnId);
+    assert.equal(resolved.result?.state, 'committed');
+    t.store.close(); const reopened = new Store(t.path, { clock: t.clock });
+    const recovered = reopened.recoverRun(id, clientTurnId);
+    assert.equal(recovered.outcome, 'readback_uncertain'); assert.equal(recovered.demoId, resolved.demoId);
+    assert.equal(reopened.browserSession(created.ownerId).demos.length, 2);
+    assert.deepEqual(reopened.read(id).dataset, before.dataset);
+    assert.equal(reopened.read(resolved.demoId).conversation[0]!.text, 'Switch to insurance claims');
+    assert.deepEqual(reopened.recoverRun(id, clientTurnId), recovered);
+    reopened.close();
+  } finally { t.cleanup(); }
+});

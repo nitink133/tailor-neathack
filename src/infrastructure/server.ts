@@ -94,6 +94,7 @@ export function appServer(store: Store, options: AppServerOptions) {
     let responseDemoId = id;
     let separateText: string | undefined;
     try {
+      if (signal?.aborted) throw new Error('Request cancelled before execution.');
       if (request.confirmationRef) {
         const resolve = () => Promise.resolve(store.resolveSwitch(id, request.confirmationRef!, request.choiceId as DemoSwitchChoice, request.clientTurnId, readbackObserver(tt)));
         const saveOrdinal = Math.max(0, ...(tt.evidence?.snapshot().expected.filter(e => e.operation === 'save').map(e => e.ordinal) ?? [])) + 1;
@@ -310,7 +311,7 @@ export function appServer(store: Store, options: AppServerOptions) {
       else if (path === '/adapter.js') file = '../dist/adapter.js';
       else if (path === '/agent.js') file = '../dist/agent.js';
       else if (path === '/style.css' || /^\/assets\/[a-zA-Z0-9_.-]+$/.test(path)) file = path;
-      else if (!(path==='/' || path==='/entry' || /^\/demo\/[^/]+\/(?:traces(?:\/[^/]+)?|evaluations(?:\/[^/]+)?)$/.test(path))) throw new Failure(404,'NOT_FOUND','Page not found.');
+      else if (!(path==='/' || path==='/entry' || /^\/demo\/[^/]+\/(?:traces(?:\/[^/]+)?|(?:evals|evaluations)(?:\/[^/]+)?)$/.test(path))) throw new Failure(404,'NOT_FOUND','Page not found.');
       const full = file.startsWith('../dist/') ? resolve('dist', file.slice('../dist/'.length)) : resolve('public',file.slice(1));
       let content: Buffer;
       try { content = await readFile(full); }
@@ -319,6 +320,9 @@ export function appServer(store: Store, options: AppServerOptions) {
       res.writeHead(200,{'content-type':types[extname(full)] ?? 'application/octet-stream'}); res.end(req.method==='HEAD' ? undefined : content);
     } catch(e) {
       const failure = e instanceof Failure || e instanceof EvaluationError ? e : new Failure(500,'SERVER_FAILURE','Local request failed. Retry; previous accepted session state is retained.');
+      if (['SESSION_EXPIRED', 'NOT_FOUND'].includes(failure.code) && cookieOf(req)) {
+        try { store.browserForCookie(cookieOf(req)); } catch { res.setHeader('Set-Cookie', 'tailor=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); }
+      }
       if (!res.headersSent && !res.destroyed) send(failure.status,{error:{code:failure.code,message:failure.message}});
     }
   });
