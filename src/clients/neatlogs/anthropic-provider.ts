@@ -102,20 +102,20 @@ const CLARIFICATION = {
   additionalProperties: false,
 } as const;
 
-export const ACTION_TYPES = ['ask', 'propose', 'explain', 'answer', 'unsupported', 'refuse'] as const;
+export const ACTION_TYPES = ['ask', 'propose', 'create_local_evaluation', 'read_local_evaluation', 'explain', 'answer', 'unsupported', 'refuse'] as const;
 export const REFUSAL_REASONS = ['injection', 'arbitrary_code', 'cross_session', 'real_mutation', 'off_topic'] as const;
 
 /**
- * Wire schema for a planning call. The six AgentAction variants are FLATTENED into one object discriminated by
+ * Wire schema for a planning call. The AgentAction variants are FLATTENED into one object discriminated by
  * `type`, with every variant-specific field nullable: Anthropic's structured-output grammar compiler rejected the
- * natural `anyOf` of six objects as too large ("The compiled grammar is too large"), while this shape compiles.
+ * natural `anyOf` of objects as too large ("The compiled grammar is too large"), while this shape compiles.
  * `normaliseWireAction` rebuilds the union and `validateAgentAction` enforces the contract afterwards.
  */
 const GUIDANCE_SCHEMA = {
   type: ['array', 'null'],
   description: 'Optional contextual destinations selected with this answer; zero to three relevant targets only. Null for ask/refuse/unsupported. Never invent destinations.',
   // Keep the already-large scenario grammar small. Saved IDs are resolved by the adapter, never needed on the wire.
-  items: { type: 'string', enum: ['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output', 'evals.overview', 'alerts.overview'] },
+  items: { type: 'string', enum: ['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output', 'evals.overview', 'evals.evaluator', 'evals.criteria', 'evals.results', 'alerts.overview'] },
 } as const;
 export const AGENT_ACTION_SCHEMA = {
   type: 'object',
@@ -123,6 +123,7 @@ export const AGENT_ACTION_SCHEMA = {
   properties: {
     type: { type: 'string', enum: ACTION_TYPES },
     guidance: GUIDANCE_SCHEMA,
+    evaluation: nullableStr('create_local_evaluation only: JSON string of {expectedVersion,name,questions,checks?,traceIds?}; every question reviewer must be buyer; no hosted evaluator'),
     text: nullableStr('Buyer-facing text for explain, answer, unsupported and refuse; null for ask and propose'),
     clarification: { anyOf: [CLARIFICATION, { type: 'null' }], description: 'ask only' },
     proposal: { anyOf: [SCENARIO_PROPOSAL, { type: 'null' }], description: 'propose only' },
@@ -133,7 +134,7 @@ export const AGENT_ACTION_SCHEMA = {
     capabilityId: nullableStr('unsupported only: id of the requested capability, when it matches one'),
     reason: { anyOf: [{ type: 'string', enum: REFUSAL_REASONS }, { type: 'null' }], description: 'refuse only' },
   },
-  required: ['guidance', 'type', 'text', 'clarification', 'proposal', 'explanation', 'traceId', 'spanIds', 'knowledgeIds', 'capabilityId', 'reason'],
+  required: ['guidance', 'evaluation', 'type', 'text', 'clarification', 'proposal', 'explanation', 'traceId', 'spanIds', 'knowledgeIds', 'capabilityId', 'reason'],
   additionalProperties: false,
 } as const;
 
@@ -150,6 +151,7 @@ export const EVIDENCE_EXPLANATION_SCHEMA = {
 
 /** Appended to the system prompt: the wire format differs from the prose shapes in SYSTEM_PROMPT in these ways only. */
 export const WIRE_FORMAT_NOTES = [
+  'Local review wire fields: create_local_evaluation uses evaluation as a JSON string containing expectedVersion,name,questions,checks optional; every quality reviewer is buyer. read_local_evaluation has evaluation null. Other actions have evaluation null.',
   'WIRE FORMAT (structured output): return ONE flat object with `type` set to the action and every field that does not belong to that action set to null.',
   '- ask: `clarification` (question, exactly three choices c1/c2/c3, allowFreeText true). propose: `proposal` + `explanation`. explain: `text` (+ `traceId`, `spanIds` when known). answer: `text` + `knowledgeIds`. unsupported: `text` (+ `capabilityId`). refuse: `text` + `reason`.',
   '- The proposal omits `kind` and `contractVersion`; the server adds them. `expectedVersion` is the current session version.',
@@ -206,6 +208,11 @@ export function normaliseWireAction(parsed: unknown): unknown | null {
   const guidance = w.guidance == null ? {} : { guidance: Array.isArray(w.guidance)
     ? w.guidance.map(v => typeof v === 'string' ? { targetId: v } : v) : w.guidance };
   switch (w.type) {
+    case 'read_local_evaluation': return {type:'read_local_evaluation', ...guidance};
+    case 'create_local_evaluation': {
+      if (typeof w.evaluation !== 'string' || w.evaluation.length > 12000) return null;
+      try { return { type: 'create_local_evaluation', evaluation: JSON.parse(w.evaluation), ...guidance }; } catch { return null; }
+    }
     case 'ask':
       return { type: 'ask', clarification: w.clarification };
     case 'propose': {

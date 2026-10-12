@@ -61,6 +61,8 @@ function toWire(action: AgentAction): Record<string, unknown> {
   const text = (v: unknown) => JSON.stringify(v);
   const base = { type: action.type, text: null, clarification: null, proposal: null, explanation: null, traceId: null, spanIds: null, knowledgeIds: null, capabilityId: null, reason: null };
   switch (action.type) {
+    case 'read_local_evaluation': return {...base,guidance:action.guidance?.map(g=>g.targetId) ?? null};
+    case 'create_local_evaluation': return { ...base, evaluation: JSON.stringify(action.evaluation), guidance: action.guidance?.map(g => g.targetId) ?? null };
     case 'ask': return { ...base, clarification: action.clarification };
     case 'propose': {
       const { kind: _kind, contractVersion: _cv, ...p } = action.proposal;
@@ -550,8 +552,8 @@ test('schemas obey the structured-output rules: additionalProperties:false every
 
 test('AGENT_ACTION_SCHEMA is the flat union (no anyOf of six objects: the grammar compiler rejects that), with contract enums and field names', () => {
   const props = AGENT_ACTION_SCHEMA.properties as unknown as Record<string, { type?: unknown; enum?: readonly string[]; anyOf?: unknown[] }>;
-  assert.deepEqual(props.type!.enum, ['ask', 'propose', 'explain', 'answer', 'unsupported', 'refuse']);
-  assert.deepEqual(Object.keys(props), ['type', 'guidance', 'text', 'clarification', 'proposal', 'explanation', 'traceId', 'spanIds', 'knowledgeIds', 'capabilityId', 'reason']);
+  assert.deepEqual(props.type!.enum, ['ask', 'propose', 'create_local_evaluation', 'read_local_evaluation', 'explain', 'answer', 'unsupported', 'refuse']);
+  assert.deepEqual(Object.keys(props), ['type', 'guidance', 'evaluation', 'text', 'clarification', 'proposal', 'explanation', 'traceId', 'spanIds', 'knowledgeIds', 'capabilityId', 'reason']);
   const text = JSON.stringify(AGENT_ACTION_SCHEMA);
   assert.equal((text.match(/"anyOf":\[\{"type":"object"/g) ?? []).length, 2, 'only clarification and proposal are object-or-null');
   const enumOf = (key: string) => { const m = new RegExp(`"${key}":\\{"type":"string","enum":(\\[[^\\]]*\\])`).exec(text); return m ? (JSON.parse(m[1]!) as string[]) : null; };

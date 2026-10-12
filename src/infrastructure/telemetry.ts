@@ -183,7 +183,7 @@ const ENUMS = {
   state: ['ok', 'rejected', 'uncertain', 'committed', 'conflict', 'save_failed', 'readback_uncertain', 'expired', 'unsupported'],
   reason: ['not_permitted', 'budget', 'no_time', 'malformed', 'ungrounded', 'error', ...PROVIDER_ERROR_KINDS],
   action: ['ask', 'tool', 'answer', 'unsupported', 'refuse'],
-  plannerAction: ['ask','propose','explain','answer','unsupported','refuse','invalid'],
+  plannerAction: ['ask','propose','create_local_evaluation','read_local_evaluation','explain','answer','unsupported','refuse','invalid'],
   proposalMode: ['new','edit'],
   step: Object.keys({ turn: 0, context: 0, guard: 0, load_context: 0, retrieve_knowledge: 0, model: 0, validate: 0, save: 0, readback: 0, explain: 0, repair: 0, escalate: 0, tool: 0 } satisfies Record<TelemetryStep, 0>),
   code: [
@@ -279,7 +279,7 @@ const VALIDATED: Record<string, Check> = {
     .map(key => [key, (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0])),
   guidanceOutcome: inEnum(['selected', 'shown', 'failed', 'dismissed']),
   guidanceReason: inEnum(['stale', 'missing', 'navigation', 'loading', 'dismissed', 'render', 'read_failed']),
-  guidanceTarget: inEnum(['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output', 'evals.overview', 'alerts.overview']),
+  guidanceTarget: inEnum(['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output', 'evals.overview', 'evals.evaluator', 'evals.criteria', 'evals.results', 'alerts.overview']),
   messageRef: format(/^m[0-9a-f]{16}$/), suggestionRef: format(/^g[0-9a-f]{16}$/), targetRef: format(/^x[0-9a-f]{16}$/),
   turnId: format(HASHED_TURN),
   correlationId: format(/^[0-9a-f]{16}$/),

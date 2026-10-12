@@ -1,3 +1,4 @@
+import { wantsLocalEvaluation, isResolutionReviewQuestion } from './eval-agent.ts';
 // Deterministic mock provider. NOT a model: a heuristic stand-in that reads the CONTEXT_JSON block and the buyer text
 // and returns an AgentAction so the whole agent loop (grounding, budgets, validation, readback) can be exercised
 // without network, credentials or a provider SDK. It never reports token usage and never claims to understand more
@@ -28,10 +29,11 @@ export function createMockProvider(): ModelProvider {
       if (!found) return action;
       // Explicitly heuristic mock selection, using only rendered-capability targets.
       const text = found.text;
+      if ('guidance' in action && action.guidance?.length) return action;
       const targets: import('./agent-contract.ts').GuidanceSelection[] = /\b(?:routing|route|alerts?|right people)\b/i.test(text)
         ? [{ targetId: 'alerts.overview' }]
         : /\b(?:evals?|evaluations?|rubric|review form)\b/i.test(text)
-        ? [{ targetId: 'evals.overview' }]
+        ? [{ targetId: 'evals.evaluator' }, { targetId: 'evals.criteria' }]
         : /slow|latency|duration|timing/i.test(text)
         ? [{ targetId: 'trace.slowest-span' }, { targetId: 'trace.model-call' }]
         : action.type === 'propose'
@@ -217,6 +219,23 @@ function decide(request: ProviderRequest): AgentAction {
 
   const refusal = refusalFor(text);
   if (refusal) return refusal;
+  if (wantsLocalEvaluation(text)) {
+    if (!ctx.story || !ctx.activeTrace) return {type:'ask',clarification:{question:'Which personalized synthetic workflow should the local review assess?',choices:[{id:'c1',label:'Build a support-agent example'},{id:'c2',label:'Build a retrieval example'},{id:'c3',label:'Build an extraction example'}],allowFreeText:true}};
+    const domain = ctx.story.domain.slice(0,70);
+    const plan: import('./eval-agent.ts').LocalEvaluationPlan = { expectedVersion: ctx.datasetVersion, name:`Resolution review: ${domain}`.slice(0,120),
+      questions:[{key:'resolved',label:'Did the answer address the stated request and give the required next step?',type:'yes_no',required:true,reviewer:'buyer'},
+        {key:'notes',label:`What is missing from this ${domain} answer?`.slice(0,160),type:'text',required:false,reviewer:'buyer'}],
+      checks:[{key:'execution',label:'Recorded steps have no errors',kind:'no_error'}] };
+    // Only explicit numeric thresholds or field names requested by the buyer become fixed checks.
+    const threshold = /(?:under|below|at most|within)\s+(\d+)\s*(ms|milliseconds|seconds?|s)\b/i.exec(text) ?? /(\d+)\s*(ms|milliseconds|seconds?|s)\s+threshold\b/i.exec(text);
+    if (threshold) plan.checks!.push({key:'latency',label:'Requested timing threshold',kind:'latency',maxDurationMs:Math.min(600000,Number(threshold[1]) * (/^m/i.test(threshold[2]!) ? 1 : 1000))});
+    const fields = /(?:required (?:output )?fields?|check (?:the )?(?:output )?fields?)\s*[:=]?\s*((?:[a-zA-Z][a-zA-Z0-9_]*)(?:\s*,\s*[a-zA-Z][a-zA-Z0-9_]*)*)/i.exec(text);
+    if (fields) plan.checks!.push({key:'fields',label:'Requested output fields are present',kind:'required_output_fields',fields:fields[1]!.split(',').map(value => value.trim()).slice(0,8)});
+    return {type:'create_local_evaluation',evaluation:plan,guidance:[{targetId:'evals.criteria'},{targetId:'evals.results'},{targetId:'evals.evaluator'}]};
+  }
+  if (/\b(?:explain|show|review|inspect|read)\b/i.test(text) && /\b(?:saved|evaluation)\b/i.test(text) && /\bresults?\b/i.test(text)) return {type:'read_local_evaluation',guidance:[{targetId:'evals.criteria'},{targetId:'evals.results'},{targetId:'evals.evaluator'}]};
+  if (isResolutionReviewQuestion(text)) return {type:'answer',knowledgeIds:['synthetic-evaluation-review','official-evaluations','official-human-review'],text:'Define human review criteria for request resolution separately from fixed execution checks.',guidance:[{targetId:'evals.evaluator'},{targetId:'evals.criteria'}]};
+
 
   if(/\b(?:show|simulate|preview)\b/i.test(text)&&/\b(?:routing|route|alerts?|right people)\b/i.test(text)&&!/\b(?:real|production|live|connect|send|notify)\b/i.test(text))return {type:'answer',text:'Preview alert routing on saved synthetic signals.',knowledgeIds:['synthetic-alert-routing']};
   const { spec, domainRaw } = parseSpec(text);

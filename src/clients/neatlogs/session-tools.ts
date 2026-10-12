@@ -1,3 +1,5 @@
+import { createEvaluationService, EvaluationError } from './eval-service.ts';
+import type { StoredEvaluation } from './eval-contract.ts';
 // SessionTools bound to ONE authorised session (NIT-273). No method accepts a session ID, so the agent and
 // the model cannot reach another buyer's data.
 import type { TraceQuery } from './contracts.ts';
@@ -37,7 +39,56 @@ export function createSessionTools(store: Store, sessionId: string, clock: Clock
     telemetry?.evidence?.expect(name, ordinal);
     return telemetry ? telemetry.step(name, { ...attrs, evidenceOrdinal: ordinal }, fn) : fn();
   };
+  let evaluationWriteCommitted = false;
+  const evaluations = createEvaluationService({
+    list: id => store.listArtifacts<StoredEvaluation>(id, 'evaluations'),
+    read: (id, evaluationId) => store.readArtifact<StoredEvaluation>(id, 'evaluations', evaluationId),
+    compareAndSet: (id, evaluationId, expectedVersion, next) => {
+      try { const saved = store.compareAndSetArtifact(id, 'evaluations', evaluationId, expectedVersion, next); if (saved) evaluationWriteCommitted = true; return saved; }
+      catch (error) { evaluationWriteCommitted = true; throw error; } // unknown write boundary must never claim unchanged
+    },
+  }, { now: () => new Date(clock.now()) });
   return {
+    async readLocalEvaluation(evaluationId, openTraceId) {
+      const session = store.read(sessionId);
+      const traceId = openTraceId ?? session.dataset.traces.find(t => t.scenario === session.dataset.activeScenario)?.id;
+      const detail = evaluationId ? evaluations.read(session, evaluationId) : evaluations.list(session).evaluations.sort((a,b) => b.evaluation.createdAt.localeCompare(a.evaluation.createdAt)).find(e => !e.stale && e.evaluation.traceIds.includes(traceId ?? ''));
+      if (!detail || detail.stale || !detail.evaluation.traceIds.includes(traceId ?? '')) return null;
+      return detail;
+    },
+    async createLocalEvaluation(plan, options) {
+      const before = store.read(sessionId);
+      if (plan.expectedVersion !== before.version) return { state: 'conflict', currentVersion: before.version };
+      if (!before.story) return { state: 'unsupported', reason: 'Save a personalized synthetic workflow before creating its local review.' };
+      const traceIds = plan.traceIds ?? [options.openTraceId ?? before.dataset.traces.find(t => t.scenario === before.dataset.activeScenario)?.id ?? ''];
+      let wrote = false;
+      evaluationWriteCommitted = false;
+      try {
+        const saved = await step('save', { expectedVersion: before.version }, async () => evaluations.create(before, {
+          clientOperationId: `chat-${options.clientTurnId}`, datasetVersion: before.version, name: plan.name,
+          description: `Local review of ${before.story!.domain}. Human quality judgments are pending; fixed predicates inspect the saved synthetic snapshot.`,
+          traceIds, questions: plan.questions, checks: plan.checks ?? [{ key: 'execution', label: 'Recorded steps have no errors', kind: 'no_error' }],
+        }));
+        wrote = true;
+        // A fresh repository read is independent of the create result and never moves the trace version.
+        const readback = readbackObserver(telemetry).readback(() => {
+          const current = store.read(sessionId);
+          const evaluationDetail = evaluations.read(current, saved.evaluation.id);
+          if (evaluationDetail.stale || current.version !== before.version || evaluationDetail.evaluation.version !== saved.evaluation.version) throw new Error('Local evaluation changed during readback.');
+          const traces = evaluationDetail.evaluation.traceSnapshot;
+          return { version: current.version, activeScenario: current.dataset.activeScenario, traceIds: traces.map(t => t.id), spanIds: traces.flatMap(t => t.spans.map(s => s.id)),
+            traces: traces.map(t => ({ id: t.id, key: t.scenario, label: t.label, outcome: t.outcome, outcomeKind: t.outcomeKind, spanCount: t.spans.length,
+              rootDurationMs: t.spans.find(s => s.parentId === null)?.durationMs ?? 0, errorSpanIds: t.spans.filter(s => s.status === 'ERROR').map(s => s.id) })),
+            evaluation: { id: evaluationDetail.evaluation.id, version: evaluationDetail.evaluation.version, datasetVersion: evaluationDetail.evaluation.datasetVersion }, evaluationDetail };
+        });
+        return { state: 'committed', version: before.version, readback };
+      } catch (error) {
+        if (wrote || evaluationWriteCommitted) return { state: 'readback_uncertain', attemptedVersion: before.version, lastKnownVersion: before.version, reason: 'The local review may be saved, but its readback was not verified.' };
+        if (error instanceof EvaluationError && error.status === 409) return { state: 'conflict', currentVersion: store.read(sessionId).version };
+        if (error instanceof EvaluationError && error.status === 400) return { state: 'rejected', version: before.version, problems: [{ path: 'evaluation', code: 'SCHEMA', message: error.message }] };
+        return { state: 'save_failed', version: before.version, reason: 'Local review persistence failed.' };
+      }
+    },
     async readSession() { return store.snapshot(sessionId); },
     async readTraces(query?: TraceQuery) {
       const session = store.read(sessionId);

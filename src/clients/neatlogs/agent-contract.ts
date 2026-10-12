@@ -1,3 +1,5 @@
+import type { LocalEvaluationPlan } from './eval-agent.ts';
+import type { EvaluationDetail } from './eval-contract.ts';
 import type { DemoSwitchConfirmation } from '../../tailor/demo-contract.ts';
 export type { BrowserSession, DemoSummary, DemoSwitchConfirmation, DemoSwitchChoice, TurnIdentity, RequestIdentity } from '../../tailor/demo-contract.ts';
 // Neatlogs demo seam contract. Owner: orchestrator / NIT-270. Frozen snapshot for NIT-272 / NIT-273 / NIT-271.
@@ -120,6 +122,7 @@ export type PublishResult =
   | { state: 'unsupported'; reason: string };
 
 export interface ReadbackEvidence extends Evidence {
+  evaluationDetail?: EvaluationDetail;
   activeScenario: ScenarioKey;
   /** Per trace: span count and root duration, read back from the list/detail path, not from the proposal. */
   traces: { id: string; key: ScenarioKey; label: string; outcome: string; outcomeKind: OutcomeKind; spanCount: number; rootDurationMs: number; errorSpanIds: string[] }[];
@@ -131,6 +134,8 @@ export interface ReadbackEvidence extends Evidence {
  */
 export interface SessionTools {
   readSession(): Promise<SessionSnapshot>;
+  readLocalEvaluation?(evaluationId?: string, openTraceId?: string): Promise<EvaluationDetail | null>;
+  createLocalEvaluation?(plan: LocalEvaluationPlan, options: { clientTurnId: string; openTraceId?: string }): Promise<PublishResult>;
   readTraces(query?: TraceQuery): Promise<TraceList>;
   readTrace(traceId: string): Promise<{ version: number; trace: Trace } | null>;
   /** Validate, save transactionally, read back independently. Never partially publishes. */
@@ -222,11 +227,13 @@ export interface AgentService {
 // Model provider abstraction. Mock first; live provider/model IDs stay unset until approved.
 // ---------------------------------------------------------------------------
 export interface GuidanceSelection {
-  targetId: 'trace.overview' | 'trace.slowest-span' | 'trace.model-call' | 'trace.output' | 'evals.overview' | 'alerts.overview';
+  targetId: 'trace.overview' | 'trace.slowest-span' | 'trace.model-call' | 'trace.output' | 'evals.overview' | 'evals.evaluator' | 'evals.criteria' | 'evals.results' | 'alerts.overview';
   /** Saved id only; omit to use the current authorised trace. */
   traceId?: string;
 }
 export type AgentAction =
+  | { type: 'read_local_evaluation'; guidance?: GuidanceSelection[] }
+  | { type: 'create_local_evaluation'; evaluation: LocalEvaluationPlan; guidance?: GuidanceSelection[] }
   | { type: 'ask'; clarification: Clarification }
   | { type: 'propose'; proposal: ScenarioProposal; explanation: string; guidance?: GuidanceSelection[] }
   | { type: 'explain'; text: string; traceId?: string; spanIds?: string[]; guidance?: GuidanceSelection[] }

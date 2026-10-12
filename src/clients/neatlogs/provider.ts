@@ -1,3 +1,4 @@
+import { parseLocalEvaluationPlan } from './eval-agent.ts';
 import { parseGuidanceSelections } from './guidance.ts';
 // Provider factory + strict structural validation of model output.
 // `mock` is the deterministic offline provider. `anthropic` is the live provider: the caller supplies the API key and a
@@ -81,6 +82,11 @@ const REFUSE_REASONS = ['injection', 'arbitrary_code', 'cross_session', 'real_mu
 export function validateAgentAction(value: unknown): AgentAction | null {
   if (!isObj(value) || !isStr(value.type)) return null;
   switch (value.type) {
+    case 'read_local_evaluation': return { type:'read_local_evaluation', guidance:parseGuidanceSelections(value.guidance) };
+    case 'create_local_evaluation': {
+      const evaluation = parseLocalEvaluationPlan(value.evaluation);
+      return evaluation ? { type: 'create_local_evaluation', evaluation, guidance: parseGuidanceSelections(value.guidance) } : null;
+    }
     case 'ask': {
       const c = value.clarification;
       if (!isObj(c) || !isStr(c.question) || c.allowFreeText !== true || !Array.isArray(c.choices) || c.choices.length !== 3) return null;

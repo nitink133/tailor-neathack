@@ -1,3 +1,4 @@
+import { parseLocalEvaluationPlan, wantsLocalEvaluation, describeLocalEvaluation } from './eval-agent.ts';
 // The Neatlogs demo adapter: everything the Tailor core needs to act as a product agent for the synthetic trace demo.
 // Schemas, context, the permitted tools (publishScenario, explainTrace), readback, grounding and the buyer copy that
 // names scenarios and traces. The core in src/tailor/ never sees a trace or span.
@@ -57,6 +58,8 @@ function decodeAction(raw: AgentAction): ReturnType<ProductAdapter<NeatlogsTypes
   const action = validateAgentAction(raw);
   if (!action) return null;
   switch (action.type) {
+    case 'read_local_evaluation': return {kind:'tool',tool:'readLocalEvaluation',args:{},narrative:''};
+    case 'create_local_evaluation': return { kind: 'tool', tool: 'createLocalEvaluation', args: action.evaluation, narrative: '' };
     case 'ask': return { kind: 'ask', clarification: action.clarification };
     case 'propose': return { kind: 'tool', tool: 'publishScenario', args: action.proposal, narrative: action.explanation };
     case 'explain': return {
@@ -93,6 +96,51 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
   repairMessage: (problems: ValidationIssue[]) => repairMessage(problems as ValidationProblem[]),
   decodeAction,
   tools: {
+    readLocalEvaluation: {
+      mutates: false,
+      parseArgs: value => value && typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length ? {} : null,
+      async read(_args, ctx) {
+        if (!ctx.ports.readLocalEvaluation) return {state:'unavailable',status:'note',text:'No saved local review reader is available in this adapter.'};
+        const detail = await ctx.ports.readLocalEvaluation(undefined, ctx.request.openTraceId);
+        if (!detail || detail.stale) return {state:'unavailable',status:'note',text:'There is no current saved local review for this trace. Ask me to create a local evaluation first; I will not describe stale or another trace’s results.'};
+        const trace = detail.evaluation.traceSnapshot.find(t => t.id === (ctx.request.openTraceId ?? ctx.session.dataset.traces.find(t => t.scenario === ctx.session.dataset.activeScenario)?.id));
+        if (!trace || trace.sessionId !== ctx.session.id) return {state:'unavailable',status:'failed',text:'I could not verify owned snapshot evidence for this review.'};
+        return {state:'found',version:ctx.session.version,detail:{...trace,localEvaluation:detail}};
+      },
+      describe(trace, version) {
+        const detail = trace.localEvaluation!;
+        return {text:`Independently read the saved ${describeLocalEvaluation(detail)}`,evidence:{version,traceIds:detail.evaluation.traceIds,spanIds:[],evaluation:{id:detail.evaluation.id,version:detail.evaluation.version,datasetVersion:detail.evaluation.datasetVersion}}};
+      },
+    },
+    createLocalEvaluation: {
+      mutates: true, successOutcome: 'answered',
+      uncertainReply: () => 'The local review may have been saved, but I could not verify its independent readback. Reload Evals and inspect the owned review before relying on its questions or results. I have not confirmed a successful review save.',
+      parseArgs: parseLocalEvaluationPlan,
+      beforeMutation(_args, ctx) {
+        if (!wantsLocalEvaluation(ctx.buyerText)) return { kind: 'refuse', reason: 'real_mutation', text: 'That question does not request a saved review. I can explain the local review controls without creating anything.' };
+        if (!ctx.session.story) return { kind: 'ask', clarification: { question: 'Which personalized synthetic workflow should this review assess? Save an example first.',
+          choices: [{id:'c1',label:'Build a support-agent example'},{id:'c2',label:'Build a retrieval example'},{id:'c3',label:'Build an extraction example'}], allowFreeText: true } };
+        return { kind: 'continue' };
+      },
+      validate(args, ctx) {
+        if (args.expectedVersion !== ctx.session.version) return [{ path: 'evaluation.expectedVersion', code: 'SCHEMA', message: 'The review must use the current saved dataset version.' }];
+        if (args.traceIds?.some((id: string) => !ctx.session.dataset.traces.some(t => t.id === id && t.sessionId === ctx.session.id))) return [{ path: 'evaluation.traceIds', code: 'SCHEMA', message: 'Every review trace must belong to this demo.' }];
+        const requestedDurations = [...ctx.buyerText.matchAll(/(\d+(?:\.\d+)?)\s*(ms|milliseconds|seconds?|s)\b/gi)].map(match => Number(match[1]) * (/^m/i.test(match[2]!) ? 1 : 1000));
+        if (args.checks?.some((check: import('./eval-contract.ts').EvaluationCheck) => check.kind === 'latency' && !requestedDurations.includes(check.maxDurationMs))) return [{ path:'evaluation.checks',code:'SCHEMA',message:'A duration check needs the exact threshold explicitly requested by the buyer.' }];
+        if (args.checks?.some((check: import('./eval-contract.ts').EvaluationCheck) => check.kind === 'required_output_fields' && check.fields.some(field => !new RegExp(`\\b${field}\\b`,'i').test(ctx.buyerText)))) return [{ path:'evaluation.checks',code:'SCHEMA',message:'Required-field checks may only use output field names explicitly requested by the buyer.' }];
+
+        return [];
+      },
+      execute: (args, ctx) => ctx.ports.createLocalEvaluation ? ctx.ports.createLocalEvaluation(args, { clientTurnId: ctx.request.clientTurnId, ...(ctx.request.openTraceId ? {openTraceId:ctx.request.openTraceId} : {}) })
+        : Promise.resolve({state:'unsupported',reason:'This adapter has no local review persistence tool.'}),
+      echo: args => JSON.stringify({type:'create_local_evaluation',evaluation:args}),
+      describe(readback) {
+        const e = readback.evaluationDetail?.evaluation;
+        if (!e || !readback.evaluation) return {text:'I could not verify a saved local review. Reload before relying on it.'};
+        return { text: `Saved and independently read back the ${describeLocalEvaluation(readback.evaluationDetail!)}`,
+          evidence: { version: readback.version, traceIds: readback.traceIds, spanIds: readback.spanIds, evaluation: readback.evaluation } };
+      },
+    },
     publishScenario: {
       mutates: true,
       parseArgs: (args): ScenarioProposal | null => (isObj(args) ? args as unknown as ScenarioProposal : null),

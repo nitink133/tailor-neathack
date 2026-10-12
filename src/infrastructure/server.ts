@@ -262,16 +262,18 @@ export function appServer(store: Store, options: AppServerOptions) {
           const session = store.read(id);
           const message = session.conversation.find(m => m.id === data.messageId && m.role === 'tailor');
           const suggestion = message?.guidance?.find(g => g.id === data.suggestionId);
-          if (!suggestion || !['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output', 'evals.overview', 'alerts.overview'].includes(suggestion.targetId)) {
+          if (!suggestion || !['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output', 'evals.overview', 'evals.evaluator', 'evals.criteria', 'evals.results', 'alerts.overview'].includes(suggestion.targetId)) {
             throw new Failure(404, 'NOT_FOUND', 'Guidance not found in this demo.');
           }
           const binding = suggestion.binding;
-          const current = isCurrentGuidance(suggestion, session);
+          let evaluationDetail;
+          if (typeof binding.evaluationId === 'string') { try { evaluationDetail = evaluations.read(session, binding.evaluationId); } catch { /* Missing or foreign artifacts cannot be shown. */ } }
+          const current = isCurrentGuidance(suggestion, session, evaluationDetail);
           // A browser observation cannot turn outdated guidance into a successful show.
           if (data.outcome === 'shown' && !current) throw new Failure(409, 'STALE_VERSION', 'Guidance no longer matches this demo.');
           const recorded = await telemetry.guidanceEvent?.(owner, id, {
             messageId: message!.id, suggestionId: suggestion.id, targetId: suggestion.targetId,
-            targetKey: `${binding.traceId}:${binding.spanId ?? ''}`, version: session.version,
+            targetKey: `${binding.traceId}:${binding.spanId ?? ''}:${binding.evaluationId ?? ''}:${binding.evaluationVersion ?? ''}`, version: session.version,
             synthetic: options.syntheticFixture?.(id) === true,
             outcome: data.outcome, ...(data.reason ? { reason: data.reason } : {}),
           }).catch(() => false) ?? false;

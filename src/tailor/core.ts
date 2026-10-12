@@ -573,7 +573,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
             }
             const reply = tool.describe(readback, detail, narrative, cited);
             const story = tool.storyOf?.(args);
-            return finish('committed', note(reply.text, 'applied', reply.evidence !== undefined ? { evidence: reply.evidence } : {}), { evidence: readback, ...(story !== undefined ? { story } : {}) });
+            return finish(tool.successOutcome ?? 'committed', note(reply.text, tool.successOutcome === 'answered' ? 'note' : 'applied', reply.evidence !== undefined ? { evidence: reply.evidence } : {}), { evidence: readback, ...(story !== undefined ? { story } : {}) });
           }
           case 'conflict':
             return finish('conflict', note(copy.conflict(result.currentVersion), 'failed'));
@@ -582,7 +582,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
           case 'readback_uncertain':
             await observe('readback', { toolName: label, state: 'uncertain', attemptedVersion: result.attemptedVersion, lastKnownVersion: result.lastKnownVersion }, async () => null);
             decide('readback uncertain');
-            return finish('readback_uncertain', note(copy.uncertain(result.lastKnownVersion), 'uncertain'));
+            return finish('readback_uncertain', note(tool.uncertainReply?.(result.lastKnownVersion) ?? copy.uncertain(result.lastKnownVersion), 'uncertain'));
           case 'expired':
             return finish('expired', note('This demo has ended or expired, so I can no longer read or change anything. Start a new demo to continue.'));
           case 'unsupported':

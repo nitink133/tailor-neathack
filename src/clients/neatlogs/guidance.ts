@@ -1,15 +1,19 @@
+import type { EvaluationDetail } from './eval-contract.ts';
 // Read-only adapter-owned destinations. The provider selects names; code supplies copy and saved IDs.
 import type { GuidanceSuggestion } from '../../tailor/contract.ts';
 import type { GuidanceSelection, SessionSnapshot } from './agent-contract.ts';
 export type { GuidanceSelection } from './agent-contract.ts';
 export type ContextualGuidance = GuidanceSuggestion & {
-  binding: { sessionId: string; version: number; scenario: string; traceId: string; spanId: string | null; openTraceId: string | null };
+  binding: { evaluationId?: string; evaluationVersion?: number; sessionId: string; version: number; scenario: string; traceId: string; spanId: string | null; openTraceId: string | null };
 };
 export const GUIDANCE_TARGETS = {
   'trace.overview': { label: 'Inspect this request', purpose: 'See the saved steps and timing for this synthetic request.' },
   'trace.slowest-span': { label: 'Inspect the slowest step', purpose: 'Look at the step with the longest recorded duration.' },
   'trace.model-call': { label: 'Inspect the model call', purpose: 'Read the saved input and output of this model step.' },
   'trace.output': { label: 'Review the request output', purpose: 'Check the saved outcome of this synthetic request.' },
+  'evals.evaluator': { label: 'Configure the local review', purpose: 'See the saved reviewer configuration; human quality judgments are separate from fixed snapshot checks.' },
+  'evals.criteria': { label: 'Review the resolution criteria', purpose: 'Inspect the human review questions for whether this saved request was resolved.' },
+  'evals.results': { label: 'Inspect local check results', purpose: 'Read persisted predicate pass/fail observations and pending human judgments for this saved review.' },
   'evals.overview': { label: 'Explore evals for this agent', purpose: 'Review session-scoped eval questions and deterministic sample checks for this saved synthetic request.' },
   'alerts.overview': { label: 'Preview alert routing', purpose: 'See which saved synthetic signals would reach a fictional review role. No notification is sent.' },
 } as const;
@@ -28,21 +32,24 @@ export function parseGuidanceSelections(value: unknown): GuidanceSelection[] {
   });
 }
 /** Resolve only the current authorised trace or its eval workspace. No external actions or data mutations. */
-export function resolveGuidance(value: unknown, session: SessionSnapshot, openTraceId?: string): ContextualGuidance[] {
+export function resolveGuidance(value: unknown, session: SessionSnapshot, openTraceId?: string, evaluationDetail?: EvaluationDetail): ContextualGuidance[] {
   if (session.state !== 'active') return [];
   const trace = openTraceId ? session.dataset.traces.find(t => t.id === openTraceId) : session.dataset.traces.find(t => t.scenario === session.dataset.activeScenario);
   if (!trace || trace.sessionId !== session.id) return [];
   const resolved = new Set<string>();
   return parseGuidanceSelections(value).flatMap(selection => {
     if (selection.traceId !== undefined && selection.traceId !== trace.id) return [];
+    const evaluation = evaluationDetail?.evaluation;
+    const boundEvaluation = selection.targetId.startsWith('evals.') && evaluation && !evaluationDetail!.stale && evaluation.datasetVersion === session.version && evaluation.traceIds.includes(trace.id) ? evaluation : undefined;
+    if (selection.targetId === 'evals.results' && !boundEvaluation) return [];
     const span = selection.targetId === 'trace.model-call' ? trace.spans.find(s => s.kind === 'LLM')
       : selection.targetId === 'trace.slowest-span' ? trace.spans.filter(s => s.parentId !== null).reduce<typeof trace.spans[number] | undefined>((best, s) => !best || s.durationMs > best.durationMs ? s : best, undefined) : undefined;
     if (['trace.model-call', 'trace.slowest-span'].includes(selection.targetId) && !span) return [];
-    const id = `${selection.targetId}:${session.version}:${trace.id}`;
+    const id = `${selection.targetId}:${session.version}:${trace.id}${boundEvaluation ? `:${boundEvaluation.id}:${boundEvaluation.version}` : ''}`;
     if (resolved.has(id)) return [];
     resolved.add(id);
     return [{ id, targetId: selection.targetId, ...GUIDANCE_TARGETS[selection.targetId],
-      binding: { sessionId: session.id, version: session.version, scenario: session.dataset.activeScenario, traceId: trace.id, spanId: span?.id ?? null, openTraceId: openTraceId ?? null } }];
+      binding: { ...(boundEvaluation ? {evaluationId:boundEvaluation.id,evaluationVersion:boundEvaluation.version} : {}), sessionId: session.id, version: session.version, scenario: session.dataset.activeScenario, traceId: trace.id, spanId: span?.id ?? null, openTraceId: openTraceId ?? null } }];
   });
 }
 /** Bounded persistence validation, separate from provider input; bindings are checked again before use. */
@@ -52,18 +59,23 @@ export function sanitiseStoredGuidance(value: unknown): ContextualGuidance[] {
     if (!object(v) || typeof v.targetId !== 'string' || !Object.hasOwn(GUIDANCE_TARGETS, v.targetId) || typeof v.id !== 'string' || v.id.length > 450 || !object(v.binding)) return [];
     const b = v.binding;
     if (typeof b.sessionId !== 'string' || typeof b.scenario !== 'string' || typeof b.traceId !== 'string' || !Number.isSafeInteger(b.version) || (b.version as number) < 0 || ![b.spanId,b.openTraceId].every(x => x === null || typeof x === 'string') || [b.sessionId,b.scenario,b.traceId,b.spanId,b.openTraceId].some(x => typeof x === 'string' && x.length > 200)) return [];
+    if ((b.evaluationId === undefined) !== (b.evaluationVersion === undefined) || (b.evaluationId !== undefined && (typeof b.evaluationId !== 'string' || b.evaluationId.length > 200 || !Number.isSafeInteger(b.evaluationVersion) || Number(b.evaluationVersion) < 1))) return [];
     const targetId = v.targetId as GuidanceSelection['targetId'];
-    return [{ id: v.id, targetId, ...GUIDANCE_TARGETS[targetId], binding: { sessionId: b.sessionId, version: b.version as number, scenario: b.scenario, traceId: b.traceId, spanId: b.spanId as string | null, openTraceId: b.openTraceId as string | null } }];
+    return [{ id: v.id, targetId, ...GUIDANCE_TARGETS[targetId], binding: { ...(typeof b.evaluationId === 'string' ? {evaluationId:b.evaluationId,evaluationVersion:b.evaluationVersion as number} : {}), sessionId: b.sessionId, version: b.version as number, scenario: b.scenario, traceId: b.traceId, spanId: b.spanId as string | null, openTraceId: b.openTraceId as string | null } }];
   });
 }
 
 /** Share binding checks between the browser and event receipt; callers still observe rendered targets. */
-export function isCurrentGuidance(value: unknown, session: Pick<SessionSnapshot, 'id' | 'version' | 'state' | 'dataset'>): value is ContextualGuidance {
+export function isCurrentGuidance(value: unknown, session: Pick<SessionSnapshot, 'id' | 'version' | 'state' | 'dataset'>, evaluationDetail?: EvaluationDetail): value is ContextualGuidance {
   const clean = sanitiseStoredGuidance([value])[0];
   if (!clean || session.state !== 'active') return false;
   const b = clean.binding;
-  if (clean.id !== `${clean.targetId}:${b.version}:${b.traceId}`) return false;
+  if (clean.id !== `${clean.targetId}:${b.version}:${b.traceId}${b.evaluationId ? `:${b.evaluationId}:${b.evaluationVersion}` : ''}`) return false;
   if (b.sessionId !== session.id || b.version !== session.version || b.scenario !== session.dataset.activeScenario) return false;
+  if (b.evaluationId) {
+    const evaluation = evaluationDetail?.evaluation;
+    if (!evaluation || evaluationDetail!.stale || evaluation.id !== b.evaluationId || evaluation.version !== b.evaluationVersion || evaluation.datasetVersion !== session.version || !evaluation.traceIds.includes(b.traceId)) return false;
+  } else if (clean.targetId === 'evals.results') return false;
   const trace = session.dataset.traces.find(t => t.id === b.traceId && t.sessionId === session.id);
   if (!trace) return false;
   if (b.openTraceId !== null && b.openTraceId !== trace.id) return false;

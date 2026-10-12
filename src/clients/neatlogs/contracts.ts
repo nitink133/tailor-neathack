@@ -1,3 +1,4 @@
+import type { EvaluationDetail } from './eval-contract.ts';
 // Shared data contracts for the Neatlogs demo. Owner: orchestrator / NIT-270.
 // Contract snapshot: see CONTRACT_VERSION in ./agent-contract.ts and docs/nit-269-contract.md.
 // Everything persisted in SQLite and projected by the UI derives from DemoSession. Chat shapes come from the core.
@@ -25,6 +26,8 @@ export interface Span {
   input: Json; output: Json; error: string | null; detection: boolean;
 }
 export interface Trace {
+  /** Read-only adapter detail attached when inspecting a saved local review; not persisted with trace data. */
+  localEvaluation?: EvaluationDetail;
   id: string; sessionId: string; scenario: ScenarioKey;
   /** Short buyer-facing label, e.g. "Retry recovers" or "Both attempts fail". */
   label: string;
@@ -50,6 +53,7 @@ export interface Story {
 /** A chat turn whose evidence cites saved trace and span ids. */
 export type ChatTurn = CoreChatTurn<Evidence>;
 export interface Evidence {
+  evaluation?: { id: string; version: number; datasetVersion: number };
   version: number;
   traceIds: string[];
   spanIds: string[];

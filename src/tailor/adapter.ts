@@ -78,6 +78,10 @@ export interface Reply<TEvidence> { text: string; evidence?: TEvidence }
 /** A tool that changes product state. The core runs `validate` (when given) before `execute`; a rejected action never executes. */
 export interface MutatingTool<T extends AdapterTypes, TArgs = unknown> {
   readonly mutates: true;
+  /** Code-owned auxiliary writes may keep the primary state version unchanged. */
+  readonly successOutcome?: 'answered';
+  /** Code-owned recovery wording for auxiliary persistence boundaries. */
+  uncertainReply?(lastKnownVersion: number): string;
   /** Optional code-owned confirmation gate, before validation or execution. Calls use budgeted ports. */
   beforeMutation?(args: TArgs, ctx: ToolContext<T>): Promise<PreflightDecision> | PreflightDecision;
   /** Structural argument check. null = malformed model output (retried inside the repair budget). */

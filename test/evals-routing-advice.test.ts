@@ -14,7 +14,9 @@ test('eval advice stays grounded across buyer industries and offers the saved re
     assert.match(m.text,/eval|review/i);
     assert.match(m.text,/Sources:/);
     assert.doesNotMatch(m.text,/evaluation completed|perfect quality|AI evaluator ran/i);
-    assert.ok(m.guidance?.some(g=>g.targetId==='evals.overview'));
+    assert.ok(m.guidance?.some(g=>g.targetId==='evals.evaluator'));
+    assert.ok(m.guidance?.some(g=>g.targetId==='evals.criteria'));
+    assert.equal(m.guidance?.some(g=>g.targetId==='evals.results'),false,'no saved artifact means no result target');
     assert.equal(h.tools.calls.filter(c=>c.name==='publishScenario').length,0);
   }
 });

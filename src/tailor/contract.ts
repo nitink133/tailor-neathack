@@ -99,7 +99,7 @@ export interface CoreSession {
   conversation: ChatTurn[];
 }
 export type TurnOutcome =
-  | 'answered'            // explanation/knowledge answer, no state change
+  | 'answered'            // explanation, knowledge answer or verified auxiliary write; primary state unchanged
   | 'clarification'       // one question, three choices, free text allowed
   | 'committed'           // change saved and read back
   | 'rejected'            // action failed validation after bounded repairs; state unchanged (verified)
