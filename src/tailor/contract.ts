@@ -201,6 +201,7 @@ export type ProviderErrorKind =
 export interface ModelProvider<TAction = unknown, TExplanation = unknown> {
   readonly name: string;
   readonly model: string | null;
+  readonly classifierModel?: string | null;
   readonly mode: 'mock' | 'live';
   /** Effort setting when the provider exposes one; null for the mock. */
   readonly effort?: string | null;

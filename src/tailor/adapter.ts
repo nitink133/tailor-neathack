@@ -152,6 +152,8 @@ export interface Grounding<T extends AdapterTypes> {
 
 export interface ProductAdapter<T extends AdapterTypes = AdapterTypes> {
   readonly id: string;
+  readonly version?: string;
+  readonly contractVersion?: string;
   /** Bounded relevance/safety check before retrieval, context construction or model calls. */
   preflight?(input: { session: T['session']; request: T['request']; buyerText: string; choice: { id: string; label: string } | null; provider: ModelProvider<T['action'], T['explanation']>; signal?: AbortSignal }): AdapterPreflightResult | Promise<AdapterPreflightResult>;
   /** Product names model prose must not make capability/plan claims about (fed to the core's claim filters). */
