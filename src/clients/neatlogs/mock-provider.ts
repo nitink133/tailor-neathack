@@ -230,10 +230,20 @@ function decide(request: ProviderRequest): AgentAction {
   if (qualityKind && classification.outcome === 'allow_demo_action') {
     const proposal = qualityWorkflowProposal(qualityKind, ctx.datasetVersion);
     const requested = explicitWorkflowIdentity(text) ?? (ctx.story ? explicitWorkflowIdentity(`My ${ctx.story.domain}`) : null);
-    const fixtureIdentity = `${proposal.story.domain} ${proposal.traces[0]!.name}`.toLowerCase();
+    const fixtureIdentity = [proposal.story.domain, proposal.story.summary, ...proposal.traces.flatMap(trace => [trace.name, ...trace.spans.flatMap(span => [span.name, span.kind])])].join(' ').toLowerCase();
     if (requested && requested.terms.some(term => !fixtureIdentity.includes(term))) {
       const example = qualityKind === 'support' ? 'parcel support' : qualityKind === 'extraction' ? 'invoice extraction' : 'Widget documentation';
       return { type: 'unsupported', text: `I cannot personalize the fixed fictional ${example} fixture to your requested workflow. I have not replaced the current demo.` };
+    }
+    // A supported role can be an alias (e.g. retrieval vs question-answering). Keep its verified identity
+    // consistent across story and trace labels; unknown sector terms were rejected before this point.
+    if (requested) {
+      proposal.story.domain = clip(requested.domain, LIMITS.maxNameChars);
+      for (const trace of proposal.traces) {
+        trace.name = clip(`SYNTHETIC ${requested.domain}`, LIMITS.maxNameChars);
+        const root = trace.spans.find(span => span.parentKey === null);
+        if (root) root.name = clip(`SYNTHETIC ${requested.domain} quality review`, LIMITS.maxNameChars);
+      }
     }
     return { type: 'propose', proposal, explanation: 'The synthetic run completes without an execution error while its output misses the buyer’s quality requirement.' };
   }
