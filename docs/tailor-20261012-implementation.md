@@ -78,6 +78,24 @@ Nitin explicitly waived blocking implementation on this gap: “Don't worry abou
 
 ## Verification record
 
-Final integration SHA, exact checks and final owned lane commits are recorded here after the last review fixes are integrated. Intermediate failures were retained as evidence and fixed before acceptance. Live Claude/Jev accuracy, paid caching benchmarks, hosted ingestion/readback and hosted eval execution are not part of the offline pass criteria.
+The runtime implementation snapshot is `b5690c1a2fb13f548e5644dc0e9f20c3f168aec2`. Subsequent changes correct test expectations and this handoff. Aggregate unit verification at `339e20961075304f88f29b3fab5f42899f13a1df` passes **345/345**, with no skipped or cancelled tests. Typecheck passes; SDK Doctor passes seven checks. The executable quality harness passes **29 policy cases and 31 HTTP runtime cases**, with zero false blocks or off-topic escapes in those fixtures; its report explicitly leaves live classifier accuracy unverified. The final handoff supplies the final clean SHA and browser/review results, with a machine-readable receipt at `/tmp/tailor-final-verification.json`.
+
+Evidence files from final checks are `/tmp/tailor-final-unit.log`, `/tmp/tailor-final-quality.json`, `/tmp/tailor-final-quality.log`, `/tmp/tailor-final-doctor.json` and `/tmp/tailor-final-ui.log`. The browser suite has 20 cases covering editable starters, clarification, reload/tabs/navigation, idempotent repeated submission, open-trace citations, keep/adapt/separate with preserved history, scoped reviews and explicit simulated provenance. The retained local screenshot is `.local/review-evals.png`. These are scripted/offline or local browser observations, not live model or hosted receipts.
+
+Independent review reproduced and then checked fixes for valid-shaped wrong workflow proposals, forged model edit metadata, reversed source meaning, false recovery/cause narration, creation replay, body-read races and spend under-reservation. The forged-candidate test requires a generic clarification with no saved confirmation or writes; the aligned candidate still exercises a real confirmation and separate-demo readback. The browser switch test compares to the state before each question, opens the saved-demo picker through visible UI, and distinguishes owned ended sessions (410) from foreign sessions (404). No runtime gate was weakened to make these checks pass.
+
+Original lane patch commits, which were integrated by normal cherry-picks:
+
+| Lane | Original patch sequence | Final owned patch |
+| --- | --- | --- |
+| A | `9779088`, `0ccf3b1`, `5aa1cf9`, `a90052b`, `384e862`, `597fe2b`, `73863e2`, `5c0b330`, `f6387d4`, `9311790`, `6804dcf` | `6804dcfb4b3d08c8a97565f64a3f5247b68aa9b2` |
+| B | `8d444cc`, `03d62d3`, `74dcc6f`, `8618b2e`, `ed9247d`, `fcb8c6e`, `1f97aee`, `c4787cf` | `c4787cf0f6dae03a9a4fd053e88d275b28d07097` |
+| C | `b52af68`, `ee86c3b`, `73da72d`, `fc37916` | `fc37916499e5a0da7d6f4c4026e0d2d171349e63` |
+| D | `5dfe6d8`, `530ea0c`, `0353b30`, `17d7940`, `4f44365`, `008f3ab` | `008f3ab29da48cf537c7dba6c1a345bda7e9a5dd` |
+| E | `5a93900`, `cffe1f1`, `b774d51`, `e42397f`, `19bc6cd` | `19bc6cd9457f04af80c79ba235360eedbc6e3a9f` |
+
+Root's runtime fixes are `4c0eed6`, `59fa456`, `fe14ece` and `2753f8e`; normal integration history records each applied lane patch. E's dependency-only `e2e9d40` is intentionally not cherry-picked because the same A import already exists in integration. All lane worktrees are preserved. A fresh read of `origin/main` at 02:44 UTC still returns baseline `17963acb6f7302384d278835697fefbd3ae6878c`.
+
+Intermediate failures were retained as evidence and resolved without dropping meaningful cases. Live Claude/Jev accuracy, paid caching benchmarks, hosted ingestion/readback and hosted eval execution are not part of the offline pass criteria.
 
 Relevant official references: [native Neatlogs sessions](https://docs.neatlogs.com/sdk/sessions), [Neatlogs evals](https://docs.neatlogs.com/docs/features/evals), [account-dependent API availability](https://docs.neatlogs.com/api-reference/availability), [Jev hostile-input caveat](https://docs.typesafe.ai/model-jaggedness/jev-1.13). Capability records retain their individual source URLs and verification dates.
