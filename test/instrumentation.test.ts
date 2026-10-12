@@ -92,7 +92,7 @@ test('committed turn: context, attempt, tool, readback and response are recorded
     assert.equal(root['tailor.prompt_version'], PROMPT_VERSION);
     assert.equal(root['tailor.decision'], 'plan→publishScenario v2→readback ok→committed');
     assert.equal(root['tailor.provider_calls'], 1);
-    assert.equal(root['tailor.grounding_drops'], 0);
+    assert.equal(root['tailor.grounding_drops'], 1, 'the unsupported mock planning sentence is removed by strict evidence grounding');
 
     const names = c.spans.filter(s => s.parentSpanId === c.root.spanId).map(s => s.name);
     assert.deepEqual(names, ['load_context', 'guard', 'retrieve_knowledge', 'context', 'model', 'guard', 'tool', 'readback'], 'child steps in execution order');
@@ -262,7 +262,7 @@ test('R1-F8: the evidence explanation call is a `model` span with purpose=explai
     const provider: ModelProvider = {
       name: 'anthropic', model: 'claude-sonnet-5-5', mode: 'live', effort: 'medium',
       complete: (request, signal) => plan.complete(request, signal),
-      async explain() { return { explanation: { text: 'The attempt took 1500 ms.', spanIds: [] }, usage: null, latencyMs: 5 }; },
+      async explain() { return { explanation: { text: 'call_booking_api_attempt_1 failed after 1500 ms.', spanIds: [] }, usage: null, latencyMs: 5 }; },
     };
     const c = await neatlogsTurn(t, travelBuyerTurn1.text, { provider });
     assert.equal(c.result.outcome, 'committed');
