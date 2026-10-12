@@ -3,11 +3,13 @@ import type { ExecutionInfoResponse, ExecutionLabel, TurnOutcome, TurnRequest, T
 import type { BrowserSession } from '../../tailor/demo-contract.ts';
 import type { EvaluationDetail, EvaluationList, EvaluationQuestion, ReviewEvaluationRequest } from './eval-contract.ts';
 import { entrySavedState, entrySuggestions, suggestionBatch } from './entry-state.ts';
+import { recommendedTrace, selectedSpanAncestors, traceGuideFacts } from './trace-guide.ts';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const icon = (name: string) => {
   const paths: Record<string,string> = { list:'M5 4v16h15M9 7h10M9 11h10M9 15h10', search:'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0', back:'M20 12H4m6-6-6 6 6 6', refresh:'M20 8a8 8 0 1 0 0 8M20 3v5h-5', tool:'M14 6a5 5 0 0 0-6 6L3 17l4 4 5-5a5 5 0 0 0 6-6l-4 3-3-3z', tree:'M8 4v16m0-12h8m-8 8h8M5 2h6v4H5zM16 6h5v4h-5zM16 14h5v4h-5z', clock:'M12 7v5l4 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0', check:'M7 12l3 3 7-7M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0', close:'M6 6l12 12M18 6 6 18', plus:'M12 8v8M8 12h8M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0', minus:'M8 12h8M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0', chevron:'m8 5 7 7-7 7', sun:'M12 3v2m0 14v2M3 12h2m14 0h2M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0', home:'M3 10l9-7 9 7v10H3z', message:'M4 4h16v13H9l-5 4z', bell:'M5 17h14l-2-5V8a5 5 0 0 0-10 0v4zM10 21h4', chain:'M10 13a5 5 0 0 0 7.1.4l1.8-1.8a5 5 0 0 0-7-7L10.5 6M14 11a5 5 0 0 0-7.1-.4l-1.8 1.8a5 5 0 0 0 7 7L13.5 18', shield:'M12 3 5 6v6c0 4.2 2.8 6.8 7 8.5 4.2-1.7 7-4.3 7-8.5V6z', retrieval:'M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 7v5c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12v5c0 1.7 3.6 3 8 3s8-1.3 8-3v-5', doc:'M7 3h8l5 5v13H7zM15 3v5h5M10 17a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12.2 16.2 15 19', rocket:'M12 19c-4-1-6-5-6-9 3 0 6-3 7-6 1 3 4 6 7 6-1 4-3 8-8 9zM12 11h.01M8 17l-2 4M16 17l2 4' };
+  paths.calendar = 'M5 5h14v16H5zM5 10h14M8 3v4M16 3v4';
   return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name] ?? paths.list}"/></svg>`;
 };
 let current: DemoSession | undefined;
@@ -346,20 +348,59 @@ function entry() {
   root.innerHTML = `<div class="chat-home"><header class="entry-nav">${link('/','neatlogs','wordmark')}${link('/','← Back to landing')}</header><div class="chat-stage${chatBusy ? ' is-preparing' : ''}">${banner}${started?`<div class="chat-thread">${chatThread(turns)}</div>`:`<div class="entry-intro"><h1>See your agent in action</h1><p>Explore a workflow. See what happens at every step.</p></div>`}${chatBusy?`<div class="entry-transition" role="status" aria-live="polite"><span class="entry-transition-mark" aria-hidden="true"></span><div><h1>Preparing your playground…</h1><p data-entry-phase>Creating your demo…</p></div></div>`:''}${composer(chatBusy)}<div class="chat-examples entry-suggestions" data-starter-list aria-label="Suggested workflow questions">${entrySuggestionButtons()}</div><p class="tailor-attribution">Powered by <span class="tailor-pill">Tailor</span></p>${savedDemos}${started?`${turns[turns.length-1]!.status==='failed'?`<button type="button" data-retry-draft>Retry</button> `:''}<button type="button" data-discard-draft>Discard draft</button>`:`<button type="button" id="resume" ${saved.activeDemo ? '' : 'hidden'}>Resume this browser’s saved session</button>`}<p class="form-error" role="alert"></p></div></div>`;
   startEntryRotation();
 }
+const traceGuideKey = (id: string) => `tailor-trace-guide:${id}`;
+function guideDismissed(id: string) { try { return sessionStorage.getItem(traceGuideKey(id)) === 'dismissed'; } catch { return false; } }
+function guidedTraceLink(t: Trace) {
+  const span = traceGuideFacts(t).recommendedSpan;
+  return `${traceLink(t)}${span ? `?span=${encodeURIComponent(span.id)}` : ''}`;
+}
+function traceGuide(s: DemoSession, traces: Trace[], detailTrace?: Trace, selected?: string | null) {
+  if (guideDismissed(s.id)) return `<div class="trace-guide-reopen"><button type="button" data-trace-guide-show>Show guide</button></div>`;
+  const target = detailTrace ?? recommendedTrace(traces, s.dataset.activeScenario);
+  const facts = target ? traceGuideFacts(target) : undefined;
+  const span = facts?.recommendedSpan;
+  const sample = s.story === null ? 'These are sample traces, not a workflow built from your request. ' : 'These are synthetic traces of your fictional workflow. ';
+  const description = detailTrace
+    ? `${sample}Read the input, inspect ${span ? `“${span.name}”${span.status === 'ERROR' ? ' (marked ERROR)' : ''}` : 'a saved step'}, then compare the output. Ready means processed, not that the task succeeded.`
+    : `${sample}Ready means processed, not that the task succeeded. ${facts?.stepErrors ? 'Start with a trace that contains a step marked ERROR; it may still recover afterward.' : target ? 'Open a trace to inspect its saved steps, input and output.' : 'Adjust your filters to find a trace to inspect.'}`;
+  const spanVisible = target && span && selectedSpanAncestors(target, span.id).every(id => !collapsedRoots.has(id));
+  const inspect = target && (!detailTrace || (span && (!spanVisible || (selected !== span.id && !expanded.has(span.id)))))
+    ? link(guidedTraceLink(target), `Inspect ${esc(detailTrace ? span!.name : target.label)}`, 'trace-start-link') : '';
+  return `<section class="trace-guide${detailTrace ? ' is-compact trace-detail-guide' : ''}" aria-label="Trace guide"><div class="guide-copy"><h2>${detailTrace ? 'Inspect a step' : 'Start with a trace'}</h2><p>${esc(description)}</p></div><div class="guide-actions">${inspect}${detailTrace ? '<button type="button" data-example="Explain this trace">Ask Tailor to explain this trace</button>' : ''}<button type="button" data-trace-guide-dismiss>Dismiss guide</button></div></section>`;
+}
+const TRACE_FIELD_HELP: Record<string, string> = {
+  'Ingested at': 'The recorded ingestion time supplied by this synthetic demo. Its date range is fixed.',
+  Status: 'Ready means the trace was processed. It does not mean the agent’s task succeeded.',
+  Detections: 'Counts saved steps flagged as detections. Execution Failed is a step flag; a trace may recover afterward.',
+  Evals: 'No evaluation result is attached to these rows. Evals opens a separate local synthetic review.',
+  Input: 'The workflow label identifies the trace here. Open it to inspect its saved input.',
+  Output: 'A preview of the saved output’s reported outcome, when present. Open the trace for its full output.',
+  Comments: 'Comments are not implemented in this demo.',
+  Replay: 'Replay is not implemented in this demo. This control does not rerun the workflow.',
+};
+function traceFieldHeader(label: string) {
+  const id = `trace-help-${label.toLowerCase().replaceAll(' ', '-')}`;
+  return `<th><span class="trace-help"><button type="button" aria-label="About ${esc(label)}" aria-describedby="${id}" popovertarget="${id}" title="${esc(TRACE_FIELD_HELP[label])}">${esc(label)}<span aria-hidden="true">?</span></button><span class="trace-tooltip" id="${id}" role="tooltip" popover="auto">${esc(TRACE_FIELD_HELP[label])}</span></span></th>`;
+}
 function list(s: DemoSession,data: TraceList) {
   lastList = data;
   const query = new URLSearchParams(location.search);
+  const recommended = guideDismissed(s.id) ? undefined : recommendedTrace(data.traces, data.activeScenario);
   const chip = (key: string) => query.get(key) ? `<button type="button" class="chip-remove" data-clear-filter="${key}" aria-label="Remove ${key} filter">×</button>` : '';
-  const select = (key:string,label:string,options:string[][])=>`<details class="filter-popover${query.get(key)?' is-selected':''}"><summary>${label}${query.get(key)?` · ${esc(options.find(([v])=>v===query.get(key))?.[1] ?? query.get(key))}`:''}${chip(key)}⌄</summary><div class="filter-editor"><label>${label}<select name="${key}" aria-label="${label}"><option value="">All</option>${options.map(([v,l])=>`<option value="${esc(v)}" ${query.get(key)===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label><button type="submit">Apply filters</button></div></details>`;
+  const select = (key:string,label:string,options:string[][])=>`<details class="filter-popover${query.get(key)?' is-selected':''}"><summary>${label}${query.get(key)?` · ${esc(options.find(([v])=>v===query.get(key))?.[1] ?? query.get(key))}`:''}${chip(key)}⌄</summary><div class="filter-editor" popover="manual"><label>${label}<select name="${key}" aria-label="${label}"><option value="">All</option>${options.map(([v,l])=>`<option value="${esc(v)}" ${query.get(key)===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label><button type="submit">Apply filters</button></div></details>`;
   const rows = data.traces.map(t=>{
     const when = ingested(t.ingestedAt);
-    const found = t.spans.filter(span => span.detection).length;
+    const facts = traceGuideFacts(t);
+    const found = facts.detections;
     const isActive = s.story !== null && t.scenario === data.activeScenario;
     const active = isActive ? ' is-active-fixture' : '';
-    return `<tr class="${active.trim()}" data-trace="${t.id}"><td><input type="checkbox" aria-label="Select ${t.scenario}" data-select></td><td class="mono">${link(traceLink(t),`<span>${esc(when.time)}</span> <small>${esc(when.date)}</small><span class="mobile-fixture">${esc(t.label)}</span>`)}</td><td><span class="ready" title="Ready means processed; task outcome is separate">${icon('check')}<span class="sr">Ready</span></span></td><td>${found?`<span class="failure">Execution Failed &nbsp; ${found}</span>`:'–'}</td><td>—</td><td>${link(traceLink(t),`${esc(t.label)} · ${esc(s.story?.domain ?? 'sample workflow')}${isActive?'<span class="active-tag">Active</span>':s.story===null?'<span class="active-tag">Sample</span>':''}`)}</td><td>${link(traceLink(t),io(t.output).replace(/<br>/g,' '))}</td><td>—</td><td><button data-unavailable aria-label="Replay is outside this demo">${icon('clock')}</button></td></tr>`;
+    const descriptionId = `trace-description-${t.id}`;
+    const start = recommended?.id === t.id;
+    return `<tr class="${active.trim()}" data-trace="${esc(t.id)}"><td><input type="checkbox" aria-label="Select ${esc(t.label)}" data-select></td><td><a data-nav href="${esc(start ? guidedTraceLink(t) : traceLink(t))}" class="trace-row-link${start ? ' trace-start-link' : ''}" ${start ? 'data-guide-target' : ''} aria-describedby="${esc(descriptionId)}"><span class="trace-row-label">${esc(t.label)}</span><small class="trace-row-description" id="${esc(descriptionId)}">${facts.steps} ${facts.steps === 1 ? 'step' : 'steps'} · ${facts.stepErrors} ${facts.stepErrors === 1 ? 'step error' : 'step errors'}</small><span class="trace-row-time">${esc(when.time)} · ${esc(when.date)}</span></a></td><td><span class="ready" title="Ready means processed; task outcome is separate">${icon('check')}<span class="sr">Ready</span></span></td><td>${found?`<span class="failure">Execution Failed &nbsp; ${found}</span>`:'–'}</td><td>—</td><td>${link(traceLink(t),`${esc(t.label)} · ${esc(s.story?.domain ?? 'sample workflow')}${isActive?'<span class="active-tag">Active</span>':s.story===null?'<span class="active-tag">Sample</span>':''}`)}</td><td>${link(traceLink(t),esc(facts.outputSummary))}</td><td>—</td><td><button data-unavailable aria-label="Replay is outside this demo">${icon('clock')}</button></td></tr>`;
   }).join('');
   const days = ['Sep 28','','Sep 30','','Oct 2','','','Oct 5','','Oct 7','','Oct 9','','Oct 11'];
-  root.innerHTML = shell(s,`<header class="list-header"><h1>${icon('list')}Traces</h1><div class="header-controls"><button class="active">Traces</button><button data-unavailable>Sessions</button><button data-unavailable>Users</button><details class="search-popover" ${query.get('q')?'open':''}><summary aria-label="Search traces">${icon('search')}</summary><form id="search-form"><input name="q" aria-label="Search traces" placeholder="Search traces…" value="${esc(query.get('q') ?? '')}"></form></details><button data-unavailable>Last 14 days⌄</button><button data-refresh aria-label="Refresh traces">${icon('refresh')}</button></div></header><form id="filters" class="filters">${['Session ID','User ID'].map(n=>`<button type="button" data-unavailable class="filter">${n}⌄</button>`).join('')}${select('scenario','Scenario',s.dataset.traces.map(t=>[t.scenario,t.label]))}${select('detection','Detections',[['yes','Execution Failed'],['no','No detections']])}<button type="button" data-unavailable class="filter">Evals⌄</button>${select('tag','Tags',[...new Set(s.dataset.traces.flatMap(t=>t.tags))].map(x=>[x,x]))}<details class="filter-popover${query.get('minMs')?' is-selected':''}"><summary>Latency${query.get('minMs')?` ≥ ${esc(query.get('minMs'))}ms`:''}${chip('minMs')}⌄</summary><div class="filter-editor"><label>Minimum latency in milliseconds<input name="minMs" type="number" min="0" step="0.1" aria-label="Minimum latency in milliseconds" value="${esc(query.get('minMs') ?? '')}" placeholder="ms"></label><button type="submit">Apply filters</button></div></details><button type="button" data-unavailable class="filter">Metadata⌄</button><button type="button" data-unavailable class="filter">More filters⌄</button><button type="button" data-unavailable class="filter">＋ Advanced</button>${link(base(s.id),'Clear')}</form><div class="histogram" aria-label="${data.filtered} filtered traces on Oct 10">${days.map((label,i)=>{const count=i===12?data.filtered:0;return `<div class="day" style="--count:${count}" title="${count} traces">${count?`<i class="day-bar" style="--count:${count}"></i>`:''}<span>${label}</span></div>`;}).join('')}</div><div class="table-scroll"><table><thead><tr><th><input type="checkbox" aria-label="Select all traces" id="select-all"></th>${['Ingested at','Status','Detections','Evals','Input','Output','Comments','Replay'].map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="9" class="empty"><div class="empty-mark">${icon('doc')}</div><h2>No traces found</h2><p>Try adjusting your filters or date range.</p>${link(base(s.id),'Clear filters','empty-clear')}</td></tr>`}</tbody></table></div>${notice(s)}<footer class="pagination"><label>Rows per page <select aria-label="Rows per page"><option>25</option></select></label><span data-count>${data.filtered?`1 – ${data.filtered}`:'0'} of ${data.filtered}</span><button disabled aria-label="Previous page">‹</button><button class="active">1</button><button disabled aria-label="Next page">›</button></footer>`);
+  root.innerHTML = shell(s,`<header class="list-header"><h1>${icon('list')}Traces</h1><div class="header-controls"><div class="trace-view-by"><span>View by</span><button type="button" class="active" aria-pressed="true">Traces</button><button type="button" data-unavailable>Sessions</button><button type="button" data-unavailable>Users</button></div><details class="search-popover" ${query.get('q')?'open':''}><summary aria-label="Search traces">${icon('search')}</summary><form id="search-form"><input name="q" aria-label="Search traces" placeholder="Search traces…" value="${esc(query.get('q') ?? '')}"></form></details><button type="button" data-fixed-date-range class="trace-date-range" title="Fixed demo date range" aria-label="Last 14 days — fixed demo date range">${icon('calendar')}<span>Last 14 days</span>${icon('chevron')}</button><button data-refresh aria-label="Refresh traces">${icon('refresh')}</button></div></header><form id="filters" class="filters"><div class="filter-scroll">${['Session ID','User ID'].map(n=>`<button type="button" data-unavailable class="filter">${n}⌄</button>`).join('')}${select('scenario','Scenario',s.dataset.traces.map(t=>[t.scenario,t.label]))}${select('detection','Detections',[['yes','Execution Failed'],['no','No detections']])}<button type="button" data-unavailable class="filter">Evals⌄</button>${select('tag','Tags',[...new Set(s.dataset.traces.flatMap(t=>t.tags))].map(x=>[x,x]))}<details class="filter-popover${query.get('minMs')?' is-selected':''}"><summary>Latency${query.get('minMs')?` ≥ ${esc(query.get('minMs'))}ms`:''}${chip('minMs')}⌄</summary><div class="filter-editor" popover="manual"><label>Minimum latency in milliseconds<input name="minMs" type="number" min="0" step="0.1" aria-label="Minimum latency in milliseconds" value="${esc(query.get('minMs') ?? '')}" placeholder="ms"></label><button type="submit">Apply filters</button></div></details><button type="button" data-unavailable class="filter">Metadata⌄</button><button type="button" data-unavailable class="filter">More filters⌄</button><button type="button" data-unavailable class="filter">＋ Advanced</button>${link(base(s.id),'Clear')}</div></form><div class="histogram" aria-label="${data.filtered} filtered traces on Oct 10">${days.map((label,i)=>{const count=i===12?data.filtered:0;return `<div class="day" style="--count:${count}" title="${count} traces">${count?`<i class="day-bar" style="--count:${count}"></i>`:''}<span>${label}</span></div>`;}).join('')}</div>${traceGuide(s, data.traces)}<div class="table-scroll"><table><thead><tr><th><input type="checkbox" aria-label="Select all traces" id="select-all"></th>${['Ingested at','Status','Detections','Evals','Input','Output','Comments','Replay'].map(traceFieldHeader).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="9" class="empty"><div class="empty-mark">${icon('doc')}</div><h2>No traces found</h2><p>Try adjusting your filters. The demo date range is fixed.</p>${link(base(s.id),'Clear filters','empty-clear')}</td></tr>`}</tbody></table></div>${notice(s)}<footer class="pagination"><label>Rows per page <select aria-label="Rows per page"><option>25</option></select></label><span data-count>${data.filtered?`1 – ${data.filtered}`:'0'} of ${data.filtered}</span><button disabled aria-label="Previous page">‹</button><button class="active">1</button><button disabled aria-label="Next page">›</button></footer>`);
+  root.querySelector<HTMLElement>('.workspace')?.classList.add('trace-workspace');
 }
 function spanRow(t:Trace,s:Span,selected:string|null):string {
   const open = expanded.has(s.id) || s.id===selected;
@@ -372,7 +413,7 @@ function detail(s:DemoSession,t:Trace) {
   const path = traceLink(t);
   const back = returnTo.startsWith(base(s.id)) && !returnTo.slice(base(s.id).length).startsWith('/') ? returnTo : base(s.id);
   const graphNode = (x: Span) => `<a href="${path}?span=${x.id}" data-graph-select="${x.id}" class="${kindClass(x.kind)} ${graphSelection===x.id?'graph-selected':''}">${icon(kindMark(x.kind))}${x.status==='ERROR'?`<span class="error-x">${icon('close')}</span>`:''}${esc(x.name)}</a>`;
-  root.innerHTML=shell(s,`<header class="detail-header">${link(back,icon('back'),'back-link')}<span>${esc(ingested(t.ingestedAt).heading)}</span><div><button data-unavailable aria-label="Search this trace">${icon('search')}</button><button data-unavailable aria-label="Replay unavailable">${icon('clock')}</button><button data-unavailable aria-label="Comments unavailable">${icon('message')}</button><button data-tags>${t.tags.length} tags</button><button data-unavailable>Ask neat AI</button></div></header><div class="trace-toolbar"><details class="trace-picker"><summary aria-label="Trace navigator">${icon('list')}<span>${esc(t.name)}</span><small>${t.spans.length}</small>${icon('chevron')}</summary><nav aria-label="Synthetic trace choices">${s.dataset.traces.map(x=>link(traceLink(x),`${esc(x.label)} · ${x.spans[0]!.durationMs}ms · ${x.spans.length} spans`,x.id===t.id?'active':'')).join('')}</nav></details><button data-graph aria-pressed="${graph}" aria-label="Toggle span tree">${icon('tree')}</button><button data-timeline aria-pressed="${timeline}" aria-label="Toggle timeline">${icon('list')}</button><span class="trace-identity">${esc(t.name)} · ${t.spans.length} spans</span></div><main class="trace-canvas ${timeline?'with-timeline':''}">${graph?`<div class="graph-tree" aria-label="Span parent tree"><div class="graph-nodes"><svg class="graph-connectors" viewBox="0 0 360 360" preserveAspectRatio="none" aria-hidden="true">${t.spans.slice(1).map((_,i)=>`<path d="M140 32 C175 32 175 ${32+i*64} 205 ${32+i*64}"/>`).join('')}</svg><strong class="${kindClass(t.spans[0]!.kind)}">${icon(kindMark(t.spans[0]!.kind))}${esc(t.spans[0]!.name)}</strong><div class="graph-children">${t.spans.slice(1).map(graphNode).join('')}</div></div></div>`:''}<section class="trace-flow"><div class="root-input"><label>INPUT</label><div class="input-bubble">${io(t.input)}</div></div><div class="steps"><header><span>${t.spans.length} STEPS · ${t.spans[0]!.durationMs/1000}S</span><button data-expand-all>EXPAND ALL</button></header>${t.spans.filter(x=>!x.parentId||!collapsedRoots.has(x.parentId)).map(x=>spanRow(t,x,selected)).join('')}</div><div class="root-output"><label>OUTPUT</label><p>${io(t.output)}</p></div></section></main>${timeline?`<section class="timeline" aria-label="Trace timeline"><header>TIMELINE · ${t.spans[0]!.durationMs} ms</header>${t.spans.map(x=>`<div class="timeline-row ${graphSelection===x.id?'graph-selected':''}"><a data-nav href="${path}?span=${x.id}">${esc(x.name)}</a><div class="time-track"><a data-nav aria-label="Select ${esc(x.name)} in timeline" href="${path}?span=${x.id}" class="time-bar ${x.status==='ERROR'?'bad':''}" style="left:${x.startMs/t.spans[0]!.durationMs*100}%;width:${Math.max(0.5,x.durationMs/t.spans[0]!.durationMs*100)}%"></a></div><time>${durationLabel(x.durationMs)}</time></div>`).join('')}</section>`:''}${notice(s)}`);
+  root.innerHTML=shell(s,`<header class="detail-header">${link(back,icon('back'),'back-link')}<span>${esc(ingested(t.ingestedAt).heading)}</span><div><button data-unavailable aria-label="Search this trace">${icon('search')}</button><button data-unavailable aria-label="Replay unavailable">${icon('clock')}</button><button data-unavailable aria-label="Comments unavailable">${icon('message')}</button><button data-tags>${t.tags.length} tags</button><button data-unavailable>Ask neat AI</button></div></header><div class="trace-toolbar"><details class="trace-picker"><summary aria-label="Trace navigator">${icon('list')}<span>${esc(t.name)}</span><small>${t.spans.length}</small>${icon('chevron')}</summary><nav aria-label="Synthetic trace choices">${s.dataset.traces.map(x=>link(traceLink(x),`${esc(x.label)} · ${x.spans[0]!.durationMs}ms · ${x.spans.length} spans`,x.id===t.id?'active':'')).join('')}</nav></details><button data-graph aria-pressed="${graph}" aria-label="Toggle span tree">${icon('tree')}</button><button data-timeline aria-pressed="${timeline}" aria-label="Toggle timeline">${icon('list')}</button><span class="trace-identity">${esc(t.name)} · ${t.spans.length} spans</span></div>${traceGuide(s, [t], t, selected)}<main class="trace-canvas ${timeline?'with-timeline':''}">${graph?`<div class="graph-tree" aria-label="Span parent tree"><div class="graph-nodes"><svg class="graph-connectors" viewBox="0 0 360 360" preserveAspectRatio="none" aria-hidden="true">${t.spans.slice(1).map((_,i)=>`<path d="M140 32 C175 32 175 ${32+i*64} 205 ${32+i*64}"/>`).join('')}</svg><strong class="${kindClass(t.spans[0]!.kind)}">${icon(kindMark(t.spans[0]!.kind))}${esc(t.spans[0]!.name)}</strong><div class="graph-children">${t.spans.slice(1).map(graphNode).join('')}</div></div></div>`:''}<section class="trace-flow"><div class="root-input"><label>INPUT</label><div class="input-bubble">${io(t.input)}</div></div><div class="steps"><header><span>${t.spans.length} STEPS · ${t.spans[0]!.durationMs/1000}S</span><button data-expand-all>EXPAND ALL</button></header>${t.spans.filter(x=>!x.parentId||!collapsedRoots.has(x.parentId)).map(x=>spanRow(t,x,selected)).join('')}</div><div class="root-output"><label>OUTPUT</label><p>${io(t.output)}</p></div></section></main>${timeline?`<section class="timeline" aria-label="Trace timeline"><header>TIMELINE · ${t.spans[0]!.durationMs} ms</header>${t.spans.map(x=>`<div class="timeline-row ${graphSelection===x.id?'graph-selected':''}"><a data-nav href="${path}?span=${x.id}">${esc(x.name)}</a><div class="time-track"><a data-nav aria-label="Select ${esc(x.name)} in timeline" href="${path}?span=${x.id}" class="time-bar ${x.status==='ERROR'?'bad':''}" style="left:${x.startMs/t.spans[0]!.durationMs*100}%;width:${Math.max(0.5,x.durationMs/t.spans[0]!.durationMs*100)}%"></a></div><time>${durationLabel(x.durationMs)}</time></div>`).join('')}</section>`:''}${notice(s)}`);
 }
 function evalInput(q: EvaluationQuestion, traceId: string) {
   const name = `response:${traceId}:${q.key}`, required = q.required ? 'required' : '';
@@ -468,6 +509,8 @@ async function render(preserveEntry = false): Promise<boolean> {
       else evaluationsPage(s, await request<EvaluationList>(`/api/sessions/${s.id}/evaluations`));
     } else if (route[3]) {
       const t=s.dataset.traces.find(t=>t.id===route[3]); if (!t) throw new Error('NOT_FOUND: Trace not found in this session.');
+      const selected = new URLSearchParams(location.search).get('span');
+      if (selected && t.spans.some(span => span.id === selected)) for (const ancestorId of selectedSpanAncestors(t, selected)) collapsedRoots.delete(ancestorId);
       detail(s,t);
     } else {
       const data=await request<TraceList>(`/api/sessions/${s.id}/traces${location.search}`);
@@ -766,6 +809,88 @@ async function selectDemo(demoId: string) {
     toast(plain((e as Error).message));
   }
 }
+function positionTracePopover(anchor: HTMLElement, panel: HTMLElement) {
+  const rect = anchor.getBoundingClientRect();
+  const workspaceElement = anchor.closest<HTMLElement>('.workspace');
+  const workspace = workspaceElement?.getBoundingClientRect();
+  const edge = Math.max(8, workspace?.left ?? 8);
+  const right = Math.min(window.innerWidth - 8, workspace?.right ?? window.innerWidth - 8);
+  const width = Math.min(260, Math.max(120, right - edge - 16));
+  panel.style.position = 'fixed'; panel.style.width = `${width}px`; panel.style.margin = '0';
+  panel.style.right = 'auto'; panel.style.bottom = 'auto'; panel.style.overflow = 'auto';
+  panel.style.left = `${Math.max(edge, Math.min(rect.left, right - width))}px`;
+  panel.style.maxHeight = `${Math.max(80, window.innerHeight - 24)}px`;
+  const height = panel.getBoundingClientRect().height;
+  const top = rect.bottom + 7 + height <= window.innerHeight - 8 ? rect.bottom + 7 : Math.max(8, rect.top - height - 7);
+  panel.style.top = `${top}px`;
+}
+function showTraceHelp(wrapper: HTMLElement) {
+  const button = wrapper.querySelector<HTMLButtonElement>('button');
+  const tooltip = wrapper.querySelector<HTMLElement>('.trace-tooltip');
+  if (!button || !tooltip) return;
+  if (typeof tooltip.showPopover === 'function') {
+    if (!tooltip.matches(':popover-open')) tooltip.showPopover();
+  } else tooltip.classList.add('is-open');
+  positionTracePopover(button, tooltip);
+}
+function hideTraceHelp(wrapper: HTMLElement) {
+  const tooltip = wrapper.querySelector<HTMLElement>('.trace-tooltip');
+  if (!tooltip) return;
+  if (typeof tooltip.hidePopover === 'function' && tooltip.matches(':popover-open')) tooltip.hidePopover();
+  tooltip.classList.remove('is-open');
+}
+function closeTracePopovers() {
+  for (const details of root.querySelectorAll<HTMLDetailsElement>('.filter-popover[open]')) {
+    const editor = details.querySelector<HTMLElement>('.filter-editor');
+    if (editor && typeof editor.hidePopover === 'function' && editor.matches(':popover-open')) editor.hidePopover();
+    details.open = false;
+  }
+  for (const wrapper of root.querySelectorAll<HTMLElement>('.trace-help')) hideTraceHelp(wrapper);
+}
+document.addEventListener('toggle', event => {
+  const details = event.target;
+  if (!(details instanceof HTMLDetailsElement) || !details.matches('.filter-popover') || !details.isConnected) return;
+  const anchor = details.querySelector<HTMLElement>('summary');
+  const editor = details.querySelector<HTMLElement>('.filter-editor');
+  if (!editor) return;
+  if (!details.open) {
+    if (typeof editor.hidePopover === 'function' && editor.matches(':popover-open')) editor.hidePopover();
+    return;
+  }
+  for (const other of root.querySelectorAll<HTMLDetailsElement>('.filter-popover[open]')) {
+    if (other === details) continue;
+    const otherEditor = other.querySelector<HTMLElement>('.filter-editor');
+    if (otherEditor && typeof otherEditor.hidePopover === 'function' && otherEditor.matches(':popover-open')) otherEditor.hidePopover();
+    other.open = false;
+  }
+  if (typeof editor.showPopover === 'function' && !editor.matches(':popover-open')) editor.showPopover();
+  if (anchor) positionTracePopover(anchor, editor);
+}, true);
+document.addEventListener('mouseover', event => {
+  const wrapper = (event.target as Element).closest<HTMLElement>('.trace-help');
+  if (wrapper) showTraceHelp(wrapper);
+});
+document.addEventListener('mouseout', event => {
+  const wrapper = (event.target as Element).closest<HTMLElement>('.trace-help');
+  if (wrapper && !wrapper.contains((event as MouseEvent).relatedTarget as Node | null) && !wrapper.contains(document.activeElement)) hideTraceHelp(wrapper);
+});
+document.addEventListener('focusin', event => {
+  const wrapper = (event.target as Element).closest<HTMLElement>('.trace-help');
+  if (wrapper) showTraceHelp(wrapper);
+});
+document.addEventListener('focusout', event => {
+  const wrapper = (event.target as Element).closest<HTMLElement>('.trace-help');
+  if (wrapper && !wrapper.contains((event as FocusEvent).relatedTarget as Node | null) && !wrapper.matches(':hover')) hideTraceHelp(wrapper);
+});
+document.addEventListener('scroll', event => {
+  if (event.target === document || (event.target instanceof Element && event.target.matches('.filter-scroll, .workspace, .table-scroll'))) closeTracePopovers();
+}, true);
+window.addEventListener('resize', closeTracePopovers);
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  const nativeHelpOpen = [...root.querySelectorAll<HTMLElement>('.trace-tooltip')].some(tooltip => typeof tooltip.showPopover === 'function' && tooltip.matches(':popover-open'));
+  if (nativeHelpOpen || root.querySelector('.filter-popover[open], .trace-tooltip.is-open')) closeTracePopovers();
+});
 document.addEventListener('click', event => {
   const clear = (event.target as Element).closest<HTMLElement>('[data-clear-filter]');
   if (!clear || !current) return;
@@ -777,7 +902,15 @@ document.addEventListener('click', event => {
 }, true);
 document.addEventListener('click',async event=>{
   const el=(event.target as Element).closest<HTMLElement>('a,button'); if (!el || el.hasAttribute('data-clear-filter')) return;
+  const traceHelp = el.closest<HTMLElement>('.trace-help');
+  if (traceHelp) { event.preventDefault(); showTraceHelp(traceHelp); return; }
+  if (el.hasAttribute('data-trace-guide-dismiss') || el.hasAttribute('data-trace-guide-show')) {
+    if (current) { sessionStorage.setItem(traceGuideKey(current.id), el.hasAttribute('data-trace-guide-dismiss') ? 'dismissed' : 'shown'); repaint(); }
+    return;
+  }
+  if (el.hasAttribute('data-fixed-date-range')) { toast('The demo uses a fixed date range. Filter by scenario, detections, tags or latency instead.'); return; }
   if (el.hasAttribute('data-example')) {
+    if (!chatOpen && current && location.pathname.startsWith('/demo/')) { sessionStorage.removeItem(chatKey(current.id)); chatOpen = true; repaint(); }
     const input = document.querySelector<HTMLTextAreaElement>('#chat-form textarea[name="message"]');
     if (input) { input.value = el.dataset.example ?? ''; input.focus(); input.dispatchEvent(new Event('input', { bubbles: true })); }
     return;
