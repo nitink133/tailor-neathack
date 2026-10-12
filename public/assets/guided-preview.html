@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Tailor · Contextual guidance preview</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/assets/guided-preview.css"></head>
+<body>
+<div class="preview-notice"><span><span class="preview-dot"></span> Scripted design preview <span class="notice-divider">/</span> Synthetic data</span><span>Contextual guidance · Design for review</span></div>
+<div class="preview-shell">
+<nav class="preview-rail" aria-label="Product navigation"><div class="preview-mark" aria-label="Neatlogs">n</div><button class="rail-selected" id="rail-traces" aria-label="Traces" title="Traces">▤</button><div class="rail-avatar">NK</div></nav>
+<main class="preview-main">
+<header class="product-header"><span class="breadcrumb">Neatlogs <span>/</span> support-demo</span><span class="project-tag">Demo project</span></header>
+<div class="fixture-bar"><span>Preview fixtures</span><button id="change-scenario">Change scenario</button><button id="remove-lookup">Remove lookup step</button><button id="reset">Reset</button></div>
+<section id="trace-list" class="screen" aria-labelledby="list-title">
+<div class="page-title"><div><p class="eyebrow">OBSERVABILITY</p><h1 id="list-title">Traces</h1></div><span class="subtle">Last 24 hours</span></div>
+<div class="list-filter"><span class="filter-token">Agent <strong>support-agent</strong></span><span class="filter-token">Environment <strong>demo</strong></span><span class="subtle">1 synthetic request</span></div>
+<div class="trace-table"><div class="table-head"><span>Name</span><span>Status</span><span>Duration</span></div><button id="open-trace" class="trace-row"><span><span class="trace-icon">↳</span><strong>support-agent</strong><small id="request-caption">Account access question</small></span><span class="status-pill">Success</span><span class="duration" id="list-duration">8.42 s <span>→</span></span></button></div>
+<div class="list-footnote">Synthetic trace fixture · No provider calls or production data</div>
+<div class="quiet-empty"><div class="empty-icon">↳</div><h2>A request, from start to finish</h2><p>Open a trace to explore its steps and output.<br>Tailor can point to the detail relevant to your question.</p></div>
+</section>
+<section id="trace-detail" class="screen" hidden aria-labelledby="detail-title">
+<div class="detail-top"><button id="back-traces" class="text-button">← Traces</button><span class="subtle">Synthetic request · demo-001</span></div>
+<div class="page-title detail-title"><div><h1 id="detail-title">support-agent</h1><p id="detail-caption">Account access question</p></div><span class="status-pill">Success</span></div>
+<div class="summary-grid"><div><small>Duration</small><strong id="detail-duration">8.42 s</strong></div><div><small>Steps</small><strong id="step-count">3</strong></div><div><small>Environment</small><strong>demo</strong></div></div>
+<div class="detail-tabs" role="tablist" aria-label="Trace detail"><button role="tab" id="tab-overview" aria-selected="true">Overview</button><button role="tab" id="tab-output" aria-selected="false">Output</button></div>
+<div id="overview-panel" role="tabpanel" aria-labelledby="tab-overview"><div class="section-heading"><h2>Request timeline</h2><span class="subtle">Elapsed time</span></div>
+<div class="timeline"><div class="timeline-row"><div><span class="node-dot"></span><strong>support-agent</strong><small>REQUEST</small></div><span id="timeline-duration">8.42 s</span></div><div class="timeline-row child"><div><span class="node-dot"></span><strong>validate_request</strong><small>TOOL</small></div><span>0.12 s</span></div><button id="lookup-target" class="timeline-row child" aria-label="Inspect lookup_account step"><div><span class="node-dot amber"></span><strong>lookup_account</strong><small>TOOL</small></div><span>7.80 s <i class="timeline-bar"></i></span></button><div class="timeline-row child"><div><span class="node-dot"></span><strong>format_response</strong><small>TOOL</small></div><span id="format-duration">0.50 s</span></div></div>
+<section id="step-details" class="detail-card" hidden><div class="card-header"><h2>lookup_account</h2><span class="type-tag">Tool step</span></div><div class="step-metrics"><div><small>Duration</small><strong>7.80 s</strong></div><div><small>Result</small><strong class="success-text">Completed</strong></div></div><div class="code-label">Output</div><pre>{
+  "account_found": true,
+  "access_status": "active"
+}</pre></section>
+<p class="list-footnote">Timing shows where time was spent. It does not explain the cause.</p></div>
+<div id="output-panel" role="tabpanel" aria-labelledby="tab-output" hidden><section id="output-target" class="detail-card output-card" tabindex="-1"><div class="card-header"><h2>Support output</h2><span class="type-tag">Response</span></div><div class="code-label">User question</div><p id="output-question">I can’t access my account. Can you check its status?</p><div class="code-label">Final output</div><p id="output-response">Your account is active. If you still can’t sign in, try resetting your password or contact support for help.</p></section><p class="list-footnote">Scripted output for this synthetic request.</p></div>
+</section>
+</main>
+<aside class="preview-chat" aria-label="Tailor conversation">
+<header class="conversation-header"><div class="tailor-mark">✳</div><div><strong>Tailor</strong><small>Explore this product with me</small></div><span class="chat-connected">Demo</span></header>
+<div class="conversation-scroll">
+<div class="context-label">YOUR QUESTION</div><div class="buyer-message" id="buyer-question">Why is my support agent slow?</div>
+<div class="answer-avatar"><span>✳</span><small>Tailor</small></div><div class="answer-copy" id="answer-copy"><p>Most of this request’s time is in <strong>lookup_account</strong>: 7.80 s of 8.42 s.</p><p>Start there to see the timing, then check the support output for context. This trace alone doesn’t tell us why the lookup took longer.</p></div>
+<div id="suggestions"><div class="suggestion-heading"><span>Take a closer look</span><small>Choose what’s useful</small></div><button class="suggestion" id="suggest-lookup" data-guide="lookup"><span class="suggestion-symbol">↳</span><span><strong>Inspect slow lookup</strong><small>Find the step using most of the time</small></span><span class="suggestion-arrow">↗</span></button><button class="suggestion" id="suggest-output" data-guide="output"><span class="suggestion-symbol">≡</span><span><strong>Inspect support output</strong><small>Read the question and final response</small></span><span class="suggestion-arrow">↗</span></button></div>
+<section id="guide-note" class="guide-note" hidden aria-live="polite"><div class="guide-note-heading"><span id="guide-kicker">YOU’RE LOOKING AT</span><button id="dismiss-guide" aria-label="Dismiss guidance" title="Dismiss guidance">×</button></div><h2 id="guide-title"></h2><p id="guide-copy"></p><button id="recover-guide" class="recovery-button" hidden></button></section>
+<div id="scenario-notice" class="scenario-notice" hidden><strong>The demo scenario changed</strong><p>This answer belongs to the previous request.</p><button id="refresh-answer">Show the current answer →</button></div>
+</div>
+<footer class="conversation-footer"><div class="fixture-question"><small>Try a scripted question</small><button id="question-output">What did the agent return? <span>↗</span></button><button id="question-slow">Why is my support agent slow? <span>↗</span></button></div><div class="attribution">Powered by <strong>Tailor</strong><span>Scripted fixtures · No live AI</span></div></footer>
+</aside>
+</div>
+<script src="/assets/guided-preview.js"></script>
+</body></html>
