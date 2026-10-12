@@ -1,0 +1,37 @@
+Close out the completed Tailor implementation: consolidate approved work, merge the feature branch into main, push main, verify Git and Entire evidence, and tell me whether this session is safe to archive.
+Use the available Cursor model as orchestrator. Delegate read-only Git/history inspection and Entire evidence inspection to separate subagents if supported; keep all Git mutations under one owner. Do not assume premium models remain available.
+1. Establish the actual state
+   Read AGENTS.md and the project-local Entire skill. Inspect the primary repository and existing worktrees without overwriting anyone’s work.
+Expected feature branch: work/nit-269-build-personalised-tailor-agent-proof.
+Reported tip: 17963ac, containing 6bfcdf8, bfdb66e, f326d2d and 17963ac. Resolve full SHAs and verify actual local/remote state; don’t assume this report is still current.
+Inventory staged, unstaged and untracked files. Commit any remaining intended changes from this completed assignment after reviewing and checking them for secrets. Do not stage everything blindly, commit local databases/transcripts/keys, or include unrelated changes. Preserve ambiguous work and ask if its ownership cannot be established.
+2. Diagnose and reconcile Entire
+   Run the installed version’s supported read-only diagnostics, including entire doctor. Inspect lifecycle hooks, transcript availability/path matching, condensation errors, session association and checkpoint refs. Do not print sensitive transcript contents.
+Known report to verify:
+- Historical implementation: 4/19 commits synced, five trailer-only, ten without trailers.
+- 6bfcdf8: synced checkpoint.
+- bfdb66e and 17963ac: trailers but missing checkpoint refs.
+- f326d2d: no trailer.
+I authorise supported, non-destructive recovery of available session/checkpoint data and normal synchronisation to this existing repository, after screening outgoing content for secrets/private data. Use documented commands for the installed version; do not guess commands or edit internal metadata to fabricate coverage. If historical import is the only supported recovery, preserve that label and original commit anchors. Report unavailable transcript ranges honestly.
+Do not amend or rewrite existing commits, manually invent trailers, manufacture sessions, or represent imported history as live capture. Do not change global hooks, authentication, credentials or security-sensitive settings without showing me the exact proposed change and obtaining approval. If capture repair requires such a change, pause that repair lane and report it; preserve all original evidence.
+3. Merge safely into main
+   Fetch current remote refs and inspect divergence. Preserve local-only main history and all existing feature commits. Never hard-reset main, force-push, squash or rebase away the implementation history.
+Use a clean checkout/worktree for integration if needed. If main can advance by fast-forward, use that. Otherwise use a normal history-preserving merge after inspecting both sides. Handle straightforward conflicts only where intended behaviour is unambiguous; ask about conflicting product changes.
+This authorises merging this completed feature work into main. It does not authorise merging unrelated branches, deleting branches/worktrees or deploying.
+4. Verify the integrated code
+   Run typecheck, npm test, build, Playwright and doctor:local using the repository’s documented offline/mock configuration. Do not make paid model calls or enable new hosted telemetry for these checks. Existing reported results were 280 tests and 16 browser tests; report actual results rather than copying those counts.
+Inspect the final diff for secrets, generated runtime data and accidental environment changes. Ensure the documented architecture, evidence and unresolved limitations match what is actually integrated.
+If integration checks fail, fix only integration-related regressions and rerun the affected checks plus the final gates. Do not push failing main.
+5. Publish and independently verify
+   Push main normally. Verify the exact remote main SHA matches the intended integrated result and that all four implementation commits remain reachable from it.
+Verify each recoverable Entire checkpoint using its actual local ref and matching remote ref. Report dashboard/session visibility separately if authenticated access is already available. Do not use Analytics totals or a commit trailer alone as proof. If publishing checkpoint data encounters secrets or an unsupported recovery path, stop that part and report the blocker rather than stripping evidence silently.
+6. Archival handoff
+   Return a short final report containing:
+   - Final main SHA and GitHub link; local/remote equality.
+   - Included commits and any work intentionally left outside main.
+   - Tests actually run and their outcomes.
+   - Entire coverage by commit/session: live captured, historically recovered/imported, trailer-only or unavailable; local/remote proof and dashboard verification status.
+   - Any remaining capture repair requiring my approval.
+   - A clear SAFE TO ARCHIVE or KEEP SESSION OPEN verdict with reasons.
+Do not archive this session yourself, delete its transcripts, remove worktrees or delete source branches. Missing irrecoverable historical capture must remain a documented gap; don’t call coverage complete just to produce an archival verdict.
+Stop after the closeout report. No paid E2E, deployment, prompt-cache changes or new feature work.
