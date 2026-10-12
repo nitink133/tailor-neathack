@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import {
   EVALUATION_LIMITS as LIMITS, EVALUATION_SCHEMA_VERSION,
-  type EvaluationAggregate, type EvaluationDetail, type EvaluationQuestion, type EvaluationRepository,
+  type EvaluationAggregate, type EvaluationCheck, type EvaluationDetail, type EvaluationQuestion, type EvaluationRepository,
   type EvaluationResponse, type EvaluationService, type EvaluationValue, type StoredEvaluation, type SyntheticEvaluation,
 } from './eval-contract.ts';
 import type { DemoSession } from './contracts.ts';
-import { simulatedResponses, syntheticReviewQuestions } from './eval-fixtures.ts';
+import { executeChecks, simulatedResponses, syntheticReviewQuestions } from './eval-fixtures.ts';
 
 export class EvaluationError extends Error {
   status: number;
@@ -75,6 +75,28 @@ function value(q: EvaluationQuestion, v: unknown): EvaluationValue {
   if (q.type === 'choice') { if (typeof v !== 'string' || !q.options!.includes(v)) return invalid(`Answer for ${q.key} must match a choice.`); return v; }
   return text(v, LIMITS.maxTextChars, `Answer for ${q.key}`);
 }
+function check(raw: unknown): EvaluationCheck {
+  if (!obj(raw)) return invalid('Checks must be bounded check objects.');
+  const kind = raw.kind;
+  const c = object(raw, kind === 'latency' ? ['key','label','kind','maxDurationMs']
+    : kind === 'required_output_fields' ? ['key','label','kind','fields'] : ['key','label','kind']);
+  const key = text(c.key,40,'Check key');
+  if (!/^[a-z][a-z0-9-]{0,39}$/.test(key)) return invalid('Check keys must be lower-case slugs.');
+  const label = text(c.label,160,'Check label');
+  if (kind === 'no_error') return {key,label,kind};
+  if (kind === 'latency') {
+    const maxDurationMs = integer(c.maxDurationMs,'maxDurationMs');
+    if (maxDurationMs > LIMITS.maxDurationMs) return invalid('Latency thresholds must be at most 600000 ms.');
+    return {key,label,kind,maxDurationMs};
+  }
+  if (kind === 'required_output_fields') {
+    if (!Array.isArray(c.fields) || !c.fields.length || c.fields.length > LIMITS.maxOutputFields) return invalid('Select 1–8 top-level output fields.');
+    const fields = c.fields.map(f => text(f,64,'Output field'));
+    if (fields.some(f => !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(f) || ['constructor','prototype','__proto__'].includes(f)) || new Set(fields).size !== fields.length) return invalid('Output fields must be distinct simple top-level names.');
+    return {key,label,kind,fields};
+  }
+  return invalid('Unsupported deterministic check kind.');
+}
 function aggregate(evaluation: SyntheticEvaluation): EvaluationAggregate[] {
   return evaluation.questions.map(q => {
     const responses = evaluation.responses.filter(r => r.questionKey === q.key);
@@ -113,7 +135,7 @@ export function createEvaluationService(repository: EvaluationRepository, option
     read(session, id) { assertSession(session, now()); return detail(readStored(session,id),session); },
     create(session, raw) {
       assertSession(session, now());
-      const body = object(raw, ['clientOperationId','datasetVersion','name','description','traceIds','questions']);
+      const body = object(raw, ['clientOperationId','datasetVersion','name','description','traceIds','questions','checks']);
       const op = operation(body.clientOperationId), fingerprint = hash(body);
       const id = `eval-${hash([session.id,op]).slice(0,24)}`;
       const existing = repository.read(session.id,id);
@@ -127,9 +149,12 @@ export function createEvaluationService(repository: EvaluationRepository, option
       const traces = traceIds.map(id => { const t = session.dataset.traces.find(t => t.id === id); if (!t) throw new EvaluationError(404,'TRACE_NOT_FOUND','A selected trace is not in this demo.'); return structuredClone(t); });
       const questions = body.questions === undefined ? syntheticReviewQuestions() : (Array.isArray(body.questions) ? body.questions.map(question) : invalid('Questions must be an array.'));
       if (!questions.length || questions.length > LIMITS.maxQuestions || new Set(questions.map(q => q.key)).size !== questions.length) return invalid('Select 1–8 questions with distinct keys.');
+      const checks = body.checks === undefined ? undefined : (Array.isArray(body.checks) ? body.checks.map(check) : invalid('Checks must be an array.'));
+      if (checks && (!checks.length || checks.length > LIMITS.maxChecks || new Set(checks.map(c => c.key)).size !== checks.length)) return invalid('Select 1–8 checks with distinct keys.');
       const evaluation = finish({ id, schemaVersion: EVALUATION_SCHEMA_VERSION, name, description, version:1, datasetVersion:version,
         mode:'synthetic', provenance:'local_demo', state:'pending', traceIds, traceSnapshot:traces, questions,
-        responses:simulatedResponses(traces,questions), aggregates:[], createdAt:now().toISOString() });
+        responses:simulatedResponses(traces,questions), aggregates:[],
+        ...(checks ? {checks,checkResults:executeChecks(traces,checks)} : {}), createdAt:now().toISOString() });
       const stored: StoredEvaluation = { evaluation, operations:[{id:op,fingerprint}] };
       if (!repository.compareAndSet(session.id,id,null,stored)) {
         const concurrent = readStored(session,id);

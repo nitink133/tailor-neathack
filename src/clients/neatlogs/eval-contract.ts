@@ -2,7 +2,25 @@
 import type { DemoSession, Trace } from './contracts.ts';
 
 export const EVALUATION_SCHEMA_VERSION = '2026-10-12.1' as const;
-export const EVALUATION_LIMITS = { maxEvaluations: 8, maxQuestions: 8, maxResponses: 32, maxTextChars: 600, maxOperations: 64 } as const;
+export const EVALUATION_LIMITS = { maxEvaluations: 8, maxQuestions: 8, maxResponses: 32, maxTextChars: 600, maxOperations: 64, maxChecks: 8, maxOutputFields: 8, maxDurationMs: 600_000 } as const;
+/** Fixed local predicates only; never executable expressions or hosted evaluator configuration. */
+export type EvaluationCheck = { key: string; label: string } & (
+  | { kind: 'no_error' }
+  | { kind: 'latency'; maxDurationMs: number }
+  | { kind: 'required_output_fields'; fields: string[] }
+);
+export interface EvaluationCheckResult {
+  traceId: string;
+  checkKey: string;
+  source: 'deterministic_check';
+  provenance: 'local_trace_snapshot';
+  status: 'passed' | 'failed' | 'unavailable';
+  passed: boolean | null;
+  evidenceSpanIds: string[];
+  /** Exact observations used by the predicate, not an answer-quality judgment. */
+  observed: { errorSpanIds?: string[]; elapsedMs?: number; missingFields?: string[] };
+  explanation: string;
+}
 export type EvaluationValue = number | boolean | string;
 export interface EvaluationQuestion {
   key: string;
@@ -44,6 +62,9 @@ export interface SyntheticEvaluation {
   questions: EvaluationQuestion[];
   responses: EvaluationResponse[];
   aggregates: EvaluationAggregate[];
+  /** Separate from illustrative judge scores. Absent on older saved evaluations. */
+  checks?: EvaluationCheck[];
+  checkResults?: EvaluationCheckResult[];
   createdAt: string;
 }
 export interface EvaluationDetail { evaluation: SyntheticEvaluation; stale: boolean }
@@ -57,6 +78,7 @@ export interface CreateEvaluationRequest {
   traceIds: string[];
   /** Defaults to syntheticReviewQuestions(). */
   questions?: EvaluationQuestion[];
+  checks?: EvaluationCheck[];
 }
 export interface ReviewEvaluationRequest {
   clientOperationId: string;

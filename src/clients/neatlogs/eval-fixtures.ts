@@ -1,5 +1,40 @@
-import type { EvaluationQuestion, EvaluationResponse } from './eval-contract.ts';
+import type { EvaluationCheck, EvaluationCheckResult, EvaluationQuestion, EvaluationResponse } from './eval-contract.ts';
 import type { Trace } from './contracts.ts';
+
+/** Executes fixed predicates over the immutable snapshot. No model, network or buyer-supplied code runs. */
+export function executeChecks(traces: Trace[], checks: EvaluationCheck[]): EvaluationCheckResult[] {
+  return traces.flatMap(trace => checks.map(check => {
+    const base = { traceId:trace.id, checkKey:check.key, source:'deterministic_check' as const, provenance:'local_trace_snapshot' as const };
+    let passed: boolean | null;
+    let observed: EvaluationCheckResult['observed'];
+    let evidenceSpanIds: string[];
+    let explanation: string;
+    if (check.kind === 'no_error') {
+      const errors = trace.spans.filter(s => s.status === 'ERROR' || s.error !== null);
+      passed = trace.spans.length ? errors.length === 0 : null;
+      observed = {errorSpanIds:errors.map(s => s.id)};
+      evidenceSpanIds = trace.spans.map(s => s.id);
+      explanation = passed === null ? 'No spans available to check.' : `${errors.length} of ${trace.spans.length} snapshot spans have an error. This checks execution, not answer quality.`;
+    } else if (check.kind === 'latency') {
+      const spans = trace.spans;
+      const valid = spans.length > 0 && spans.every(s => Number.isFinite(s.startMs) && Number.isFinite(s.durationMs) && s.durationMs >= 0);
+      const elapsedMs = valid ? Math.max(...spans.map(s => s.startMs + s.durationMs)) - Math.min(...spans.map(s => s.startMs)) : null;
+      passed = elapsedMs === null ? null : elapsedMs <= check.maxDurationMs;
+      observed = elapsedMs === null ? {} : {elapsedMs};
+      evidenceSpanIds = spans.map(s => s.id);
+      explanation = elapsedMs === null ? 'Snapshot timing is unavailable.' : `Snapshot elapsed time is ${elapsedMs} ms; threshold is at most ${check.maxDurationMs} ms. This is synthetic trace timing, not a live benchmark.`;
+    } else {
+      const output = trace.output;
+      const record = output !== null && typeof output === 'object' && !Array.isArray(output) ? output : null;
+      const missingFields = check.fields.filter(field => !record || !Object.hasOwn(record,field) || record[field] === null || record[field] === '');
+      passed = missingFields.length === 0;
+      observed = {missingFields};
+      evidenceSpanIds = trace.spans.filter(s => s.parentId === null).map(s => s.id);
+      explanation = missingFields.length ? `Missing or empty top-level output fields: ${missingFields.join(', ')}.` : 'All required top-level output fields are present and non-empty. Field correctness still needs review.';
+    }
+    return {...base,passed,status:passed === null ? 'unavailable' as const : passed ? 'passed' as const : 'failed' as const,observed,evidenceSpanIds,explanation};
+  }));
+}
 
 /** A mixed review form; "simulated_judge" is deterministic demo data, never an LLM judge. */
 export function syntheticReviewQuestions(): EvaluationQuestion[] {

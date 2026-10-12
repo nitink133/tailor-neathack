@@ -10,6 +10,8 @@ export const GUIDANCE_TARGETS = {
   'trace.slowest-span': { label: 'Inspect the slowest step', purpose: 'Look at the step with the longest recorded duration.' },
   'trace.model-call': { label: 'Inspect the model call', purpose: 'Read the saved input and output of this model step.' },
   'trace.output': { label: 'Review the request output', purpose: 'Check the saved outcome of this synthetic request.' },
+  'evals.overview': { label: 'Explore evals for this agent', purpose: 'Review session-scoped eval questions and deterministic sample checks for this saved synthetic request.' },
+  'alerts.overview': { label: 'Preview alert routing', purpose: 'See which saved synthetic signals would reach a fictional review role. No notification is sent.' },
 } as const;
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 /** Bad guidance never makes an otherwise valid answer unusable. Extra fields cannot smuggle actions. */
@@ -25,7 +27,7 @@ export function parseGuidanceSelections(value: unknown): GuidanceSelection[] {
     return [{ targetId: v.targetId as GuidanceSelection['targetId'], ...(typeof v.traceId === 'string' ? { traceId: v.traceId } : {}) }];
   });
 }
-/** Resolve only the current authorised detail. No comparisons, external actions or data mutations. */
+/** Resolve only the current authorised trace or its eval workspace. No external actions or data mutations. */
 export function resolveGuidance(value: unknown, session: SessionSnapshot, openTraceId?: string): ContextualGuidance[] {
   if (session.state !== 'active') return [];
   const trace = openTraceId ? session.dataset.traces.find(t => t.id === openTraceId) : session.dataset.traces.find(t => t.scenario === session.dataset.activeScenario);

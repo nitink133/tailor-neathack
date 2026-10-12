@@ -721,7 +721,7 @@
         {
           "url": "https://docs.neatlogs.com/api-reference/availability",
           "verifiedOn": "2026-10-12",
-          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer\u2019s access was not verified."
         }
       ]
     }
@@ -802,7 +802,7 @@
         {
           "url": "https://docs.neatlogs.com/api-reference/availability",
           "verifiedOn": "2026-10-12",
-          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer\u2019s access was not verified."
         }
       ]
     }
@@ -897,7 +897,7 @@
         {
           "url": "https://docs.neatlogs.com/api-reference/availability",
           "verifiedOn": "2026-10-12",
-          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer\u2019s access was not verified."
         }
       ]
     }
@@ -968,7 +968,7 @@
         {
           "url": "https://docs.neatlogs.com/api-reference/availability",
           "verifiedOn": "2026-10-12",
-          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer\u2019s access was not verified."
         }
       ]
     }
@@ -978,10 +978,12 @@
     "title": "Alerts and Slack destinations",
     "scope": "official_product",
     "buyerProblem": "I need the team notified when failures spike, latency crosses a limit, or traces stop arriving.",
-    "behaviour": "Neatlogs documents threshold, per-event, compound, metric, and ingestion-health alert rules with Slack, email, in-app, and webhook destinations.",
+    "behaviour": "Neatlogs routes configured detection, metric or ingestion-health conditions through alert rules with severity, window and cooldown. The native wizard is Type, Condition, Details, Response, Confirm. Response offers in-app, email, Slack and configured webhooks; this is evidence-backed alert delivery, not arbitrary contact assignment.",
     "limitations": [
       "Tailor cannot create or modify real alert rules.",
-      "Slack requires the official integration to be connected."
+      "Slack requires the official integration to be connected.",
+      "No alert was saved or delivery tested in hosted Neatlogs.",
+      "No verified on-call roster, arbitrary recipient selection or automatic owner assignment is implied by the inspected wizard."
     ],
     "prerequisites": [
       "Incoming Neatlogs spans",
@@ -995,8 +997,13 @@
     "sources": [
       {
         "url": "https://docs.neatlogs.com/docs/features/alerts",
-        "verifiedOn": "2026-10-11",
-        "claim": "The official Alerts page lists detection, metric, and ingestion-health rules and Slack, email, in-app, and webhook destinations."
+        "verifiedOn": "2026-10-12",
+        "claim": "Rules define conditions, severity, windows, cooldowns and destinations."
+      },
+      {
+        "url": "https://app.neatlogs.com/alerts",
+        "verifiedOn": "2026-10-12",
+        "claim": "Read-only authenticated inspection of unsaved wizard: in-app always on; email depends on notification preferences; Slack disabled when disconnected; webhooks require configuration."
       }
     ],
     "exampleQuestions": [
@@ -1004,7 +1011,10 @@
       "Page us when latency exceeds five seconds",
       "Notify me if ingestion stops",
       "Can a detection trigger email?",
-      "How do alert cooldowns work?"
+      "How do alert cooldowns work?",
+      "How do you route issues to the right people?",
+      "Update me when failures spike",
+      "Can you send this to a real teammate?"
     ],
     "demonstration": {
       "level": "explain_only",
@@ -1025,10 +1035,19 @@
       "latency",
       "threshold",
       "failure",
-      "ingestion"
+      "ingestion",
+      "routing",
+      "right people",
+      "people",
+      "notify",
+      "update me",
+      "cooldown",
+      "severity",
+      "monitor"
     ],
     "productLimitations": [
-      "Slack delivery requires the official integration to be connected."
+      "Slack delivery requires the official integration to be connected.",
+      "Email depends on account notification preferences; webhooks require configuration."
     ],
     "cloneSupport": {
       "state": "explain_only",
@@ -1046,7 +1065,12 @@
         {
           "url": "https://docs.neatlogs.com/api-reference/availability",
           "verifiedOn": "2026-10-12",
-          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer\u2019s access was not verified."
+        },
+        {
+          "url": "https://app.neatlogs.com/alerts",
+          "verifiedOn": "2026-10-12",
+          "claim": "Read-only authenticated inspection of unsaved wizard: in-app always on; email depends on notification preferences; Slack disabled when disconnected; webhooks require configuration."
         }
       ]
     }
@@ -1058,7 +1082,7 @@
     "buyerProblem": "Rules cannot judge tone or correctness; I need structured review and measurable quality results.",
     "behaviour": "Neatlogs documents structured forms over existing or arriving traces/spans, assigning human or AI reviewers per question, then aggregating results and exporting CSV/JSON.",
     "limitations": [
-      "Hosted reviewer/evaluator setup and runtime access have not been verified.",
+      "The native eval entry and dataset-type builder were observed; dispatch, evaluator execution and runtime entitlement were not tested.",
       "The local Evals page uses fictional saved traces, buyer reviews and explicitly simulated judge values."
     ],
     "prerequisites": [
@@ -1067,8 +1091,14 @@
       "Assigned human or AI reviewers"
     ],
     "planAvailability": {
-      "status": "unknown",
-      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+      "status": "known",
+      "plans": [
+        "Free",
+        "Starter",
+        "Pro",
+        "Enterprise"
+      ],
+      "note": "Official homepage pricing inspected 2026-10-12: Free lists unlimited human evals; Starter lists an AI-evaluation allowance; Pro lists unlimited evaluations. Account-specific access and current entitlement remain unverified."
     },
     "sources": [
       {
@@ -1085,6 +1115,16 @@
         "url": "https://docs.neatlogs.com/api-reference/availability",
         "verifiedOn": "2026-10-12",
         "claim": "Runtime availability and plan access are separate checks; future collection has a final-cohort caveat."
+      },
+      {
+        "url": "https://app.neatlogs.com/evals",
+        "verifiedOn": "2026-10-12",
+        "claim": "Authenticated native entry inspected read-only: Dataset, Evaluators, Form, Review; trace-level first-input/final-output or span-level own input/output. No hosted evaluation created."
+      },
+      {
+        "url": "https://neatlogs.com/#pricing",
+        "verifiedOn": "2026-10-12",
+        "claim": "Published plan table lists human evals on Free, AI-evaluation allowance on Starter and unlimited evaluations on Pro."
       }
     ],
     "exampleQuestions": [
@@ -1137,7 +1177,7 @@
         {
           "url": "https://docs.neatlogs.com/api-reference/availability",
           "verifiedOn": "2026-10-12",
-          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer\u2019s access was not verified."
         }
       ]
     }
@@ -1218,7 +1258,7 @@
         {
           "url": "https://docs.neatlogs.com/api-reference/availability",
           "verifiedOn": "2026-10-12",
-          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer\u2019s access was not verified."
         }
       ]
     }
@@ -1299,7 +1339,7 @@
         {
           "url": "https://docs.neatlogs.com/api-reference/availability",
           "verifiedOn": "2026-10-12",
-          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer\u2019s access was not verified."
         }
       ]
     }
@@ -1386,7 +1426,7 @@
         {
           "url": "https://docs.neatlogs.com/api-reference/availability",
           "verifiedOn": "2026-10-12",
-          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer\u2019s access was not verified."
         }
       ]
     }
@@ -1469,7 +1509,7 @@
         {
           "url": "https://docs.neatlogs.com/api-reference/availability",
           "verifiedOn": "2026-10-12",
-          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer\u2019s access was not verified."
         }
       ]
     }
@@ -1553,7 +1593,7 @@
         {
           "url": "https://docs.neatlogs.com/api-reference/availability",
           "verifiedOn": "2026-10-12",
-          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer\u2019s access was not verified."
         }
       ]
     }
@@ -1624,7 +1664,7 @@
         {
           "url": "https://docs.neatlogs.com/api-reference/availability",
           "verifiedOn": "2026-10-12",
-          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer\u2019s access was not verified."
         }
       ]
     }
@@ -1705,7 +1745,7 @@
     "title": "Local synthetic evaluation review",
     "scope": "clone_only",
     "buyerProblem": "Review this fictional answer against a quality form.",
-    "behaviour": "The local Evals page saves a bounded form and immutable trace snapshot, accepts buyer reviews and derives per-question aggregates. Deterministic placeholder verdicts retain simulated provenance; absent numeric scores are null.",
+    "behaviour": "The local Evals page saves a bounded form and immutable trace snapshot, accepts buyer reviews and derives per-question aggregates. Executed deterministic no_error, latency and required_output_fields checks report passed, failed or unavailable with exact observations and evidence. Buyer responses, executed checks and simulated judge values remain separate; absent numeric scores are null.",
     "limitations": [
       "No hosted AI evaluator runs.",
       "Dataset edits mark old evaluations stale; reviews never silently score a different trace version."
@@ -1720,14 +1760,22 @@
         "url": "repo:src/clients/neatlogs/eval-service.ts",
         "verifiedOn": "2026-10-12",
         "claim": "The local service validates questions/answers, binds evidence to the demo and snapshot, and derives results from saved responses."
+      },
+      {
+        "url": "repo:src/clients/neatlogs/eval-fixtures.ts",
+        "verifiedOn": "2026-10-12",
+        "claim": "executeChecks evaluates fixed predicates against saved trace snapshots; they are not semantic AI judgments."
       }
     ],
     "exampleQuestions": [
-      "Review this fictional answer against a quality form."
+      "Review this fictional answer against a quality form.",
+      "Show checks that actually ran",
+      "Check required output fields",
+      "How is a simulated judge different?"
     ],
     "demonstration": {
       "level": "modifiable",
-      "evidence": "The local Evals page saves a bounded form and immutable trace snapshot, accepts buyer reviews and derives per-question aggregates. Deterministic placeholder verdicts retain simulated provenance; absent numeric scores are null.",
+      "evidence": "The local Evals page saves a bounded form and immutable trace snapshot, accepts buyer reviews and derives per-question aggregates. Executed deterministic no_error, latency and required_output_fields checks report passed, failed or unavailable with exact observations and evidence. Buyer responses, executed checks and simulated judge values remain separate; absent numeric scores are null.",
       "cloneSurfaces": [
         "Evals list",
         "Evals detail",
@@ -1749,7 +1797,13 @@
       "quality",
       "score",
       "form",
-      "result"
+      "result",
+      "checks",
+      "deterministic",
+      "latency",
+      "fields",
+      "no_error",
+      "readback"
     ],
     "productLimitations": [],
     "cloneSupport": {
@@ -1766,7 +1820,7 @@
         "results"
       ],
       "evidence": [
-        "The local Evals page saves a bounded form and immutable trace snapshot, accepts buyer reviews and derives per-question aggregates. Deterministic placeholder verdicts retain simulated provenance; absent numeric scores are null."
+        "The local Evals page saves a bounded form and immutable trace snapshot, accepts buyer reviews and derives per-question aggregates. Executed deterministic no_error, latency and required_output_fields checks report passed, failed or unavailable with exact observations and evidence. Buyer responses, executed checks and simulated judge values remain separate; absent numeric scores are null."
       ]
     },
     "hostedAvailability": {
@@ -1785,14 +1839,30 @@
     ],
     "prerequisites": [],
     "planAvailability": {
-      "status": "unknown",
-      "note": "Hosted access and ordinary plan entitlements were not verified; local synthetic behavior proves neither."
+      "status": "known",
+      "plans": [
+        "Free",
+        "Starter",
+        "Pro",
+        "Enterprise"
+      ],
+      "note": "Official homepage pricing inspected 2026-10-12: Free lists unlimited human evals; Starter lists an AI-evaluation allowance; Pro lists unlimited evaluations. Account-specific access and current entitlement remain unverified."
     },
     "sources": [
       {
         "url": "https://docs.neatlogs.com/docs/features/evals/human-evaluators",
         "verifiedOn": "2026-10-12",
         "claim": "Reviewers see a trace and assigned questions; results provide per-question and batch breakdowns."
+      },
+      {
+        "url": "https://app.neatlogs.com/evals",
+        "verifiedOn": "2026-10-12",
+        "claim": "Authenticated native entry inspected read-only: Dataset, Evaluators, Form, Review; trace-level first-input/final-output or span-level own input/output. No hosted evaluation created."
+      },
+      {
+        "url": "https://neatlogs.com/#pricing",
+        "verifiedOn": "2026-10-12",
+        "claim": "Published plan table lists human evals on Free, AI-evaluation allowance on Starter and unlimited evaluations on Pro."
       }
     ],
     "exampleQuestions": [
@@ -1850,14 +1920,29 @@
     ],
     "prerequisites": [],
     "planAvailability": {
-      "status": "unknown",
-      "note": "Hosted access and ordinary plan entitlements were not verified; local synthetic behavior proves neither."
+      "status": "known",
+      "plans": [
+        "Starter",
+        "Pro",
+        "Enterprise"
+      ],
+      "note": "Official homepage pricing inspected 2026-10-12: Free lists unlimited human evals; Starter lists an AI-evaluation allowance; Pro lists unlimited evaluations. Account-specific access and current entitlement remain unverified."
     },
     "sources": [
       {
         "url": "https://docs.neatlogs.com/docs/features/evals/ai-evaluators",
         "verifiedOn": "2026-10-12",
         "claim": "LLM and agent judges use a rubric/verdict schema; playground runs are distinct from real reviews."
+      },
+      {
+        "url": "https://app.neatlogs.com/evals",
+        "verifiedOn": "2026-10-12",
+        "claim": "Authenticated native entry inspected read-only: Dataset, Evaluators, Form, Review; trace-level first-input/final-output or span-level own input/output. No hosted evaluation created."
+      },
+      {
+        "url": "https://neatlogs.com/#pricing",
+        "verifiedOn": "2026-10-12",
+        "claim": "Published plan table lists human evals on Free, AI-evaluation allowance on Starter and unlimited evaluations on Pro."
       }
     ],
     "exampleQuestions": [
@@ -1975,6 +2060,263 @@
         }
       ],
       "operationGate": "tier-c-compute"
+    }
+  },
+  {
+    "id": "official-eval-fit-and-calibration",
+    "title": "Choose eval questions and validate the judge",
+    "scope": "official_product",
+    "buyerProblem": "How do evals fit my agent, what should I test, and how do I know the judge works?",
+    "behaviour": "Neatlogs asks an explicit quality question against a business-defined standard, assigns human and AI reviewers per question, and supports testing a judge before assignment. Its product guidance compares human and AI agreement and recalibrates disagreements. Tailor recommends starting with representative success, failure and ambiguous examples, concrete pass criteria, and a domain expert; recommendation is not a measured quality guarantee.",
+    "limitations": [
+      "Passing a small synthetic sample does not establish production quality.",
+      "Local deterministic checks validate explicit fixture properties; they do not claim semantic AI judgment.",
+      "Illustrative AI outcomes must remain labelled simulated; local checks and buyer reviews have separate provenance."
+    ],
+    "prerequisites": [
+      "A concrete quality question and pass criterion",
+      "Representative trace or span inputs/outputs",
+      "A domain expert for ambiguous judgment"
+    ],
+    "planAvailability": {
+      "status": "known",
+      "plans": [
+        "Free",
+        "Starter",
+        "Pro",
+        "Enterprise"
+      ],
+      "note": "Official homepage pricing inspected 2026-10-12: Free lists unlimited human evals; Starter lists an AI-evaluation allowance; Pro lists unlimited evaluations. Account-specific access and current entitlement remain unverified."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/docs/features/evals",
+        "verifiedOn": "2026-10-12",
+        "claim": "Structured review scores captured traces or spans against per-question assignments."
+      },
+      {
+        "url": "https://docs.neatlogs.com/docs/features/evals/ai-evaluators",
+        "verifiedOn": "2026-10-12",
+        "claim": "Rubric and verdict schema define the judge; playground tests are separate from real reviews."
+      },
+      {
+        "url": "https://neatlogs.com/product/evals",
+        "verifiedOn": "2026-10-12",
+        "claim": "Product guidance compares human and AI judgments and recalibrates their disagreement."
+      }
+    ],
+    "exampleQuestions": [
+      "How do evals fit my agent?",
+      "What good evals should I add?",
+      "How do I know my evals work?",
+      "Can passing samples guarantee production quality?"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "Explain an eval plan; the session demo can separately show local deterministic checks and buyer review without hosted AI execution.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "eval",
+      "evaluation",
+      "fit",
+      "rubric",
+      "quality",
+      "calibration",
+      "agreement",
+      "works",
+      "judge",
+      "good evals",
+      "test",
+      "validate",
+      "standard",
+      "agent"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "Explain an eval plan; the session demo can separately show local deterministic checks and buyer review without hosted AI execution."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Operation gates are independent of schemas and credentials."
+        }
+      ]
+    }
+  },
+  {
+    "id": "official-personal-updates",
+    "title": "Personal updates and notification preferences",
+    "scope": "official_product",
+    "buyerProblem": "When I say update me, is that an alert, evaluation assignment or personal digest?",
+    "behaviour": "The authenticated Notifications settings separate personal update categories from alert-rule conditions. Categories include incident, critical and non-critical alerts, comments/mentions, approval requests, prompt/experiment changes, daily digest, evaluation assignments and evaluation updates. Slack selections deliver personal DMs; email uses the account address. Quiet hours hold non-critical notifications while critical alerts can still arrive.",
+    "limitations": [
+      "No named Update me product action was verified; clarify whether the buyer means a monitored alert, personal update category or digest.",
+      "No settings were saved, subscriptions enabled or delivery tested.",
+      "No arbitrary teammate routing, incident watcher subscription or alert execution is established by these settings."
+    ],
+    "prerequisites": [
+      "Account notification preferences",
+      "Connected Slack for personal DMs",
+      "A configured alert condition when monitoring is requested"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Notifications UI was accessible in this authenticated account; ordinary plan entitlement was not established."
+    },
+    "sources": [
+      {
+        "url": "https://app.neatlogs.com/settings/account/notifications",
+        "verifiedOn": "2026-10-12",
+        "claim": "Read-only authenticated inspection: personal Slack DM/email categories, digest delivery time/timezone, quiet hours and separate project daily digest."
+      }
+    ],
+    "exampleQuestions": [
+      "Update me on this agent",
+      "What does update me mean?",
+      "Send me evaluation updates",
+      "Does this choose a teammate for me?"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "Explain the distinction between alerts and personal updates; Tailor does not change hosted preferences or subscribe the buyer.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "update me",
+      "updates",
+      "notification",
+      "notify",
+      "personal",
+      "digest",
+      "evaluation assignment",
+      "evaluation updates",
+      "quiet hours",
+      "email",
+      "slack",
+      "routing"
+    ],
+    "productLimitations": [
+      "Slack requires a connection; personal email uses the account address."
+    ],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "Explain the distinction between alerts and personal updates; Tailor does not change hosted preferences or subscribe the buyer."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://app.neatlogs.com/settings/account/notifications",
+          "verifiedOn": "2026-10-12",
+          "claim": "Read-only authenticated inspection: personal Slack DM/email categories, digest delivery time/timezone, quiet hours and separate project daily digest."
+        }
+      ]
+    }
+  },
+  {
+    "id": "synthetic-alert-routing",
+    "title": "Local synthetic alert routing preview",
+    "scope": "clone_only",
+    "buyerProblem": "Show how critical agent signals could reach the right team with evidence.",
+    "behaviour": "The adapter saves a session-scoped routing preview over immutable synthetic trace snapshots. A per-event ERROR span or failed-trace count threshold computes a match, evidence and a hypothetical Slack, email or in-app destination for a fictional role. Matched delivery is labelled simulated; no notification is sent.",
+    "limitations": [
+      "No outbound message, contact lookup, connection, live alert, timer or hosted rule is created.",
+      "Fictional Engineering on-call, Quality reviewer and Product owner roles are demo choices, not verified Neatlogs owner routing.",
+      "Cooldown is stored configuration only; thresholds count saved failure outcomes, not a monitored production time window.",
+      "Dataset edits flag previews stale; a new preview must be created against the current dataset."
+    ],
+    "prerequisites": [
+      "An active synthetic demo session",
+      "One to four saved traces"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Hosted access and ordinary plan entitlements were not verified; local synthetic behavior proves neither."
+    },
+    "sources": [
+      {
+        "url": "repo:src/clients/neatlogs/routing-service.ts",
+        "verifiedOn": "2026-10-12",
+        "claim": "Strict local routing inputs, immutable snapshot evidence, idempotency and saved readback; no hosted imports or dispatch."
+      }
+    ],
+    "exampleQuestions": [
+      "Show routing to the right people",
+      "Preview a Slack alert for this failure",
+      "Update me when this synthetic agent fails",
+      "Can you contact our real team?"
+    ],
+    "demonstration": {
+      "level": "modifiable",
+      "evidence": "The adapter saves a session-scoped routing preview over immutable synthetic trace snapshots. A per-event ERROR span or failed-trace count threshold computes a match, evidence and a hypothetical Slack, email or in-app destination for a fictional role. Matched delivery is labelled simulated; no notification is sent.",
+      "cloneSurfaces": [
+        "Alerts list",
+        "routing preview",
+        "saved routing detail"
+      ],
+      "tools": [
+        "RoutingService.create",
+        "RoutingService.read",
+        "RoutingService.list"
+      ]
+    },
+    "topics": [
+      "routing",
+      "right people",
+      "people",
+      "alert",
+      "slack",
+      "email",
+      "in app",
+      "preview",
+      "update me",
+      "failure",
+      "threshold",
+      "cooldown"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "RoutingService.create",
+        "RoutingService.read",
+        "RoutingService.list"
+      ],
+      "uiSurfaces": [
+        "Alerts list",
+        "routing preview",
+        "saved routing detail"
+      ],
+      "evidence": [
+        "The adapter saves a session-scoped routing preview over immutable synthetic trace snapshots. A per-event ERROR span or failed-trace count threshold computes a match, evidence and a hypothetical Slack, email or in-app destination for a fictional role. Matched delivery is labelled simulated; no notification is sent."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": []
     }
   }
 ]
