@@ -297,7 +297,7 @@ test('crash before publish: retry settles as provider_unavailable with nothing c
   } finally { await h.close(); }
 });
 
-test('client disconnect while the server finishes: in-flight retry is 409, then the stored response replays', async () => {
+test('client disconnect cancels before save: in-flight retry is 409, then the unchanged response replays', async () => {
   const h = await harness();
   try {
     const created = await h.call('/api/sessions', 'POST', { description: 'Fictional disconnect agent' });
@@ -312,8 +312,11 @@ test('client disconnect while the server finishes: in-flight retry is 409, then 
     release(); h.agent.gate = null;
     await until(() => !statuses(h.store.read(id)).includes('buyer:pending'), 'the turn to settle');
     const replay = await h.call(`/api/sessions/${id}/turns`, 'POST', travelBuyerTurn1, cookie);
-    assert.equal(replay.data.outcome, 'committed');
-    assert.equal(replay.data.version, 2);
+    assert.equal(replay.data.outcome, 'save_failed');
+    assert.equal((await h.call(`/api/sessions/${id}`, 'GET', undefined, cookie)).data.version, 1, 'abandoning before publication does not advance the dataset');
+    const again = await h.call(`/api/sessions/${id}/turns`, 'POST', travelBuyerTurn1, cookie);
+    assert.deepEqual(again.data, replay.data, 'the cancellation result is durable and never re-runs');
+    assert.equal(replay.data.version, 1);
     assert.equal(h.agent.calls, 1);
     assert.deepEqual((await h.call(`/api/sessions/${id}/turns`, 'POST', travelBuyerTurn1, cookie)).data, replay.data);
   } finally { await h.close(); }

@@ -1,3 +1,5 @@
+import { createEvidenceObserver, type EvidenceManifestSnapshot } from '../tailor/evidence.ts';
+import { DEMO_SWITCH_CHOICES, type BrowserSession, type DemoSwitchChoice, type DemoSwitchConfirmation } from '../tailor/demo-contract.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -23,6 +25,7 @@ class CommitThenThrow extends Error {
 
 export { TOMBSTONE_TTL_MS, TURN_DEADLINE_MS, TURN_RUNS_PER_SESSION };
 
+export interface PublishObserver { readback(read: () => ReadbackEvidence): ReadbackEvidence }
 export interface StoreFaults { failSave?: () => boolean; failReadback?: () => boolean }
 export interface StoreOptions { clock?: Clock; faults?: StoreFaults }
 export interface StoredTurn { clientTurnId: string; response: TurnResponse }
@@ -55,7 +58,9 @@ export interface AppendOptions {
   /** Builds the idempotent turn record from the committed state; stored atomically with the append. */
   respond?: (appended: ChatTurn[], next: DemoSession) => StoredTurn;
 }
-interface Row { id: string; document: string; state: string; last_active_at: number; expires_at: number; last_turn: string | null }
+interface BrowserRow { id: string; created_at: number; last_active_at: number; expires_at: number; version: number; active_demo_id: string | null }
+interface PendingSwitchRow { id: string; demo_id: string; source_version: number; source_conversation_version: number; proposal: string; requested_text: string; consumed_by: string | null; resolved_demo_id: string | null; owner_version: number }
+interface Row { owner_id: string | null; id: string; document: string; state: string; last_active_at: number; expires_at: number; last_turn: string | null }
 
 const iso = (ms: number) => new Date(ms).toISOString();
 const notFound = () => new Failure(404, 'NOT_FOUND', 'Session not found or unavailable to this browser.');
@@ -82,10 +87,17 @@ export class Store {
   private migrate() {
     const columns = (this.db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).map(c => c.name);
     const add = (name: string, definition: string) => { if (!columns.includes(name)) this.db.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${definition}`); };
+    add('owner_id', 'TEXT');
+    this.db.exec(`CREATE TABLE IF NOT EXISTS browser_sessions (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, last_active_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, version INTEGER NOT NULL, active_demo_id TEXT);
+      CREATE TABLE IF NOT EXISTS demo_switches (id TEXT PRIMARY KEY, demo_id TEXT NOT NULL, source_version INTEGER NOT NULL, source_conversation_version INTEGER NOT NULL, proposal TEXT NOT NULL, requested_text TEXT NOT NULL, consumed_by TEXT, resolved_demo_id TEXT, owner_version INTEGER NOT NULL DEFAULT 1);
+      CREATE TABLE IF NOT EXISTS demo_artifacts (demo_id TEXT NOT NULL, namespace TEXT NOT NULL, artifact_id TEXT NOT NULL, version INTEGER NOT NULL, document TEXT NOT NULL, PRIMARY KEY(demo_id, namespace, artifact_id));`);
     add('state', "TEXT NOT NULL DEFAULT 'active'");
     add('last_active_at', 'INTEGER');
     add('expires_at', 'INTEGER');
     add('last_turn', 'TEXT');
+    const switchColumns = (this.db.prepare('PRAGMA table_info(demo_switches)').all() as {name:string}[]).map(c => c.name);
+    if (!switchColumns.includes('resolved_demo_id')) this.db.exec('ALTER TABLE demo_switches ADD COLUMN resolved_demo_id TEXT');
+    if (!switchColumns.includes('owner_version')) this.db.exec('ALTER TABLE demo_switches ADD COLUMN owner_version INTEGER NOT NULL DEFAULT 1');
     const legacy = this.db.prepare('SELECT id, document FROM sessions WHERE last_active_at IS NULL OR expires_at IS NULL').all() as { id: string; document: string }[];
     const update = this.db.prepare('UPDATE sessions SET last_active_at=?, expires_at=? WHERE id=?');
     for (const row of legacy) {
@@ -110,16 +122,118 @@ export class Store {
     }
     this.db.exec('UPDATE sessions SET last_turn=NULL WHERE last_turn IS NOT NULL');
   }
-  private purgeRuns(id: string) { this.db.prepare('DELETE FROM turn_runs WHERE session_id=?').run(id); }
+  private purgeRuns(id: string) {
+    this.db.prepare('DELETE FROM turn_runs WHERE session_id=?').run(id);
+    this.db.prepare('DELETE FROM demo_switches WHERE demo_id=?').run(id);
+    this.db.prepare('DELETE FROM demo_artifacts WHERE demo_id=?').run(id);
+    this.db.prepare('UPDATE browser_sessions SET active_demo_id=NULL, version=version+1 WHERE active_demo_id=?').run(id);
+  }
   /** Moves committed pages into the main file and truncates the WAL, so deleted content is not left in the log. */
   private checkpoint() { try { this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* busy: the next checkpoint completes it */ } }
 
   token(id: string) { return createHmac('sha256', this.secret).update(id).digest('hex'); }
-  authorize(id: string, cookie: string) {
-    const expected = `${id}.${this.token(id)}`;
-    const a = Buffer.from(cookie); const b = Buffer.from(expected);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) throw notFound();
+  browserCookie(id: string) { return `browser.${id}.${this.token(`browser:${id}`)}`; }
+  private sameCookie(actual: string, expected: string) {
+    const a = Buffer.from(actual); const b = Buffer.from(expected);
+    return a.length === b.length && timingSafeEqual(a, b);
   }
+  /** Returns the owner id (legacy callers use the demo id); never trusts a caller-supplied demo list. */
+  authorize(id: string, cookie: string): string {
+    if (cookie.startsWith('browser.')) {
+      const ownerId = cookie.split('.')[1] ?? '';
+      if (!this.sameCookie(cookie, this.browserCookie(ownerId))) throw notFound();
+      this.browserRow(ownerId);
+      const row = this.row(id);
+      if (!row || row.owner_id !== ownerId) throw notFound();
+      return ownerId;
+    }
+    if (!this.sameCookie(cookie, `${id}.${this.token(id)}`)) throw notFound();
+    const ownerId = this.row(id)?.owner_id;
+    if (ownerId) this.browserRow(ownerId);
+    return ownerId ?? id;
+  }
+  ownerOf(id: string): string | null { return this.row(id)?.owner_id ?? null; }
+  private browserRow(id: string): BrowserRow {
+    const row = this.db.prepare('SELECT * FROM browser_sessions WHERE id=?').get(id) as BrowserRow | undefined;
+    if (!row) throw notFound();
+    if (isSessionExpired(row.last_active_at, row.expires_at, this.clock.now())) {
+      const remove = () => {
+        const demos = this.db.prepare('SELECT id FROM sessions WHERE owner_id=?').all(id) as {id:string}[];
+        for (const demo of demos) this.purgeRuns(demo.id);
+        this.db.prepare('DELETE FROM sessions WHERE owner_id=?').run(id);
+        this.db.prepare('DELETE FROM browser_sessions WHERE id=?').run(id);
+      };
+      if (this.inTxn) remove(); else this.txn(remove);
+      if (this.inTxn) throw new CommitThenThrow(new Failure(410, 'SESSION_EXPIRED', 'This browser session expired. Its demo data was deleted.'));
+      this.checkpoint();
+      throw new Failure(410, 'SESSION_EXPIRED', 'This browser session expired. Its demo data was deleted.');
+    }
+    return row;
+  }
+  /** Upgrade only a verified legacy cookie; invalid/nonempty cookies never silently create an owner. */
+  browserForCookie(cookie: string, upgradeLegacy = false): string | null {
+    if (!cookie) return null;
+    if (cookie.startsWith('browser.')) {
+      const id = cookie.split('.')[1] ?? '';
+      if (!this.sameCookie(cookie, this.browserCookie(id))) throw notFound();
+      this.browserRow(id); return id;
+    }
+    const demoId = cookie.split('.')[0] ?? '';
+    this.authorize(demoId, cookie); this.live(demoId);
+    const known = this.ownerOf(demoId);
+    if (known || !upgradeLegacy) return known;
+    return this.txn(() => {
+      const row = this.live(demoId);
+      if (row.owner_id) return row.owner_id;
+      const id = randomUUID(); const now = this.clock.now();
+      const created = Date.parse(this.project(row).createdAt);
+      this.db.prepare('INSERT INTO browser_sessions VALUES (?,?,?,?,1,?)').run(id, created, now, row.expires_at, demoId);
+      this.db.prepare('UPDATE sessions SET owner_id=? WHERE id=?').run(id, demoId);
+      return id;
+    });
+  }
+  private newBrowser(): string {
+    const id = randomUUID(); const now = this.clock.now();
+    this.db.prepare('INSERT INTO browser_sessions VALUES (?,?,?,?,1,NULL)').run(id, now, now, now + LIMITS.lifetimeMs);
+    return id;
+  }
+  browserSession(id: string): BrowserSession {
+    const row = this.browserRow(id);
+    const demos = (this.db.prepare("SELECT id, owner_id, document, state, last_active_at, expires_at, last_turn FROM sessions WHERE owner_id=? AND state='active' ORDER BY rowid").all(id) as unknown as Row[])
+      .filter(d => !this.expired(d)).map(d => this.project(d));
+    return { id, state: 'active', createdAt: iso(row.created_at), lastActiveAt: iso(row.last_active_at), expiresAt: iso(row.expires_at), version: row.version,
+      activeDemoId: demos.some(d => d.id === row.active_demo_id) ? row.active_demo_id : null,
+      demos: demos.map(d => ({ id: d.id, productId: 'neatlogs', label: (d.story?.domain ?? d.description).slice(0, 120), version: d.version, conversationVersion: d.conversationVersion, createdAt: d.createdAt, lastActiveAt: d.lastActiveAt })) };
+  }
+  touchBrowser(id: string): void {
+    this.txn(() => { this.browserRow(id); this.db.prepare('UPDATE browser_sessions SET last_active_at=? WHERE id=?').run(this.clock.now(), id); });
+  }
+  createOwned(ownerId: string | null, description: unknown, scenario: unknown, operation: string, conversation?: unknown): { session: DemoSession; ownerId: string } {
+    if (ownerId) this.browserRow(ownerId);
+    const existing = this.db.prepare('SELECT id, owner_id FROM sessions WHERE operation=?').get(operation) as { id:string;owner_id:string|null } | undefined;
+    if (existing && existing.owner_id !== ownerId) throw new Failure(409, 'OPERATION_CONFLICT', 'This creation operation belongs to another browser session.');
+    if (ownerId && this.browserSession(ownerId).demos.length >= 8 && !existing) throw new Failure(422, 'DEMO_LIMIT', 'This browser already has eight demos. End one before creating another.');
+    const session = this.create(description, scenario, operation, conversation);
+    const owner = this.atomic(() => {
+      const id = ownerId ?? this.newBrowser(); const row = this.browserRow(id);
+      if (this.ownerOf(session.id) && this.ownerOf(session.id) !== id) throw notFound();
+      this.db.prepare('UPDATE sessions SET owner_id=?, expires_at=MIN(expires_at,?) WHERE id=?').run(id, row.expires_at, session.id);
+      if (row.active_demo_id !== session.id) this.db.prepare('UPDATE browser_sessions SET active_demo_id=?, version=version+1, last_active_at=? WHERE id=?').run(session.id, this.clock.now(), id);
+      return id;
+    });
+    return { session: this.read(session.id), ownerId: owner };
+  }
+  selectDemo(ownerId: string, demoId: unknown, expectedVersion: unknown): BrowserSession {
+    this.txn(() => {
+      const row = this.browserRow(ownerId);
+      if (expectedVersion !== row.version) throw new Failure(409, 'STALE_VERSION', 'The browser selection changed. Reload before switching demos.');
+      if (typeof demoId !== 'string' || this.ownerOf(demoId) !== ownerId) throw notFound();
+      this.live(demoId);
+      if (row.active_demo_id !== demoId) this.db.prepare('UPDATE browser_sessions SET active_demo_id=?, version=version+1, last_active_at=? WHERE id=?').run(demoId, this.clock.now(), ownerId);
+    });
+    return this.browserSession(ownerId);
+  }
+
 
   private txn<T>(fn: () => T): T {
     this.db.exec('BEGIN IMMEDIATE');
@@ -134,8 +248,9 @@ export class Store {
       throw e;
     } finally { this.inTxn = false; }
   }
+  private atomic<T>(fn: () => T): T { return this.inTxn ? fn() : this.txn(fn); }
   private row(id: string): Row | undefined {
-    return this.db.prepare('SELECT id, document, state, last_active_at, expires_at, last_turn FROM sessions WHERE id=?').get(id) as Row | undefined;
+    return this.db.prepare('SELECT id, owner_id, document, state, last_active_at, expires_at, last_turn FROM sessions WHERE id=?').get(id) as Row | undefined;
   }
   private expired(row: Row, now = this.clock.now()) { return isSessionExpired(row.last_active_at, row.expires_at, now); }
   /** Server-clock lifecycle gate. Expired rows are deleted on access; ended rows are tombstones. */
@@ -174,7 +289,7 @@ export class Store {
     const fixture: FixtureScenario = scenario === undefined || scenario === null ? 'recovered' : scenario as FixtureScenario;
     if (typeof description !== 'string' || !description.trim() || description.length > 4000 || !['recovered', 'exhausted'].includes(fixture) || !/^[a-zA-Z0-9-]{16,80}$/.test(operation)) throw new Failure(422, 'INVALID_SESSION', 'Enter a fictional project description (1–4000 characters), an optional supported starting fixture and a valid operation ID.');
     const turns = conversationOf(conversation);
-    return this.txn(() => {
+    return this.atomic(() => {
       const existing = this.db.prepare('SELECT id FROM sessions WHERE operation=?').get(operation) as { id: string } | undefined;
       if (existing) {
         const s = this.project(this.live(existing.id));
@@ -253,7 +368,11 @@ export class Store {
   /** In-transaction settlement of an interrupted run: truthful about whether the authoritative version moved. */
   private settleIn(id: string, run: TurnRun): TurnResponse {
     const row = this.live(id);
-    const current = this.project(row).version;
+    const switchRow = this.db.prepare('SELECT * FROM demo_switches WHERE demo_id=? AND consumed_by=?').get(id, run.clientTurnId) as PendingSwitchRow | undefined;
+    const targetId = switchRow?.resolved_demo_id && switchRow.resolved_demo_id !== id ? switchRow.resolved_demo_id : id;
+    const targetRow = targetId !== id ? this.row(targetId) : row;
+    const target = targetRow?.state === 'active' ? this.project(targetRow) : null;
+    const current = target?.version ?? this.project(row).version;
     const moved = run.state === 'published' || current > run.startedVersion;
     const outcome: TurnOutcome = moved ? 'readback_uncertain' : 'provider_unavailable';
     const status: ChatStatus = moved ? 'uncertain' : 'failed';
@@ -265,7 +384,8 @@ export class Store {
     const { session, appended } = this.appendIn(id, row, [{ role: 'tailor', text, status }], { settle: { id: run.buyerTurnId, status } });
     const buyer = session.conversation.find(t => t.id === run.buyerTurnId);
     const response: TurnResponse = {
-      turnId: run.turnId, outcome, version: current, conversationVersion: session.conversationVersion,
+      turnId: run.turnId, outcome, version: current, conversationVersion: target?.conversationVersion ?? session.conversationVersion,
+      ...(this.ownerOf(id) ? { demoId: target?.id ?? id, sessionId: this.ownerOf(id)! } : {}),
       messages: [...(buyer ? [buyer] : []), ...appended],
       steps: [{ name: 'model', status: 'failed', detail: 'Tailor was interrupted before this turn finished.' }],
       execution: run.execution,
@@ -281,6 +401,7 @@ export class Store {
     }
     this.db.prepare(`DELETE FROM turn_runs WHERE session_id=? AND state='settled' AND rowid NOT IN
       (SELECT rowid FROM turn_runs WHERE session_id=? AND state='settled' ORDER BY rowid DESC LIMIT ?)`).run(id, id, TURN_RUNS_PER_SESSION);
+    this.db.prepare("DELETE FROM demo_artifacts WHERE demo_id=? AND namespace='turn-evidence' AND artifact_id NOT IN (SELECT client_turn_id FROM turn_runs WHERE session_id=?)").run(id, id);
   }
   /** Developer inspection only: live sessions (tombstones and expired rows excluded). */
   list(): DemoSession[] {
@@ -314,11 +435,104 @@ export class Store {
     return { session: next, appended };
   }
 
+  listArtifacts<T>(demoId: string, namespace: string): T[] {
+    this.live(demoId);
+    return (this.db.prepare('SELECT document FROM demo_artifacts WHERE demo_id=? AND namespace=? ORDER BY rowid').all(demoId, namespace) as {document:string}[]).map(r => JSON.parse(r.document) as T);
+  }
+  readArtifact<T>(demoId: string, namespace: string, id: string): T | null {
+    this.live(demoId);
+    const row = this.db.prepare('SELECT document FROM demo_artifacts WHERE demo_id=? AND namespace=? AND artifact_id=?').get(demoId, namespace, id) as {document:string} | undefined;
+    return row ? JSON.parse(row.document) as T : null;
+  }
+  compareAndSetArtifact<T>(demoId: string, namespace: string, id: string, expectedVersion: number | null, next: T): boolean {
+    return this.atomic(() => {
+      this.live(demoId);
+      const document = JSON.stringify(next);
+      if (Buffer.byteLength(document) > 512_000) throw new Failure(422, 'ARTIFACT_LIMIT', 'This local artifact is too large.');
+      if (expectedVersion === null) return Number(this.db.prepare('INSERT OR IGNORE INTO demo_artifacts VALUES (?,?,?,1,?)').run(demoId, namespace, id, document).changes) === 1;
+      return Number(this.db.prepare('UPDATE demo_artifacts SET version=version+1, document=? WHERE demo_id=? AND namespace=? AND artifact_id=? AND version=?').run(document, demoId, namespace, id, expectedVersion).changes) === 1;
+    });
+  }
+  readTurnEvidence(demoId: string, clientTurnId: string): EvidenceManifestSnapshot | undefined {
+    return this.readArtifact<EvidenceManifestSnapshot>(demoId, 'turn-evidence', clientTurnId) ?? undefined;
+  }
+  saveTurnEvidence(demoId: string, clientTurnId: string, manifest: EvidenceManifestSnapshot): void {
+    const safe = createEvidenceObserver({ manifest }).snapshot();
+    this.live(demoId);
+    this.db.prepare("INSERT INTO demo_artifacts VALUES (?, 'turn-evidence', ?, 1, ?) ON CONFLICT(demo_id,namespace,artifact_id) DO UPDATE SET document=excluded.document").run(demoId, clientTurnId, JSON.stringify(safe));
+  }
+  /** Store the exact validated candidate; choices cannot authorize a later model-generated replacement. */
+  prepareScenario(id: string, proposal: ScenarioProposal, requestedText: string): { state: 'ready' } | { state: 'confirmation_required'; confirmation: DemoSwitchConfirmation } {
+    const session = this.read(id);
+    if (!this.ownerOf(id) || proposal.mode !== 'new' || session.version === 1 || proposal.expectedVersion !== session.version) return { state: 'ready' };
+    if (!validateProposal(id, session.dataset, proposal, this.clock).ok) return { state: 'ready' };
+    const ref = randomUUID();
+    const confirmation: DemoSwitchConfirmation = {
+      kind: 'demo_switch', referenceId: ref, sourceDemoId: id, sourceVersion: session.version, browserSessionVersion: this.browserRow(this.ownerOf(id)!).version,
+      sourceConversationVersion: session.conversationVersion + 1,
+      requestedSummary: proposal.story.domain.slice(0, 120),
+      question: 'This changes the workflow. Adapt the current demo, start a separate demo, or keep the current one?',
+      choices: [{ id: 'adapt_current', label: 'Adapt current demo' }, { id: 'start_separate', label: 'Start separate demo' }, { id: 'keep_current', label: 'Keep current demo' }], allowFreeText: true,
+    };
+    this.txn(() => {
+      const current = this.project(this.live(id));
+      if (current.version !== session.version || current.conversationVersion !== session.conversationVersion) throw new Failure(409, 'STALE_CONFIRMATION', 'The demo changed. Ask again before switching it.');
+      this.db.prepare('DELETE FROM demo_switches WHERE demo_id=? AND consumed_by IS NULL').run(id);
+      this.db.prepare('INSERT INTO demo_switches VALUES (?,?,?,?,?,?,NULL,NULL,?)').run(ref, id, session.version, confirmation.sourceConversationVersion, JSON.stringify(proposal), requestedText.slice(0, LIMITS.maxTurnTextChars), confirmation.browserSessionVersion);
+    });
+    return { state: 'confirmation_required', confirmation };
+  }
+  assertSwitch(id: string, ref: string, choice: unknown): void {
+    if (!(DEMO_SWITCH_CHOICES as readonly unknown[]).includes(choice)) throw new Failure(422, 'INVALID_CONFIRMATION', 'Choose one of the three saved confirmation options.');
+    const pending = this.db.prepare('SELECT * FROM demo_switches WHERE id=? AND demo_id=?').get(ref, id) as PendingSwitchRow | undefined;
+    const session = this.read(id);
+    if (!pending || pending.consumed_by !== null || !this.ownerOf(id) || pending.source_version !== session.version || pending.source_conversation_version !== session.conversationVersion || pending.owner_version !== this.browserRow(this.ownerOf(id)!).version) throw new Failure(409, 'STALE_CONFIRMATION', 'This confirmation is no longer current. Ask again before switching the demo.');
+  }
+  resolveSwitch(id: string, ref: string, choice: DemoSwitchChoice, clientTurnId: string, observer?: PublishObserver): { demoId: string; requestedText: string; result: PublishResult | null } {
+    const pending = this.db.prepare('SELECT * FROM demo_switches WHERE id=? AND demo_id=?').get(ref, id) as PendingSwitchRow | undefined;
+    const source = this.read(id);
+    if (!pending || pending.consumed_by !== null || pending.source_version !== source.version || pending.source_conversation_version + 1 !== source.conversationVersion || pending.owner_version !== this.browserRow(this.ownerOf(id)!).version) throw new Failure(409, 'STALE_CONFIRMATION', 'The demo changed before confirmation. Ask again.');
+    const owner = this.ownerOf(id);
+    if (!owner) throw notFound();
+    const proposal = JSON.parse(pending.proposal) as ScenarioProposal;
+    if (choice === 'keep_current') {
+      this.txn(() => { this.db.prepare('UPDATE demo_switches SET consumed_by=?, resolved_demo_id=? WHERE id=? AND consumed_by IS NULL').run(clientTurnId, id, ref); });
+      return { demoId: id, requestedText: pending.requested_text, result: null };
+    }
+    if (choice === 'adapt_current') return { demoId: id, requestedText: pending.requested_text, result: this.publish(id, proposal, { clientTurnId, confirmationRef: ref }, observer) };
+    let targetId = id; let before = 1; let version = 1;
+    try {
+      this.txn(() => {
+        const current = this.project(this.live(id));
+        if (current.version !== pending.source_version || current.conversationVersion !== pending.source_conversation_version + 1) throw new Failure(409, 'STALE_CONFIRMATION', 'The demo changed before confirmation. Ask again.');
+        if (this.faults.failSave?.()) throw new Error('Injected save failure.');
+        const target = this.createOwned(owner, pending.requested_text, undefined, `switch-${ref}`).session;
+        targetId = target.id; before = target.version;
+        const verdict = validateProposal(target.id, target.dataset, { ...proposal, expectedVersion: target.version }, this.clock);
+        if (!verdict.ok) throw new Failure(422, 'INVALID_DATASET', 'The separate demo failed validation.');
+        version = target.version + 1;
+        const next = { ...target, version, dataset: verdict.dataset, story: proposal.story };
+        this.db.prepare('UPDATE sessions SET document=? WHERE id=?').run(JSON.stringify(next), target.id);
+        this.db.prepare("UPDATE turn_runs SET state='published', published_version=? WHERE session_id=? AND client_turn_id=? AND state='running'").run(version, id, clientTurnId);
+        this.db.prepare('UPDATE demo_switches SET consumed_by=?, resolved_demo_id=? WHERE id=? AND consumed_by IS NULL').run(clientTurnId, target.id, ref);
+      });
+    } catch (error) {
+      if (error instanceof Failure && error.code === 'STALE_CONFIRMATION') throw error;
+      return { demoId: id, requestedText: pending.requested_text, result: { state: 'save_failed', version: source.version, reason: 'The separate demo could not be saved; the current demo is unchanged.' } };
+    }
+    try {
+      const readback = this.verifiedReadback(targetId, version, observer);
+      return { demoId: targetId, requestedText: pending.requested_text, result: { state: 'committed', version, readback } };
+    } catch {
+      return { demoId: targetId, requestedText: pending.requested_text, result: { state: 'readback_uncertain', attemptedVersion: version, lastKnownVersion: before, reason: 'The separate demo may have been saved, but could not be read back.' } };
+    }
+  }
+
   /**
    * Validate → BEGIN IMMEDIATE → re-check state/version → UPDATE dataset + story (+ mark the turn run published)
    * → COMMIT → independent readback.
    */
-  publish(id: string, proposal: ScenarioProposal, turn?: { clientTurnId: string }): PublishResult {
+  publish(id: string, proposal: ScenarioProposal, turn?: { clientTurnId: string; confirmationRef?: string }, observer?: PublishObserver): PublishResult {
     let before: DemoSession;
     try { before = this.read(id); } catch (e) { if (isGone(e)) return { state: 'expired' }; throw e; }
     const verdict = validateProposal(id, before.dataset, proposal, this.clock);
@@ -336,6 +550,11 @@ export class Store {
         if (this.expired(row)) { this.db.prepare('DELETE FROM sessions WHERE id=?').run(id); this.purgeRuns(id); return { kind: 'expired' }; }
         const s = this.project(row);
         if (s.version !== expectedVersion) return { kind: 'conflict', current: s.version };
+        if (this.ownerOf(id) && proposal.mode === 'new' && s.version > 1) {
+          const pending = turn?.confirmationRef ? this.db.prepare('SELECT * FROM demo_switches WHERE id=? AND demo_id=?').get(turn.confirmationRef, id) as PendingSwitchRow | undefined : undefined;
+          if (!pending || pending.consumed_by !== null || pending.source_version !== s.version || pending.source_conversation_version + 1 !== s.conversationVersion || pending.owner_version !== this.browserRow(this.ownerOf(id)!).version || pending.proposal !== JSON.stringify(proposal)) return { kind: 'rejected', result: { state: 'rejected', version: s.version, problems: [{ path: 'mode', code: 'UNSUPPORTED_CAPABILITY', message: 'Confirm how to switch this workflow before replacing the current demo.' }] } };
+        }
+
         let dataset = verdict.dataset;
         if (s.version !== before.version) {
           const again = validateProposal(id, s.dataset, proposal, this.clock);
@@ -347,6 +566,7 @@ export class Store {
         if (storyProblems(proposal.story).length === 0) next.story = proposal.story;
         this.db.prepare("UPDATE sessions SET document=? WHERE id=? AND state='active'").run(JSON.stringify(next), id);
         if (turn) this.db.prepare("UPDATE turn_runs SET state='published', published_version=? WHERE session_id=? AND client_turn_id=? AND state != 'settled'").run(next.version, id, turn.clientTurnId);
+        if (turn?.confirmationRef) this.db.prepare('UPDATE demo_switches SET consumed_by=?, resolved_demo_id=? WHERE id=? AND demo_id=? AND consumed_by IS NULL').run(turn.clientTurnId, id, turn.confirmationRef, id);
         return { kind: 'saved', version: next.version, previous: s.version };
       });
     } catch {
@@ -357,12 +577,18 @@ export class Store {
     if (outcome.kind === 'conflict') return { state: 'conflict', currentVersion: outcome.current };
     if (outcome.kind === 'rejected') return outcome.result;
     try {
-      if (this.faults.failReadback?.()) throw new Error('Injected readback failure.');
-      const readback = this.readback(id, outcome.version);
+      const readback = this.verifiedReadback(id, outcome.version, observer);
       return { state: 'committed', version: readback.version, readback };
     } catch {
       return { state: 'readback_uncertain', attemptedVersion: outcome.version, lastKnownVersion: outcome.previous, reason: 'The save may have committed but could not be read back.' };
     }
+  }
+  private verifiedReadback(id: string, version: number, observer?: PublishObserver): ReadbackEvidence {
+    const read = () => {
+      if (this.faults.failReadback?.()) throw new Error('Injected readback failure.');
+      return this.readback(id, version);
+    };
+    return observer ? observer.readback(read) : read();
   }
   /** Authoritative version through the independent reader; null when the session is gone or not active. */
   private freshVersion(id: string): number | null {
@@ -448,10 +674,20 @@ export class Store {
       const expired = this.db.prepare("DELETE FROM sessions WHERE state != 'ended' AND (? - last_active_at > ? OR ? >= expires_at)").run(now, LIMITS.idleMs, now).changes;
       const tombstones = this.db.prepare("DELETE FROM sessions WHERE state = 'ended' AND ? - last_active_at > ?").run(now, TOMBSTONE_TTL_MS).changes;
       const orphanedRuns = this.db.prepare("DELETE FROM turn_runs WHERE session_id NOT IN (SELECT id FROM sessions WHERE state = 'active')").run().changes;
+      this.db.prepare("DELETE FROM demo_switches WHERE demo_id NOT IN (SELECT id FROM sessions WHERE state='active')").run();
+      this.db.prepare("DELETE FROM demo_artifacts WHERE demo_id NOT IN (SELECT id FROM sessions WHERE state='active')").run();
+      const owners = this.db.prepare('SELECT id FROM browser_sessions WHERE ? - last_active_at > ? OR ? >= expires_at').all(now, LIMITS.idleMs, now) as {id:string}[];
+      let ownerExpired = 0;
+      for (const owner of owners) {
+        const children = this.db.prepare('SELECT id FROM sessions WHERE owner_id=?').all(owner.id) as {id:string}[];
+        for (const child of children) this.purgeRuns(child.id);
+        ownerExpired += Number(this.db.prepare('DELETE FROM sessions WHERE owner_id=?').run(owner.id).changes);
+        this.db.prepare('DELETE FROM browser_sessions WHERE id=?').run(owner.id);
+      }
       const stale = this.db.prepare("SELECT * FROM turn_runs WHERE state != 'settled' AND started_at < ?").all(now - TURN_DEADLINE_MS) as unknown as RunRow[];
       let interrupted = 0;
       for (const r of stale) { try { this.settleIn(r.session_id, runOf(r)); interrupted++; } catch (e) { if (!(e instanceof CommitThenThrow) && !isGone(e)) throw e; } }
-      return { expired: Number(expired), tombstones: Number(tombstones), interrupted, purged: Number(orphanedRuns) };
+      return { expired: Number(expired) + ownerExpired, tombstones: Number(tombstones), interrupted, purged: Number(orphanedRuns) };
     });
     if (expired + tombstones > 0) this.checkpoint();
     return { expired, tombstones, interrupted };

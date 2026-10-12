@@ -92,6 +92,7 @@ test('the browser bundle entry reaches no Node-only module', () => {
 test('the core carries no trace/span/scenario/Neatlogs vocabulary outside the allowlist', () => {
   // Each entry: file, the exact line fragment allowed, and why.
   const allowed: { file: string; fragment: string; why: string }[] = [
+    { file: 'src/tailor/evidence.ts', fragment: 'never from received spans', why: 'runtime telemetry records, not product data' },
     { file: 'src/tailor/adapter.ts', fragment: 'its telemetry span', why: 'telemetry spans, not product spans' },
     { file: 'src/tailor/claims.ts', fragment: 'keeps?\\s+(?:your|traces?|data)', why: 'retention-claim filter phrase ("keeps your traces") inherited verbatim' },
     { file: 'src/tailor/claims.ts', fragment: 'const UNIT = ', why: 'measure nouns for number-word grounding ("nine spans" is a count)' },

@@ -1,0 +1,189 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { harness, tempStore, op, type Harness } from './helpers/backend.ts';
+import { travelProposalV1 } from '../src/clients/neatlogs/examples/travel-booking.ts';
+import type { DemoSwitchChoice } from '../src/tailor/demo-contract.ts';
+import { Store, Failure } from '../src/infrastructure/store.ts';
+import { CORE_LIMITS } from '../src/tailor/contract.ts';
+
+const turn = (text: string) => ({ text, clientTurnId: randomUUID() });
+async function established(h: Harness) {
+  const created = await h.call('/api/browser-session/demos', 'POST', { description: 'Fictional travel-booking agent' });
+  assert.equal(created.status, 201);
+  const built = await h.call(`/api/sessions/${created.data.id}/turns`, 'POST', turn('Build a travel-booking agent'), created.cookie);
+  assert.equal(built.data.outcome, 'committed');
+  return created;
+}
+async function askSwitch(h: Harness, id: string, cookie: string) {
+  h.agent.script = async input => {
+    const proposal = { ...structuredClone(travelProposalV1), expectedVersion: input.session.version,
+      story: { domain: 'insurance claims agent', summary: 'A fictional insurance lookup with a retry.', assumptions: [] },
+    };
+    const prepared = await input.tools.prepareScenario!(proposal);
+    assert.equal(prepared.state, 'confirmation_required');
+    if (prepared.state !== 'confirmation_required') throw new Error('Expected confirmation');
+    return { outcome: 'clarification', clarification: prepared.confirmation,
+      messages: [{ role: 'tailor', status: 'question', text: prepared.confirmation.question, clarification: prepared.confirmation }],
+      steps: [], execution: { mode: 'mock', provider: 'stub', model: null },
+    };
+  };
+  const asked = await h.call(`/api/sessions/${id}/turns`, 'POST', turn('Switch to an insurance claims agent'), cookie);
+  assert.equal(asked.data.outcome, 'clarification');
+  assert.deepEqual(asked.data.clarification.choices.map((c: any) => c.id), ['adapt_current', 'start_separate', 'keep_current']);
+  return asked.data.clarification;
+}
+
+test('browser owner preserves separate demos, upgrades verified legacy cookies and isolates other visitors', async () => {
+  const h = await harness();
+  try {
+    const legacy = await h.call('/api/sessions', 'POST', { description: 'Legacy fictional workflow' });
+    const upgraded = await h.call('/api/browser-session', 'GET', undefined, legacy.cookie);
+    assert.equal(upgraded.status, 200); assert.equal(upgraded.data.demos.length, 1);
+    const second = await h.call('/api/browser-session/demos', 'POST', { description: 'Second fictional workflow' }, upgraded.cookie);
+    assert.equal(second.status, 201);
+    const browser = await h.call('/api/browser-session', 'GET', undefined, second.cookie);
+    assert.deepEqual(browser.data.demos.map((d: any) => d.id), [legacy.data.id, second.data.id]);
+    assert.equal(browser.data.activeDemoId, second.data.id);
+    assert.equal((await h.call(`/api/sessions/${legacy.data.id}`, 'GET', undefined, second.cookie)).status, 200);
+    const stranger = await h.call('/api/browser-session/demos', 'POST', { description: 'Another visitor' });
+    assert.equal((await h.call(`/api/sessions/${legacy.data.id}`, 'GET', undefined, stranger.cookie)).status, 404);
+    assert.equal((await h.call('/api/browser-session/active-demo', 'POST', { demoId: legacy.data.id, expectedVersion: 1 }, stranger.cookie)).status, 409);
+    const selected = await h.call('/api/browser-session/active-demo', 'POST', { demoId: legacy.data.id, expectedVersion: browser.data.version }, second.cookie);
+    assert.equal(selected.data.activeDemoId, legacy.data.id);
+    await h.restart();
+    assert.equal((await h.call('/api/session', 'GET', undefined, second.cookie)).data.id, legacy.data.id);
+    const ended = await h.call(`/api/sessions/${legacy.data.id}/end`, 'POST', undefined, second.cookie);
+    assert.equal(ended.status, 200); assert.equal(ended.setCookie, null, 'ending one child retains ownership cookie');
+    assert.equal((await h.call(`/api/sessions/${second.data.id}`, 'GET', undefined, second.cookie)).status, 200);
+  } finally { await h.close(); }
+});
+
+for (const choice of ['adapt_current', 'start_separate', 'keep_current'] as DemoSwitchChoice[]) test(`persisted material switch ${choice} is explicit, version-bound and idempotent`, async () => {
+  const h = await harness();
+  try {
+    const created = await established(h); const id = created.data.id;
+    const before = h.store.read(id);
+    const confirmation = await askSwitch(h, id, created.cookie);
+    assert.deepEqual(h.store.read(id).dataset, before.dataset);
+    assert.deepEqual(h.store.read(id).story, before.story);
+    assert.equal(h.store.read(id).version, before.version);
+    await h.restart();
+    const calls = h.agent.calls;
+    const req = { ...turn(choice), choiceId: choice, confirmationRef: confirmation.referenceId };
+    const result = await h.call(`/api/sessions/${id}/turns`, 'POST', req, created.cookie);
+    assert.equal(result.status, 200);
+    assert.equal(h.agent.calls, calls, 'a confirmed candidate does not invoke the model again');
+    assert.equal(result.data.outcome, choice === 'keep_current' ? 'answered' : 'committed');
+    const replay = await h.call(`/api/sessions/${id}/turns`, 'POST', req, created.cookie);
+    assert.deepEqual(replay.data, result.data);
+    const changed = await h.call(`/api/sessions/${id}/turns`, 'POST', { ...req, confirmationRef: randomUUID() }, created.cookie);
+    assert.equal(changed.status, 409); assert.equal(changed.data.error.code, 'IDEMPOTENCY_MISMATCH');
+    const source = h.store.read(id);
+    if (choice === 'adapt_current') {
+      assert.equal(result.data.demoId, id); assert.equal(source.version, before.version + 1);
+      assert.equal(source.story?.domain, 'insurance claims agent');
+    } else {
+      assert.deepEqual(source.dataset, before.dataset); assert.deepEqual(source.story, before.story);
+      assert.equal(source.version, before.version);
+    }
+    if (choice === 'start_separate') {
+      assert.notEqual(result.data.demoId, id);
+      const target = h.store.read(result.data.demoId);
+      assert.equal(target.story?.domain, 'insurance claims agent');
+      assert.equal(target.version, 2);
+      assert.match(target.conversation[0]!.text, /insurance claims/);
+      assert.equal(h.store.browserSession(result.data.sessionId).demos.length, 2);
+      assert.ok(target.dataset.traces.every(t => t.id.startsWith(target.id)));
+      assert.ok(result.data.evidence.traceIds.every((t: string) => t.startsWith(target.id)));
+    }
+  } finally { await h.close(); }
+});
+
+test('stale selection and foreign references cannot confirm or overwrite a managed demo', async () => {
+  const h = await harness();
+  try {
+    const created = await established(h); const id = created.data.id;
+    const confirmation = await askSwitch(h, id, created.cookie);
+    const original = h.store.read(id);
+    const refused = h.store.publish(id, { ...travelProposalV1, expectedVersion: original.version });
+    assert.equal(refused.state, 'rejected', 'an adapter cannot bypass confirmation by omitting prepareScenario');
+    assert.deepEqual(h.store.read(id).dataset, original.dataset);
+    const other = await h.call('/api/browser-session/demos', 'POST', { description: 'Another owned workflow' }, created.cookie);
+    const result = await h.call(`/api/sessions/${id}/turns`, 'POST', { ...turn('Start separate'), choiceId: 'start_separate', confirmationRef: confirmation.referenceId }, other.cookie);
+    assert.equal(result.status, 409); assert.equal(result.data.error.code, 'STALE_CONFIRMATION');
+    const foreign = await h.call(`/api/sessions/${other.data.id}/turns`, 'POST', { ...turn('Adapt'), choiceId: 'adapt_current', confirmationRef: confirmation.referenceId }, other.cookie);
+    assert.equal(foreign.status, 409);
+    assert.deepEqual(h.store.read(id).dataset, original.dataset);
+  } finally { await h.close(); }
+});
+
+test('confirmed separate save/readback failure is truthful and never retries the publication', async () => {
+  let failSave = false; let failReadback = false;
+  const h = await harness({ faults: { failSave: () => failSave, failReadback: () => failReadback }, telemetry: 'captured' });
+  try {
+    const created = await established(h); const id = created.data.id;
+    const before = h.store.read(id);
+    let confirmation = await askSwitch(h, id, created.cookie);
+    failSave = true;
+    const failed = await h.call(`/api/sessions/${id}/turns`, 'POST', { ...turn('Separate'), choiceId: 'start_separate', confirmationRef: confirmation.referenceId }, created.cookie);
+    assert.equal(failed.data.outcome, 'save_failed');
+    assert.equal((await h.call('/api/browser-session', 'GET', undefined, created.cookie)).data.demos.length, 1);
+    assert.deepEqual(h.store.read(id).dataset, before.dataset);
+    failSave = false;
+    confirmation = await askSwitch(h, id, created.cookie); failReadback = true;
+    const req = { ...turn('Separate'), choiceId: 'start_separate', confirmationRef: confirmation.referenceId };
+    const uncertain = await h.call(`/api/sessions/${id}/turns`, 'POST', req, created.cookie);
+    assert.equal(uncertain.data.outcome, 'readback_uncertain');
+    assert.notEqual(uncertain.data.demoId, id);
+    assert.equal(h.store.read(uncertain.data.demoId).version, 2);
+    assert.deepEqual((await h.call(`/api/sessions/${id}/turns`, 'POST', req, created.cookie)).data, uncertain.data);
+    assert.equal((await h.call('/api/browser-session', 'GET', undefined, created.cookie)).data.demos.length, 2);
+    const manifest = h.store.readTurnEvidence(id, req.clientTurnId)!;
+    assert.ok(manifest.expected.some(e => e.operation === 'readback'));
+    assert.ok(manifest.observed.some(e => e.operation === 'readback' && e.phase === 'end' && e.status === 'failed'));
+  } finally { await h.close(); }
+});
+
+test('public capability map and scoped synthetic evaluations survive restart and become stale on dataset edits', async () => {
+  const h = await harness();
+  try {
+    const map = await h.call('/api/capabilities'); assert.equal(map.status, 200); assert.ok(map.data.starters.length >= 3);
+    const created = await established(h); const id = created.data.id; const s = h.store.read(id);
+    const body = { clientOperationId: randomUUID(), datasetVersion: s.version, name: 'Fictional outcome review', traceIds: [s.dataset.traces[0]!.id] };
+    const made = await h.call(`/api/sessions/${id}/evaluations`, 'POST', body, created.cookie);
+    assert.equal(made.status, 201); assert.equal(made.data.evaluation.mode, 'synthetic');
+    assert.deepEqual((await h.call(`/api/sessions/${id}/evaluations`, 'POST', body, created.cookie)).data, made.data);
+    await h.restart();
+    const detail = await h.call(`/api/sessions/${id}/evaluations/${made.data.evaluation.id}`, 'GET', undefined, created.cookie);
+    assert.deepEqual(detail.data, made.data);
+    const stranger = await h.call('/api/browser-session/demos', 'POST', { description: 'Other visitor' });
+    assert.equal((await h.call(`/api/sessions/${id}/evaluations`, 'GET', undefined, stranger.cookie)).status, 404);
+    h.store.applyScenario(id, 'exhausted', s.version);
+    const stale = await h.call(`/api/sessions/${id}/evaluations/${made.data.evaluation.id}`, 'GET', undefined, created.cookie);
+    assert.equal(stale.data.stale, true); assert.deepEqual(stale.data.evaluation.traceSnapshot, made.data.evaluation.traceSnapshot);
+    await h.call(`/api/sessions/${id}/end`, 'POST', undefined, created.cookie);
+    assert.equal((h.store.db.prepare("SELECT COUNT(*) n FROM demo_artifacts WHERE namespace='evaluations'").get() as {n:number}).n, 0);
+  } finally { await h.close(); }
+});
+
+test('opaque artifact persistence supports a second adapter without product evidence shapes', () => {
+  const t = tempStore();
+  interface CrmDocument { deal: { id: string; amount: number; stage: string }; version: number }
+  try {
+    const owned = t.store.createOwned(null, 'Fictional CRM demo', undefined, op());
+    const other = t.store.createOwned(owned.ownerId, 'Other fictional CRM demo', undefined, op());
+    const deal: CrmDocument = { deal: { id: 'deal-1', amount: 12000, stage: 'lead' }, version: 1 };
+    assert.equal(t.store.compareAndSetArtifact(owned.session.id, 'crm', 'deal-1', null, deal), true);
+    assert.equal(t.store.compareAndSetArtifact(owned.session.id, 'crm', 'deal-1', null, deal), false);
+    assert.equal(t.store.readArtifact(other.session.id, 'crm', 'deal-1'), null);
+    assert.equal(t.store.compareAndSetArtifact(owned.session.id, 'crm', 'deal-1', 1, { ...deal, version: 2, deal: { ...deal.deal, stage: 'won' } }), true);
+    assert.equal(t.store.compareAndSetArtifact(owned.session.id, 'crm', 'deal-1', 1, deal), false);
+    t.store.close(); const reopened = new Store(t.path, { clock: t.clock });
+    assert.equal(reopened.readArtifact<CrmDocument>(owned.session.id, 'crm', 'deal-1')!.deal.stage, 'won');
+    t.clock.advance(CORE_LIMITS.idleMs + 1);
+    assert.throws(() => reopened.authorize(other.session.id, reopened.browserCookie(owned.ownerId)), (e: unknown) => e instanceof Failure && e.code === 'SESSION_EXPIRED');
+    assert.equal((reopened.db.prepare('SELECT COUNT(*) n FROM demo_artifacts').get() as {n:number}).n, 0);
+    reopened.close();
+  } finally { t.cleanup(); }
+});
