@@ -341,11 +341,10 @@ test('an ended or unknown session URL is a friendly page, not a raw code (L5-05)
 
 test('buyer wording: no internal terms, Declined for refusals, one link per trace, step strip in plain words and kept after reload', async ({ page }) => {
   await buildTravel(page);
-  await expect(page.locator('.chat-steps')).toContainText('Saved');
-  await expect(page.locator('.chat-steps')).toContainText('Verified');
+  await expect(page.locator('.chat-steps')).toHaveText('Saved your synthetic demo and confirmed the saved trace.');
   await expect(page.locator('.chat-steps')).not.toContainText(/Read back|Planned|Validated/);
   await page.reload();
-  await expect(page.locator('.chat-steps')).toContainText('Verified');
+  await expect(page.locator('.chat-steps')).toHaveText('Saved your synthetic demo and confirmed the saved trace.');
 
   await send(page, 'Can Neatlogs detect failed retries?');
   await expect(page.locator('.chat-thread')).toContainText('Sources', { timeout: 15000 });

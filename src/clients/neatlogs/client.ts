@@ -4,6 +4,7 @@ import type { BrowserSession } from '../../tailor/demo-contract.ts';
 import type { EvaluationDetail, EvaluationList, EvaluationQuestion, ReviewEvaluationRequest } from './eval-contract.ts';
 import { entrySavedState, entrySuggestions, suggestionBatch } from './entry-state.ts';
 import { replyBlocks, type ReplyTextBlock } from './reply-format.ts';
+import { turnSummary } from './turn-summary.ts';
 import { recommendedTrace, selectedSpanAncestors, traceGuideFacts } from './trace-guide.ts';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
@@ -357,31 +358,11 @@ function chatThread(turns: ChatTurn[], s?: DemoSession) {
     return `<article class="chat-turn is-${turn.role}${turn.status === 'uncertain' ? ' is-uncertain' : ''}" data-status="${turn.status}"${label === 'Declined' ? ' data-declined' : ''}>${turn.role === 'tailor' ? assistantReply(turn.text, !turn.evidence) : `<p>${esc(turn.text)}</p>`}${label ? `<small class="turn-status">${label}</small>` : ''}${retry}${evidence}${choices}</article>`;
   }).join('');
 }
-/** Buyer-language summary of what the last turn did. Internal step names are never shown. */
-function stepsLine(steps: TurnStep[], outcome?: TurnOutcome) {
-  const parts: string[] = [];
-  const push = (text: string) => { if (parts[parts.length - 1] !== text) parts.push(text); };
-  for (const step of steps) {
-    if (step.status === 'skipped') continue;
-    const failed = step.status === 'failed';
-    switch (step.name) {
-      case 'load_context': case 'retrieve_knowledge': push(failed ? 'Could not check ✕' : 'Checked'); break;
-      case 'validate': push(failed ? 'Checks failed ✕' : 'Checked'); break;
-      case 'model': push(failed ? 'Could not finish ✕' : 'Checked'); break;
-      case 'save': push(failed ? (outcome === 'readback_uncertain' ? 'Save not confirmed ✕' : 'Not saved ✕') : 'Saved'); break;
-      case 'readback': if (!(failed && parts[parts.length - 1] === 'Save not confirmed ✕')) push(failed ? 'Could not verify ✕' : 'Verified ✓'); break;
-      case 'explain': push(failed ? 'Could not read the trace ✕' : 'Read the trace'); break;
-      case 'repair': push('Fixed a problem'); break;
-      case 'escalate': push('Asked for a second opinion'); break;
-    }
-  }
-  return parts.join(' · ');
-}
 function progress() {
   if (chatBusy) return `<p class="chat-steps" role="status">Working on your request…</p>`;
-  const line = lastResult ? stepsLine(lastResult.steps, lastResult.outcome) : '';
+  const line = lastResult ? turnSummary(lastResult.steps, lastResult.outcome) : '';
   const uncertain = lastResult?.outcome === 'readback_uncertain';
-  return `${turnNote ? `<p class="chat-note${uncertain ? ' is-uncertain' : ''}" role="status">${esc(turnNote)}</p>` : ''}${line ? `<p class="chat-steps" aria-label="What I did">${esc(line)}</p>` : ''}`;
+  return `${turnNote ? `<p class="chat-note${uncertain ? ' is-uncertain' : ''}" role="status">${esc(turnNote)}</p>` : ''}${line ? `<p class="chat-steps" aria-label="Latest request">${esc(line)}</p>` : ''}`;
 }
 function composer(busy: boolean, asking?: Trace) {
   const text = restoreText; restoreText = '';
