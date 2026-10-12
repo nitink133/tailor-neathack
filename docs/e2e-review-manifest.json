@@ -1,12 +1,13 @@
 {
   "schema": "tailor-mobile-evidence-2026-10-12.1",
-  "status": "partial_first_verified_batch",
+  "status": "partial_verified_original_and_historical_recovery_screenshots",
   "evalRoutingStatus": "isolated awaiting Nitin screenshot approval; not on main",
   "providerBudget": {
     "cumulativeApprovedUsd": 20,
     "plannedRuntimeCeilingUsd": 19,
     "spentBeforeExpandedTestsUsd": 1.619646,
-    "newPaidE2ECalls": 0
+    "newPaidE2ECalls": 60,
+    "spentAfterFirstPassUsd": 2.4133519999999993
   },
   "scenarios": [
     {
@@ -43,7 +44,7 @@
         "exactInputPreserved": true,
         "exactAnswerAndFactsPreserved": true
       },
-      "failureFixRetestStatus": "Response/UI/capture correction published in8c6b519; historical recovery exact readback verified; same-question fresh live retest pending. Original conversation not rewritten.",
+      "failureFixRetestStatus": "Historical recovery exact readback verified; fresh same-demo retest blocked by expiration. Original hosted record unchanged.",
       "screenshots": [
         {
           "library_file_id": "libfile_b9794a8281e08191ab38b2fdad9314d8",
@@ -58,6 +59,24 @@
           "name": "02-original-missing-input-reference.png",
           "kind": "earlier actual dashboard reference showing missing inputs; not exact75f trace and not recovered record",
           "captureTimestamp": "unavailable; existing user-supplied dashboard screenshot"
+        },
+        {
+          "library_file_id": "libfile_9a66d05ebb008191818e4e540237f1ea",
+          "file_id": "file_000000007a948211b293d61a36412adb",
+          "name": "03-original-exact-trace-overview.jpg",
+          "kind": "fresh actual original75f dashboard overview with model usage rows"
+        },
+        {
+          "library_file_id": "libfile_3493d65a77dc8191b65e13f43c933f9a",
+          "file_id": "file_00000000d0a4821183e20e162876ad12",
+          "name": "05-historical-recovery-recorded-input.jpg",
+          "kind": "fresh actual2bfc historical-recovery dashboard with exact original input"
+        },
+        {
+          "library_file_id": "libfile_63d2e1f4a92481919a78ee48448aefce",
+          "file_id": "file_00000000a49c8208bcdaf46b679aeaf0",
+          "name": "06-historical-recovery-original-answer-facts.jpg",
+          "kind": "fresh actual2bfc historical-recovery dashboard with full original answer and safe original usage facts"
         }
       ]
     }
@@ -72,5 +91,6 @@
     "liveCapture": "unverified",
     "callerSession": "01a12f26-8424-749c-adff-b171d9f5d048",
     "boundary": "Recognized caller has no Entire session state; no checkpoint trailers added."
-  }
+  },
+  "liveFirstPassReport": "docs/e2e-live-first-pass.json"
 }
