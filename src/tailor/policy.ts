@@ -3,7 +3,7 @@
 import type { ProviderErrorKind, ProviderMessage, ProviderUsage } from './contract.ts';
 import type { AttemptSettlement, InputAccounting } from './accounting.ts';
 
-export const POLICY_VERSION = 'tailor-entry-policy-2026-10-12.1' as const;
+export const POLICY_VERSION = 'tailor-entry-policy-2026-10-12.2' as const;
 export const POLICY_OUTCOMES = ['allow_product_question', 'allow_demo_action', 'clarify', 'redirect_off_topic', 'deny_instruction_override'] as const;
 export type PolicyOutcome = typeof POLICY_OUTCOMES[number];
 export const POLICY_REASONS = ['product_question', 'demo_action', 'ambiguous', 'off_topic', 'instruction_override', 'guard_unavailable', 'invalid_classification'] as const;
@@ -15,7 +15,13 @@ export interface PolicyInput {
   capabilities: string;
   /** The latest buyer turn, explicitly untrusted. Never the full conversation. */
   latestText: string;
-  session: { hasPublishedState: boolean; pendingClarification: { question: string; choices: string[] } | null; resolvedChoice: string | null };
+  session: {
+    hasPublishedState: boolean;
+    pendingClarification: { question: string; choices: string[] } | null;
+    resolvedChoice: string | null;
+    /** Optional adapter-owned topic tokens from the preceding completed exchange; never raw history or permission. */
+    recentProductTopics?: string[];
+  };
 }
 export interface PolicyRequest { messages: ProviderMessage[]; responseSchema: 'entry_policy'; maxOutputTokens: number }
 export interface PolicyResponse {
