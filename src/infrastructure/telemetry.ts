@@ -153,7 +153,7 @@ const COUNT_KEY = /^[a-z][A-Za-z]{0,40}(Count|Calls|Records|Spans|Traces|Problem
 const MEASURE_KEY = /^[a-z][A-Za-z]{0,40}(Usd|Ms)$/;
 const NUMERIC_KEYS = new Set([
   'version', 'expectedVersion', 'attemptedVersion', 'currentVersion', 'lastKnownVersion', 'conversationVersion',
-  'versionBefore', 'versionAfter', 'attempt', 'repairs', 'httpStatus', 'contextSchemaVersion', 'evidenceOrdinal', 'policyAttempt',
+  'versionBefore', 'versionAfter', 'attempt', 'repairs', 'httpStatus', 'contextSchemaVersion', 'evidenceOrdinal', 'policyAttempt', 'contextRecentTurnsKept', 'contextRecentTurnsDropped', 'contextPayloadsDropped', 'contextKnowledgeRecordsKept',
 ]);
 const BOOL_KEYS = new Set(['escalated', 'retryable', 'permitted', 'mutates', 'costKnown', 'timeout', 'promptCaching', 'preventedDispatch', 'dispatchPrevented', 'estimated']);
 const PROVIDER_ERROR_KINDS = new Set<ProviderErrorKind>([
@@ -281,7 +281,7 @@ const KEY_ALIAS: Record<string, string> = { kind: 'providerErrorKind', providerR
 /** Event names service code emits; anything else is recorded as `tailor.event`. */
 const EVENT_NAMES = new Set([
   'agent_error', 'commit', 'explain_unavailable', 'provider_error', 'provider_latency', 'provider_request_id', 'publish.result',
-  'publish_threw', 'evidence', 'policy', 'dispatch_prevented', 'context_trimmed', 'input_accounting', 'settlement', 'response', 'tool_refused', 'turn.recovered', 'turn.replayed', 'turn.result', 'validate.result', 'validation',
+  'publish_threw', 'readback.result', 'evidence', 'policy', 'dispatch_prevented', 'context_trimmed', 'input_accounting', 'settlement', 'response', 'tool_refused', 'turn.recovered', 'turn.replayed', 'turn.result', 'validate.result', 'validation',
 ]);
 /** SDK structural keys that may pass the export mask; anything carrying payload/content is denied. */
 const SDK_KEY = /^(neatlogs\.|openinference\.span\.kind$|session\.id$|service\.name$|telemetry\.sdk\.|_span_name$)/;
@@ -704,7 +704,13 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
             try {
               const value = await context.run({ turnId, span }, async () => {
                 guard(() => evidence.observe(name as EvidenceOperation, ordinal, 'start', 'ok'));
-                try { const value = await fn(); guard(() => evidence.observe(name as EvidenceOperation, ordinal, 'end', 'ok')); return value; }
+                try {
+                  const value = await fn();
+                  const recorded = (span as unknown as { attributes?: Record<string, unknown> }).attributes ?? {};
+                  const state = value && typeof value === 'object' ? (value as { state?: unknown }).state : undefined;
+                  const failed = (name === 'save' && state === 'save_failed') || (name === 'guard' && (recorded['tailor.attempt_result'] === 'error' || recorded['tailor.provider_error_kind'] !== undefined));
+                  guard(() => evidence.observe(name as EvidenceOperation, ordinal, 'end', failed ? 'failed' : 'ok')); return value;
+                }
                 catch (error) { guard(() => evidence.observe(name as EvidenceOperation, ordinal, 'end', 'failed')); throw error; }
               });
               box.result = { ok: true, value };

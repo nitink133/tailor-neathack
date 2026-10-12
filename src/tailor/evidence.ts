@@ -1,4 +1,4 @@
-// Browser-safe evidence contract. Expectations come from business dispatch decisions, never from received spans.
+// Browser-safe evidence contract. Expectations come from business dispatch decisions, never from received records.
 // Contains only closed operation names, ordinals and outcomes; no buyer text, prompts, credentials or reasoning.
 export const EVIDENCE_OPERATIONS = ['turn', 'load_context', 'context', 'retrieve_knowledge', 'model', 'repair', 'escalate', 'validate', 'tool', 'save', 'readback', 'explain', 'guard', 'response'] as const;
 export type EvidenceOperation = typeof EVIDENCE_OPERATIONS[number];

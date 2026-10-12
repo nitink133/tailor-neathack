@@ -92,3 +92,38 @@ test('disabled recording preserves independent expectations and explicitly repor
   assert.ok(persisted); assert.deepEqual(handle.evidence.snapshot().observed, []);
   assert.deepEqual(compareEvidence(handle.evidence.snapshot()).missing, ['turn:1:start', 'turn:1:end']);
 });
+
+
+test('fixed clarification after guard-provider failure and rolled-back save each record a failed receipt', async () => {
+  const telemetry = await createTelemetry({ mode: 'captured', secret: 'fixed-outcome-failure-secret' });
+  try {
+    const tt = telemetry.forTurn('fixed-failure', 'owner');
+    tt.evidence.expect('turn'); tt.evidence.expect('guard'); tt.evidence.expect('save');
+    await tt.step('turn', {}, async () => {
+      const gate = await tt.step('guard', {}, async () => {
+        tt.annotate({ attemptResult: 'error', providerErrorKind: 'timeout', policyOutcome: 'clarify', policyReason: 'guard_unavailable', preventedDispatch: true });
+        return { kind: 'ask' };
+      });
+      assert.equal(gate.kind, 'ask');
+      const save = await tt.step('save', {}, async () => ({ state: 'save_failed' }));
+      assert.equal(save.state, 'save_failed');
+    });
+    assert.deepEqual(telemetry.diagnostics().recentTurns[0]!.completeness?.failed, ['guard:1:end', 'save:1:end']);
+    assert.equal(telemetry.diagnostics().recentTurns[0]!.completeness?.complete, true, 'failure evidence is complete and does not imply success');
+  } finally { await telemetry.shutdown(); }
+});
+
+test('context trimming counts and actual readback result events remain allowlisted', async () => {
+  const telemetry = await createTelemetry({ mode: 'captured', secret: 'context-metrics-secret' });
+  try {
+    const tt = telemetry.forTurn('context-metrics', 'owner'); tt.evidence.expect('turn'); tt.evidence.expect('context');
+    await tt.step('turn', {}, async () => {
+      await tt.step('context', { contextBudgetChars: 40, contextChars: 30, contextRecentTurnsKept: 2, contextRecentTurnsDropped: 3, contextPayloadsDropped: 1, contextKnowledgeRecordsKept: 4 }, async () => null);
+      tt.event('readback.result', { state: 'committed', version: 2, latencyMs: 1, evidenceOrdinal: 1 });
+    });
+    assert.equal(telemetry.diagnostics().droppedAttributes, 0);
+    const root = telemetry.captured().find(s => s.name === 'tailor.turn')!;
+    assert.equal(root.events.find(e => e.name === 'tailor.readback.result')!.attributes['tailor.version'], 2);
+    assert.equal(telemetry.captured().find(s => s.name === 'context')!.attributes['tailor.context_recent_turns_dropped'], 3);
+  } finally { await telemetry.shutdown(); }
+});

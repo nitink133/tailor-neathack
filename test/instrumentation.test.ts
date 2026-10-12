@@ -57,7 +57,10 @@ function snapshot(tools: StubTools, text: string): SessionSnapshot {
 
 async function neatlogsTurn(t: Telemetry, text: string, opts: { tools?: StubTools; provider?: ModelProvider } = {}): Promise<Captured> {
   const tools = opts.tools ?? stubTools();
-  const provider = opts.provider ?? countingProvider();
+  const original = opts.provider ?? countingProvider();
+  // Synthetic accounting fixture, accuracy unverified: explicitly allow this known product journey.
+  // Production live providers retain their mandatory separate classifier; these fakes isolate planner accounting.
+  const provider: ModelProvider = original.mode === 'live' && !original.classifyPolicy ? { ...original, async classifyPolicy() { return { decision: { outcome: 'allow_demo_action', reason: 'demo_action' }, usage: null, latencyMs: 0, costUsd: 0 }; } } : original;
   const turnId = `turn-${++n}`;
   const tt = t.forTurn(turnId, SESSION_ID);
   const result = await tt.step('turn', { provider: provider.name, providerMode: provider.mode }, () =>
@@ -92,7 +95,7 @@ test('committed turn: context, attempt, tool, readback and response are recorded
     assert.equal(root['tailor.grounding_drops'], 0);
 
     const names = c.spans.filter(s => s.parentSpanId === c.root.spanId).map(s => s.name);
-    assert.deepEqual(names, ['load_context', 'retrieve_knowledge', 'model', 'tool', 'readback'], 'child steps in execution order');
+    assert.deepEqual(names, ['load_context', 'guard', 'retrieve_knowledge', 'context', 'model', 'guard', 'tool', 'readback'], 'child steps in execution order');
 
     const retrieval = attrs(c.named('retrieve_knowledge')[0]);
     assert.equal(retrieval['tailor.adapter_id'], 'neatlogs');
@@ -112,7 +115,7 @@ test('committed turn: context, attempt, tool, readback and response are recorded
     assert.equal(model['tailor.prompt_caching'], false);
     assert.equal(typeof model['tailor.latency_ms'], 'number');
 
-    const tool = attrs(c.named('tool')[0]);
+    const tool = attrs(c.named('tool').find(s => s.attributes['tailor.result_state'] !== undefined));
     assert.equal(tool['openinference.span.kind'], 'TOOL');
     assert.equal(tool['tailor.tool_name'], 'publishScenario');
     assert.equal(tool['tailor.permitted'], true);
@@ -156,7 +159,7 @@ test('rejected → repair → committed: two attempts, two tool executions, issu
     const [plan, repair] = [attrs(c.named('model')[0]), attrs(c.named('repair')[0])];
     assert.deepEqual([plan['tailor.attempt'], plan['tailor.purpose']], [1, 'plan']);
     assert.deepEqual([repair['tailor.attempt'], repair['tailor.purpose'], repair['tailor.attempt_result']], [2, 'repair', 'ok']);
-    const tools_ = c.named('tool').map(attrs);
+    const tools_ = c.named('tool').filter(s => s.attributes['tailor.result_state'] !== undefined).map(attrs);
     assert.deepEqual(tools_.map(a => [a['tailor.attempt'], a['tailor.result_state']]), [[1, 'rejected'], [2, 'committed']]);
     const validation = c.root.events.filter(e => e.name === 'tailor.validation').map(e => e.attributes);
     assert.equal(validation[0]!['tailor.state'], 'rejected');
@@ -173,18 +176,19 @@ test('clarification, unsupported and refused paths: no tool step, outcome and de
   const t = await createTelemetry({ mode: 'captured', secret: SECRET });
   try {
     const cases: [string, string, string, string][] = [
-      [nonProposalRequests.ambiguous.text, 'clarification', 'plan→ask→clarification', 'question'],
+      [nonProposalRequests.ambiguous.text, 'clarification', 'clarification', 'question'],
       [nonProposalRequests.explainOnly.text, 'unsupported', 'plan→unsupported', 'note'],
-      [nonProposalRequests.injection.text, 'refused', 'plan→refuse:injection→refused', 'note'],
+      [nonProposalRequests.injection.text, 'refused', 'refused', 'note'],
     ];
     for (const [text, outcome, decision, status] of cases) {
       const c = await neatlogsTurn(t, text);
       assert.equal(c.result.outcome, outcome);
       assert.equal(c.root.attributes['tailor.decision'], decision, outcome);
-      assert.equal(c.named('tool').length, 0, `${outcome}: nothing executed`);
+      assert.equal(c.named('tool').filter(s => s.attributes['tailor.result_state'] !== undefined).length, 0, `${outcome}: nothing executed`);
       assert.equal(c.event('response')!['tailor.outcome'], outcome);
       assert.equal(c.event('response')!['tailor.status'], status);
-      assert.equal(attrs(c.named('model')[0])['tailor.attempt_result'], 'ok');
+      if (outcome === 'unsupported') assert.equal(attrs(c.named('model')[0])['tailor.attempt_result'], 'ok');
+      else { assert.equal(c.named('model').length, 0, 'blocking guard prevents planner dispatch'); assert.equal(c.named('retrieve_knowledge').length, 0, 'blocking guard prevents retrieval'); }
       assertPrivate(c, text);
     }
   } finally { await t.shutdown(); }
@@ -216,7 +220,7 @@ test('provider timeout (live-shaped provider): error kind, timeout flag, unknown
     assert.equal(model['tailor.request_id'], 'req_timeout01');
     assert.equal(model['tailor.model'], 'claude-sonnet-5-5');
     assert.equal(model['tailor.effort'], 'medium');
-    assert.equal(c.named('tool').length, 0);
+    assert.equal(c.named('tool').filter(s => s.attributes['tailor.result_state'] !== undefined).length, 0);
     assert.equal(c.event('response')!['tailor.status'], 'failed');
     assertPrivate(c, travelBuyerTurn1.text);
   } finally { await t.shutdown(); }
@@ -263,7 +267,7 @@ test('R1-F8: the evidence explanation call is a `model` span with purpose=explai
     const c = await neatlogsTurn(t, travelBuyerTurn1.text, { provider });
     assert.equal(c.result.outcome, 'committed');
     const children = c.spans.filter(s => s.parentSpanId === c.root.spanId);
-    assert.deepEqual(children.map(s => s.name), ['load_context', 'retrieve_knowledge', 'model', 'tool', 'readback', 'model']);
+    assert.deepEqual(children.map(s => s.name), ['load_context', 'guard', 'retrieve_knowledge', 'context', 'model', 'guard', 'tool', 'readback', 'model']);
     assert.deepEqual(c.named('model').map(s => s.attributes['tailor.purpose']), ['plan', 'explain']);
     const read = c.named('explain');
     assert.equal(read.length, 1, 'only the read tool is an explain span');
@@ -282,7 +286,7 @@ test('readback_uncertain: tool result, a readback step marked uncertain and the 
     const c = await neatlogsTurn(t, travelBuyerTurn1.text, { tools });
     assert.equal(c.result.outcome, 'readback_uncertain');
     assert.equal(c.root.attributes['tailor.decision'], 'plan→publishScenario readback_uncertain→readback uncertain→readback_uncertain');
-    const tool = attrs(c.named('tool')[0]);
+    const tool = attrs(c.named('tool').find(s => s.attributes['tailor.result_state'] !== undefined));
     assert.equal(tool['tailor.result_state'], 'readback_uncertain');
     assert.equal(tool['tailor.version_after'], 1);
     assert.equal(tool['tailor.attempted_version'], 2);
@@ -312,7 +316,7 @@ test('unpermitted tool (CRM adapter, real core): refused in code, recorded as a 
     assert.equal(store.writes, 0);
     assert.equal(c.root.attributes['tailor.adapter_id'], 'crm-test');
     assert.equal(c.root.attributes['tailor.decision'], 'plan→invalid_name:not_permitted→refused', 'an undeclared tool name never leaves the core');
-    const tool = attrs(c.named('tool')[0]);
+    const tool = attrs(c.named('tool').find(s => s.attributes['tailor.result_state'] !== undefined));
     assert.equal(tool['tailor.tool_name'], 'invalid_name');
     assert.equal(tool['tailor.permitted'], false);
     assert.equal(tool['tailor.result_state'], 'refused');
@@ -329,7 +333,8 @@ test('server: /api/dev/telemetry passes the new diagnostics through, with trace 
   for (const syntheticPayloads of [false, true]) {
     const { store, cleanup } = tempStore();
     const telemetry = await createTelemetry({ mode: 'captured', secret: SECRET, syntheticPayloads });
-    const server = appServer(store, { devKey: DEV_KEY, agent: stubAgent(), provider: stubProvider, knowledge: stubKnowledge, telemetry });
+    const trustedFixtures = new Set<string>();
+    const server = appServer(store, { devKey: DEV_KEY, agent: stubAgent(), provider: stubProvider, knowledge: stubKnowledge, telemetry, syntheticFixture: id => trustedFixtures.has(id) });
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
     const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     try {
@@ -339,13 +344,16 @@ test('server: /api/dev/telemetry passes the new diagnostics through, with trace 
       };
       const plain = await call('/api/sessions', 'POST', { description: 'A fictional support bot' });
       const fixture = await call('/api/sessions', 'POST', { description: `${SYNTHETIC_FIXTURE_PREFIX}: fictional order bot` });
+      trustedFixtures.add(fixture.data.id);
+      const spoof = await call('/api/sessions', 'POST', { description: `${SYNTHETIC_FIXTURE_PREFIX}: buyer-authored label only` });
       const text = 'What does this demo show?';
       await call(`/api/sessions/${plain.data.id}/turns`, 'POST', { text, clientTurnId: randomUUID() }, plain.cookie);
       await call(`/api/sessions/${fixture.data.id}/turns`, 'POST', { text, clientTurnId: randomUUID() }, fixture.cookie);
+      await call(`/api/sessions/${spoof.data.id}/turns`, 'POST', { text, clientTurnId: randomUUID() }, spoof.cookie);
       const d = (await call('/api/dev/telemetry')).data;
       for (const key of ['deliveryState', 'redactedValues', 'syntheticPayloads', 'endpoint', 'recentTurns']) assert.ok(key in d, key);
       assert.equal(d.syntheticPayloads, syntheticPayloads);
-      assert.equal(d.recentTurns.length, 2);
+      assert.equal(d.recentTurns.length, 3);
       for (const r of d.recentTurns) assert.match(r.traceId, /^[0-9a-f]{32}$/);
       const roots = telemetry.captured().filter(s => s.name === 'tailor.turn');
       const withPayload = roots.filter(s => s.attributes['tailor.synthetic_input'] !== undefined);
@@ -359,6 +367,7 @@ test('server: /api/dev/telemetry passes the new diagnostics through, with trace 
       const dump = JSON.stringify(telemetry.captured());
       assert.equal(dump.includes(plain.data.id), false);
       assert.equal(dump.includes(fixture.data.id), false);
+      assert.equal(dump.includes(spoof.data.id), false);
     } finally {
       await new Promise<void>(r => server.close(() => r()));
       await telemetry.shutdown();
