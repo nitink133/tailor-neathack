@@ -1,3 +1,4 @@
+import { sanitiseStoredGuidance } from '../clients/neatlogs/guidance.ts';
 import { materialSwitchReason } from '../clients/neatlogs/material-switch.ts';
 import { createEvidenceObserver, type EvidenceManifestSnapshot } from '../tailor/evidence.ts';
 import { DEMO_SWITCH_CHOICES, type BrowserSession, type DemoSwitchChoice, type DemoSwitchConfirmation } from '../tailor/demo-contract.ts';
@@ -714,6 +715,10 @@ function checkTurn(turn: NewTurn): NewTurn {
   const clean: NewTurn = { role: turn.role, text: turn.text.trim(), status: turn.status };
   if (turn.clarification) clean.clarification = turn.clarification;
   if (turn.evidence) clean.evidence = turn.evidence;
+  if (turn.role === 'tailor' && ['note', 'applied'].includes(turn.status)) {
+    const guidance = sanitiseStoredGuidance(turn.guidance);
+    if (guidance.length) clean.guidance = guidance;
+  }
   return clean;
 }
 

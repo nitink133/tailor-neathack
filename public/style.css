@@ -252,3 +252,32 @@ html.entry-view-transition::view-transition-new(root){animation:entry-view-in 22
 
 .chat-turn.is-tailor.is-uncertain .assistant-reply{background:#fff7e0;border-color:#e6c36a;color:#6b4a00}
 .dark .chat-turn.is-tailor.is-uncertain .assistant-reply{background:#3a2e12;border-color:#7a6226;color:#f1d28a}
+
+/* Guidance belongs to its answer. Product targets are supplied by the adapter. */
+.contextual-suggestions{margin-top:15px;max-width:100%}
+.contextual-suggestion-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;font-size:11px;font-weight:500}
+.contextual-suggestion-heading small{font-size:10px;font-weight:400;color:var(--muted)}
+.contextual-suggestion{display:flex;align-items:center;gap:10px;width:100%;margin:6px 0;padding:11px;text-align:left;border:1px solid var(--line);border-radius:8px;background:var(--ground);color:var(--ink)}
+.contextual-suggestion>span:nth-child(2){flex:1;min-width:0}
+.contextual-suggestion strong{display:block;font-size:11px;font-weight:550}
+.contextual-suggestion small{display:block;margin-top:3px;font-size:10px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
+.contextual-suggestion-symbol{display:grid;place-items:center;flex:0 0 25px;height:25px;background:var(--surface);border-radius:5px;color:var(--muted)}
+.contextual-suggestion-arrow{color:var(--muted);font-size:18px}
+.contextual-suggestion:hover:not(:disabled),.contextual-suggestion[aria-pressed=true]{border-color:#a7bce4;background:#f5f8ff}
+.contextual-suggestion:disabled{opacity:.6;cursor:default}
+.contextual-guide-note{margin-top:12px;padding:12px;border:1px solid #d7e2f6;border-radius:8px;background:#f5f8ff;color:#526c98}
+.contextual-guide-note>div{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.contextual-guide-note>div>span{font-size:10px;font-weight:500}
+.contextual-guide-note button{border:0;background:transparent;padding:0 4px;font-size:20px;color:inherit}
+.contextual-guide-note>strong{display:block;font-size:11px;font-weight:550}
+.chat-turn .contextual-guide-note>p{display:block;margin:5px 0 0;padding:0;border:0;background:none;border-radius:0;color:inherit;font-size:11px;line-height:1.6;white-space:normal}
+.contextual-guide-note.is-recovery{background:#faf8f3;border-color:#e9dfc9;color:#806e4f}
+.contextual-stale{font-size:10px;color:var(--muted);line-height:1.5}
+.contextual-guide-target{outline:2px solid #5881d0;outline-offset:4px;background:#f6f9ff!important;box-shadow:0 0 0 6px #eef3fc;scroll-margin:24px}
+.dark .contextual-guide-target,.dark .contextual-suggestion[aria-pressed=true],.dark .contextual-guide-note{background:#192536!important;color:#b9c9e5;border-color:#425a83}
+.dark .contextual-guide-note.is-recovery{background:#30291d!important;color:#ddcba8;border-color:#66583e}
+@media(max-width:900px){html.chat-dock .workspace{height:52dvh;min-height:0;overflow:auto;padding-bottom:24px}html.chat-dock .chat-panel{height:48dvh;max-height:none}}
+@media(max-width:600px){.contextual-suggestion{padding:9px}.contextual-suggestions{margin-top:12px}}
+
+@media(max-width:900px){.chat-panel.has-contextual-guidance .chat-composer{padding:6px 10px;border-radius:12px}.chat-panel.has-contextual-guidance .chat-composer textarea{height:26px;min-height:26px}.chat-panel.has-contextual-guidance .chat-tools{margin-top:2px}.chat-panel.has-contextual-guidance .chat-asking{margin-bottom:3px;font-size:9px}.chat-panel.has-contextual-guidance .chat-note,.chat-panel.has-contextual-guidance .chat-steps{margin:2px 0;font-size:9px}}
+@media(max-width:900px){.chat-panel.has-contextual-guidance .contextual-suggestions:has(.contextual-suggestion[aria-pressed=true]){display:flex;flex-direction:column}.chat-panel.has-contextual-guidance .contextual-suggestions:has(.contextual-suggestion[aria-pressed=true])>.contextual-suggestion-heading{order:0}.chat-panel.has-contextual-guidance .contextual-suggestion[aria-pressed=true]{order:1}.chat-panel.has-contextual-guidance .contextual-guide-note{order:2}.chat-panel.has-contextual-guidance .contextual-suggestion[aria-pressed=false]{order:3}}

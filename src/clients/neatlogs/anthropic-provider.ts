@@ -111,11 +111,20 @@ export const REFUSAL_REASONS = ['injection', 'arbitrary_code', 'cross_session', 
  * natural `anyOf` of six objects as too large ("The compiled grammar is too large"), while this shape compiles.
  * `normaliseWireAction` rebuilds the union and `validateAgentAction` enforces the contract afterwards.
  */
+const GUIDANCE_SCHEMA = {
+  type: ['array', 'null'],
+  description: 'Optional contextual destinations selected with this answer; zero to three relevant targets only. Null for ask/refuse/unsupported. Never invent destinations.',
+  items: { type: 'object', properties: {
+    targetId: { type: 'string', enum: ['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output'] },
+    traceId: nullableStr('Saved current trace id; null selects the authorised open/active trace after save'),
+  }, required: ['targetId', 'traceId'], additionalProperties: false },
+} as const;
 export const AGENT_ACTION_SCHEMA = {
   type: 'object',
   description: 'Exactly one action. Fill only the fields that belong to that action type; every other field must be null.',
   properties: {
     type: { type: 'string', enum: ACTION_TYPES },
+    guidance: GUIDANCE_SCHEMA,
     text: nullableStr('Buyer-facing text for explain, answer, unsupported and refuse; null for ask and propose'),
     clarification: { anyOf: [CLARIFICATION, { type: 'null' }], description: 'ask only' },
     proposal: { anyOf: [SCENARIO_PROPOSAL, { type: 'null' }], description: 'propose only' },
@@ -126,7 +135,7 @@ export const AGENT_ACTION_SCHEMA = {
     capabilityId: nullableStr('unsupported only: id of the requested capability, when it matches one'),
     reason: { anyOf: [{ type: 'string', enum: REFUSAL_REASONS }, { type: 'null' }], description: 'refuse only' },
   },
-  required: ['type', 'text', 'clarification', 'proposal', 'explanation', 'traceId', 'spanIds', 'knowledgeIds', 'capabilityId', 'reason'],
+  required: ['guidance', 'type', 'text', 'clarification', 'proposal', 'explanation', 'traceId', 'spanIds', 'knowledgeIds', 'capabilityId', 'reason'],
   additionalProperties: false,
 } as const;
 
@@ -205,12 +214,12 @@ export function normaliseWireAction(parsed: unknown): unknown | null {
       if (traces.some(t => t === null)) return null;
       const { removeTraceKeys, ...rest } = w.proposal;
       const proposal: Obj = { kind: 'scenario_proposal', contractVersion: CONTRACT_VERSION, ...rest, ...(removeTraceKeys === null || removeTraceKeys === undefined ? {} : { removeTraceKeys }), traces };
-      return { type: 'propose', proposal, explanation: w.explanation };
+      return { type: 'propose', proposal, explanation: w.explanation, ...opt('guidance') };
     }
     case 'explain':
-      return { type: 'explain', text: w.text, ...opt('traceId'), ...opt('spanIds') };
+      return { type: 'explain', text: w.text, ...opt('guidance'), ...opt('traceId'), ...opt('spanIds') };
     case 'answer':
-      return { type: 'answer', text: w.text, knowledgeIds: w.knowledgeIds ?? [] };
+      return { type: 'answer', text: w.text, knowledgeIds: w.knowledgeIds ?? [], ...opt('guidance') };
     case 'unsupported':
       return { type: 'unsupported', text: w.text, ...opt('capabilityId') };
     case 'refuse':

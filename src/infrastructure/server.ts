@@ -9,6 +9,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Store, Failure, findSpan, findTrace, isGone, traceList, traceQuery, type StoredTurn } from './store.ts';
 import { createSessionTools, readbackObserver } from '../clients/neatlogs/session-tools.ts';
 import { storyProblems } from '../clients/neatlogs/validator.ts';
+import { isCurrentGuidance } from '../clients/neatlogs/guidance.ts';
 import type { Telemetry } from './telemetry.ts';
 import { BUYER_STATUS, createTurnGate, reconcileTurnResult, requestFingerprint, unfinishedTurnResult } from '../tailor/lifecycle.ts';
 import {
@@ -224,6 +225,35 @@ export function appServer(store: Store, options: AppServerOptions) {
           }
           throw new Failure(405, 'UNSUPPORTED_ACTION', 'Unsupported developer action.');
         }
+        const guidanceRoute = /^\/api\/sessions\/([\w-]+)\/guidance-events$/.exec(path);
+        if (guidanceRoute) {
+          const id = guidanceRoute[1]!; const owner = store.authorize(id, cookieOf(req));
+          if (req.method !== 'POST') throw new Failure(405, 'UNSUPPORTED_ACTION', 'Unsupported guidance action.');
+          const data = await body(req);
+          const outcomes = ['selected', 'shown', 'failed', 'dismissed'];
+          const reasons = ['stale', 'missing', 'navigation', 'loading', 'dismissed', 'render'];
+          if (!data || Array.isArray(data) || Object.keys(data).some(k => !['messageId', 'suggestionId', 'outcome', 'reason'].includes(k)) ||
+            typeof data.messageId !== 'string' || data.messageId.length > 100 || typeof data.suggestionId !== 'string' || data.suggestionId.length > 450 ||
+            !outcomes.includes(data.outcome) || (data.reason !== undefined && !reasons.includes(data.reason))) {
+            throw new Failure(422, 'INVALID_TURN', 'Invalid guidance observation.');
+          }
+          const session = store.read(id);
+          const message = session.conversation.find(m => m.id === data.messageId && m.role === 'tailor');
+          const suggestion = message?.guidance?.find(g => g.id === data.suggestionId);
+          if (!suggestion || !['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output'].includes(suggestion.targetId)) {
+            throw new Failure(404, 'NOT_FOUND', 'Guidance not found in this demo.');
+          }
+          const binding = suggestion.binding;
+          const current = isCurrentGuidance(suggestion, session);
+          // A browser observation cannot turn outdated guidance into a successful show.
+          if (data.outcome === 'shown' && !current) throw new Failure(409, 'STALE_VERSION', 'Guidance no longer matches this demo.');
+          const recorded = await telemetry.guidanceEvent?.(owner, id, {
+            messageId: message!.id, suggestionId: suggestion.id, targetId: suggestion.targetId,
+            targetKey: `${binding.traceId}:${binding.spanId ?? ''}`, version: session.version,
+            outcome: data.outcome, ...(data.reason ? { reason: data.reason } : {}),
+          }).catch(() => false) ?? false;
+          return send(200, { recorded, receiptState: 'unverified' });
+        }
         const evalRoute = /^\/api\/sessions\/([\w-]+)\/evaluations(?:\/([\w-]+)(?:\/(reviews))?)?$/.exec(path);
         if (evalRoute) {
           const id = evalRoute[1]!; const owner = store.authorize(id, cookieOf(req));
@@ -317,6 +347,7 @@ export function appServer(store: Store, options: AppServerOptions) {
       if (path === '/app.js') file = '../dist/clients/neatlogs/client.js';
       else if (path === '/entry-state.js') file = '../dist/clients/neatlogs/entry-state.js';
       else if (path === '/trace-guide.js') file = '../dist/clients/neatlogs/trace-guide.js';
+      else if (path === '/guidance.js') file = '../dist/clients/neatlogs/guidance.js';
       else if (path === '/reply-format.js') file = '../dist/clients/neatlogs/reply-format.js';
       else if (path === '/turn-summary.js') file = '../dist/clients/neatlogs/turn-summary.js';
       else if (path === '/adapter.js') file = '../dist/adapter.js';

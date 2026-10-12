@@ -129,6 +129,8 @@ export interface FlushResult { ok: boolean; exported: number; failed: number; st
 export type ShutdownResult = FlushResult;
 export interface Telemetry {
   readonly mode: TelemetryMode;
+  /** UI observations are separate interaction spans; they never rewrite a completed model turn. */
+  guidanceEvent?(sessionId: string, demoId: string, event: GuidanceEvent): Promise<boolean>;
   forTurn(turnId: string, sessionId: string, options?: TurnOptions): RuntimeTurnTelemetry;
   flush(): Promise<FlushResult>;
   /** Bounded final flush + SDK shutdown; idempotent; never throws. */
@@ -136,6 +138,13 @@ export interface Telemetry {
   /** captured mode only: spans recorded locally (bounded); empty otherwise. */
   captured(): CapturedSpan[];
   diagnostics(): TelemetryDiagnostics;
+}
+
+export interface GuidanceEvent {
+  messageId: string; suggestionId: string; targetId: string; targetKey: string;
+  version: number;
+  outcome: 'selected' | 'shown' | 'failed' | 'dismissed';
+  reason?: 'stale' | 'missing' | 'navigation' | 'loading' | 'dismissed' | 'render';
 }
 
 type RuntimeStep = TelemetryStep | 'context' | 'guard';
@@ -254,6 +263,10 @@ function decisionToken(t: string, vocab: Vocabulary): boolean {
 const isDecision: Check = (v, vocab) => str(v) && v.length > 0 && v.length <= DECISION_MAX && v.split('→').every(t => decisionToken(t, vocab));
 
 const VALIDATED: Record<string, Check> = {
+  guidanceOutcome: inEnum(['selected', 'shown', 'failed', 'dismissed']),
+  guidanceReason: inEnum(['stale', 'missing', 'navigation', 'loading', 'dismissed', 'render', 'read_failed']),
+  guidanceTarget: inEnum(['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output']),
+  messageRef: format(/^m[0-9a-f]{16}$/), suggestionRef: format(/^g[0-9a-f]{16}$/), targetRef: format(/^x[0-9a-f]{16}$/),
   turnId: format(HASHED_TURN),
   correlationId: format(/^[0-9a-f]{16}$/),
   traceId: format(/^[0-9a-f]{32}$/),
@@ -280,6 +293,7 @@ const SYNTHETIC_MAX_CHARS = 1000;
 const KEY_ALIAS: Record<string, string> = { kind: 'providerErrorKind', providerRequestId: 'requestId' };
 /** Event names service code emits; anything else is recorded as `tailor.event`. */
 const EVENT_NAMES = new Set([
+  'guidance_selected', 'guidance_unavailable',
   'agent_error', 'commit', 'explain_unavailable', 'provider_error', 'provider_latency', 'provider_request_id', 'publish.result',
   'publish_threw', 'readback.result', 'evidence', 'policy', 'dispatch_prevented', 'context_trimmed', 'input_accounting', 'settlement', 'response', 'tool_refused', 'turn.recovered', 'turn.replayed', 'turn.result', 'validate.result', 'validation',
 ]);
@@ -873,6 +887,21 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
   const telemetry: Telemetry = {
     mode,
     forTurn,
+    async guidanceEvent(sessionId, demoId, event) {
+      if (closed || pending >= LIMITS.telemetryQueueMax) return false;
+      pending++;
+      try {
+        const attrs = scrub({ guidanceOutcome: event.outcome, guidanceTarget: event.targetId,
+          ...(event.reason ? { guidanceReason: event.reason } : {}), version: event.version,
+          sessionRef: safeRef('s', sessionId), demoRef: safeRef('d', demoId),
+          messageRef: safeRef('m', event.messageId), suggestionRef: safeRef('g', event.suggestionId), targetRef: safeRef('x', event.targetKey) }).clean;
+        await trace({ name: 'tailor.guidance', kind: 'CHAIN', attributes: attrs }, async span => {
+          span.addEvent('tailor.guidance', attrs);
+        });
+        return true;
+      } catch { diag.sdkFailures++; return false; }
+      finally { pending--; }
+    },
     flush: () => {
       if (shutdownPromise) return shutdownPromise;
       return doFlush(options.flushTimeoutMs ?? DEFAULT_FLUSH_TIMEOUT_MS).catch(() => ({ ok: false, exported: 0, failed: 0, state: stateNow(), timedOut: false }));

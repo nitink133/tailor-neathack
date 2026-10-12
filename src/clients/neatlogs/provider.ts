@@ -1,3 +1,4 @@
+import { parseGuidanceSelections } from './guidance.ts';
 // Provider factory + strict structural validation of model output.
 // `mock` is the deterministic offline provider. `anthropic` is the live provider: the caller supplies the API key and a
 // spend guard (this module never reads the environment) and never falls back to the mock.
@@ -90,19 +91,19 @@ export function validateAgentAction(value: unknown): AgentAction | null {
     case 'propose': {
       const proposal = readProposal(value.proposal);
       if (!proposal || !isStr(value.explanation)) return null;
-      return { type: 'propose', proposal, explanation: value.explanation };
+      return { type: 'propose', proposal, explanation: value.explanation, ...(value.guidance !== undefined ? { guidance: parseGuidanceSelections(value.guidance) } : {}) };
     }
     case 'explain': {
       if (!isStr(value.text)) return null;
       const spanIds = value.spanIds === undefined ? undefined : strings(value.spanIds);
       if (spanIds === null) return null;
       if (value.traceId !== undefined && !isStr(value.traceId)) return null;
-      return { type: 'explain', text: value.text, ...(isStr(value.traceId) ? { traceId: value.traceId } : {}), ...(spanIds ? { spanIds } : {}) };
+      return { type: 'explain', text: value.text, ...(value.guidance !== undefined ? { guidance: parseGuidanceSelections(value.guidance) } : {}), ...(isStr(value.traceId) ? { traceId: value.traceId } : {}), ...(spanIds ? { spanIds } : {}) };
     }
     case 'answer': {
       const ids = strings(value.knowledgeIds);
       if (!isStr(value.text) || !ids) return null;
-      return { type: 'answer', text: value.text, knowledgeIds: ids };
+      return { type: 'answer', text: value.text, knowledgeIds: ids, ...(value.guidance !== undefined ? { guidance: parseGuidanceSelections(value.guidance) } : {}) };
     }
     case 'unsupported': {
       if (!isStr(value.text) || (value.capabilityId !== undefined && !isStr(value.capabilityId))) return null;

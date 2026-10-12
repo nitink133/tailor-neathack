@@ -1,3 +1,5 @@
+import type { GuidanceSuggestion } from '../../tailor/contract.ts';
+import { isCurrentGuidance, sanitiseStoredGuidance } from './guidance.ts';
 import type { ChatTurn, DemoSession, Json, Span, Trace, TraceList } from './contracts.ts';
 import type { ExecutionInfoResponse, ExecutionLabel, TurnOutcome, TurnRequest, TurnResponse, TurnStep } from './agent-contract.ts';
 import type { BrowserSession } from '../../tailor/demo-contract.ts';
@@ -50,6 +52,81 @@ let lastList: TraceList | undefined;
 const collapsedRoots = new Set<string>();
 const expanded = new Set<string>();
 let returnTo = '';
+let activeGuidance: { messageId: string; suggestion: GuidanceSuggestion; state: 'loading'|'shown'|'failed'; reason?: 'stale'|'missing'|'navigation'|'loading'|'render' } | undefined;
+let guidanceAttempt = 0;
+function guidanceCurrent(g: GuidanceSuggestion, s: DemoSession): boolean {
+  return isCurrentGuidance(g,s);
+}
+function guidanceEvent(messageId: string, g: GuidanceSuggestion, outcome: 'selected'|'shown'|'failed'|'dismissed', reason?: 'stale'|'missing'|'navigation'|'loading'|'dismissed'|'render') {
+  void request(`/api/sessions/${encodeURIComponent(String(g.binding.sessionId))}/guidance-events`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({messageId,suggestionId:g.id,outcome,...(reason?{reason}:{})}) }, true).catch(() => {});
+}
+function guidanceCards(turn: ChatTurn, s: DemoSession): string {
+  if (!Array.isArray(turn.guidance) || !turn.guidance.length || turn.role !== 'tailor') return '';
+  const guidance = sanitiseStoredGuidance(turn.guidance);
+  if(!guidance.length)return '';
+  const cards = guidance.map(g => {
+    const stale = !guidanceCurrent(g,s);
+    const selected = activeGuidance?.messageId === turn.id && activeGuidance.suggestion.id === g.id;
+    return `<button type="button" class="contextual-suggestion" data-guidance-id="${esc(g.id)}" data-guidance-message="${esc(turn.id)}" aria-pressed="${selected}" ${stale?'disabled':''}><span class="contextual-suggestion-symbol" aria-hidden="true">↗</span><span><strong>${esc(g.label)}</strong><small>${esc(g.purpose)}</small></span><span class="contextual-suggestion-arrow" aria-hidden="true">›</span></button>`;
+  }).join('');
+  const stale = guidance.every(g => !guidanceCurrent(g,s));
+  const a = activeGuidance?.messageId === turn.id ? activeGuidance : undefined;
+  const note = a ? `<div class="contextual-guide-note${a.state==='failed'?' is-recovery':''}" role="status"><div><span>${a.state==='shown'?'Showing in your playground':a.state==='loading'?'Opening the relevant area':'Suggestion unavailable'}</span><button type="button" data-guidance-dismiss aria-label="Dismiss highlight">×</button></div><strong>${esc(a.suggestion.label)}</strong><p>${esc(a.state==='shown'?a.suggestion.purpose:a.state==='loading'?'Keeping your conversation here while the area loads.':a.reason==='stale'?'This suggestion is no longer current. Ask Tailor about the current scenario.':'That area is unavailable here. Explore the current trace or ask Tailor again.')}</p></div>` : '';
+  return `<section class="contextual-suggestions" aria-label="Contextual suggestions"><div class="contextual-suggestion-heading"><span>Explore this answer</span><small>${stale?'Scenario changed':'Choose where to look'}</small></div>${cards}${stale?'<p class="contextual-stale">Ask Tailor again for suggestions about the current scenario.</p>':''}${note}</section>`;
+}
+function clearGuidance(reason: 'navigation'|'dismissed' = 'dismissed', focus = true) {
+  const a = activeGuidance; activeGuidance = undefined; guidanceAttempt++;
+  root.querySelectorAll('.contextual-guide-target').forEach(el => el.classList.remove('contextual-guide-target'));
+  if(a) guidanceEvent(a.messageId,a.suggestion,'dismissed',reason);
+  if(focus && a) { repaint(); [...root.querySelectorAll<HTMLElement>('[data-guidance-id]')].find(el=>el.dataset.guidanceId===a.suggestion.id && el.dataset.guidanceMessage===a.messageId)?.focus(); }
+}
+function restoreGuidanceHighlight() {
+  const a = activeGuidance; if (!a || a.state !== 'shown' || !current) return;
+  const unavailable = (reason: 'stale'|'missing') => {
+    a.state='failed'; a.reason=reason; guidanceEvent(a.messageId,a.suggestion,'failed',reason);
+    // This check runs after painting. Repaint the note too so it cannot retain a stale "shown" claim.
+    queueMicrotask(() => { if(activeGuidance === a && a.state === 'failed') repaint(); });
+  };
+  if (!guidanceCurrent(a.suggestion,current)) { unavailable('stale'); return; }
+  const g=a.suggestion;
+  if (location.pathname !== `${base(current.id)}/${g.binding.traceId}`) { clearGuidance('navigation',false); return; }
+  const target = g.binding.spanId ? [...root.querySelectorAll<HTMLElement>('[data-span-id]')].find(el=>el.dataset.spanId===g.binding.spanId) : root.querySelector<HTMLElement>(g.targetId==='trace.output'?'.root-output':'.steps');
+  if(target && target.getClientRects().length) target.classList.add('contextual-guide-target');
+  else unavailable('missing');
+}
+async function showGuidance(messageId: string, suggestionId: string) {
+  const s=current; const turn=s?.conversation.find(t=>t.id===messageId); const g=sanitiseStoredGuidance(turn?.guidance).find(g=>g.id===suggestionId);
+  if(!s || !g) return;
+  const attempt=++guidanceAttempt; activeGuidance={messageId,suggestion:g,state:'loading'};
+  guidanceEvent(messageId,g,'selected');
+  const fail=(reason:'stale'|'missing'|'navigation'|'loading'|'render') => { if(attempt!==guidanceAttempt)return;activeGuidance={messageId,suggestion:g,state:'failed',reason};guidanceEvent(messageId,g,'failed',reason);repaint(); };
+  if(!guidanceCurrent(g,s)) {fail(g.binding.version!==s.version || g.binding.scenario!==s.dataset.activeScenario?'stale':'missing');return;}
+  const trace=s.dataset.traces.find(t=>t.id===g.binding.traceId && t.sessionId===s.id);
+  const span=g.binding.spanId?trace?.spans.find(x=>x.id===g.binding.spanId):undefined;
+  const allowed=['trace.overview','trace.slowest-span','trace.model-call','trace.output'];
+  if(!trace || !allowed.includes(g.targetId) || (g.binding.spanId && !span) || (g.targetId==='trace.model-call' && span?.kind!=='LLM') || (['trace.slowest-span','trace.model-call'].includes(g.targetId) && !span)) {fail('missing');return;}
+  const original=openTrace(s);
+  if(g.binding.openTraceId && original && original.id!==g.binding.openTraceId && original.id!==g.binding.traceId) {fail('stale');return;}
+  chatOpen=true;sessionStorage.removeItem(chatKey(s.id));
+  repaint();
+  if(span) {expanded.add(span.id);for(const id of selectedSpanAncestors(trace,span.id))collapsedRoots.delete(id);}
+  const rendered=await navigate(`${traceLink(trace)}${span?'?span='+encodeURIComponent(span.id):''}`);
+  if(attempt!==guidanceAttempt)return;
+  if(!rendered || !current || !guidanceCurrent(g,current)) {fail('stale');return;}
+  const target=span?[...root.querySelectorAll<HTMLElement>('[data-span-id]')].find(el=>el.dataset.spanId===span.id):root.querySelector<HTMLElement>(g.targetId==='trace.output'?'.root-output':'.steps');
+  if(!target || !target.isConnected || !target.getClientRects().length) {fail('missing');return;}
+  activeGuidance={messageId,suggestion:g,state:'shown'};repaint();restoreGuidanceHighlight();
+  const shown=root.querySelector<HTMLElement>('.contextual-guide-target');
+  if(!shown || !shown.getClientRects().length){fail('render');return;}
+  shown.scrollIntoView({block:'center',behavior:'auto'});
+  guidanceEvent(messageId,g,'shown');
+  requestAnimationFrame(() => {
+    const card=[...root.querySelectorAll<HTMLElement>('[data-guidance-id]')].find(el=>el.dataset.guidanceId===g.id && el.dataset.guidanceMessage===messageId);
+    const thread=root.querySelector<HTMLElement>('.chat-panel .chat-thread');
+    if(card && thread) thread.scrollTop=Math.max(0,card.offsetTop-thread.offsetTop-8);
+  });
+}
+
 const link = (path: string,label: string,cls='')=>`<a data-nav href="${esc(path)}" class="${cls}">${label}</a>`;
 const base = (id: string) => `/demo/${id}/traces`;
 const traceLink = (t: Trace) => `${base(t.sessionId)}/${t.id}`;
@@ -91,6 +168,7 @@ function clearLocalState() {
   for (const key of SESSION_KEYS) sessionStorage.removeItem(key);
   // `tailor-exec:` is a legacy key (provider mode used to be cached per tab); it is no longer read.
   for (const key of Object.keys(sessionStorage)) if (key.startsWith('tailor-chat-collapsed:') || key.startsWith('tailor-exec:') || key.startsWith('tailor-steps:')) sessionStorage.removeItem(key);
+  activeGuidance=undefined;guidanceAttempt++;
   draft = []; pendingTurn = undefined; lastResult = undefined; turnNote = ''; chatBusy = false; current = undefined; lastList = undefined;
 }
 function showEnded() {
@@ -106,6 +184,7 @@ function showEnded() {
 }
 /** Friendly page for a demo this browser cannot open (ended, expired in another tab, or someone else's). No raw codes. */
 function showUnavailable() {
+  current=undefined;activeGuidance=undefined;guidanceAttempt++;
   stopEntryRotation();
   entryViewTransition?.skipTransition();
   entryViewTransition = undefined;
@@ -355,7 +434,7 @@ function chatThread(turns: ChatTurn[], s?: DemoSession) {
     const choiceGroup = turn.clarification?.kind === 'demo_switch' ? 'Choose how to handle this workflow change' : 'Choose one';
     const choices = turn.clarification && i === lastIndex ? `<div class="chat-choices" role="group" aria-label="${esc(choiceGroup)}">${turn.clarification.choices.map(c => `<button type="button" data-choice="${esc(c.id)}" ${confirmationRef ? `data-confirmation-ref="${esc(confirmationRef)}"` : ''} ${chatBusy ? 'disabled' : ''}>${esc(c.label)}</button>`).join('')}</div><small>or type your own answer below</small>` : '';
     const retry = pendingTurn && pendingTurn.turn.id === turn.id && (turn.status === 'failed' || turn.status === 'uncertain') && !chatBusy ? `<button type="button" class="chat-retry" data-retry-turn>Retry</button>` : '';
-    return `<article class="chat-turn is-${turn.role}${turn.status === 'uncertain' ? ' is-uncertain' : ''}" data-status="${turn.status}"${label === 'Declined' ? ' data-declined' : ''}>${turn.role === 'tailor' ? assistantReply(turn.text, !turn.evidence) : `<p>${esc(turn.text)}</p>`}${label ? `<small class="turn-status">${label}</small>` : ''}${retry}${evidence}${choices}</article>`;
+    return `<article class="chat-turn is-${turn.role}${turn.status === 'uncertain' ? ' is-uncertain' : ''}" data-status="${turn.status}"${label === 'Declined' ? ' data-declined' : ''}>${turn.role === 'tailor' ? assistantReply(turn.text, !turn.evidence) : `<p>${esc(turn.text)}</p>`}${label ? `<small class="turn-status">${label}</small>` : ''}${retry}${evidence}${choices}${s?guidanceCards(turn,s):''}</article>`;
   }).join('');
 }
 function progress() {
@@ -382,7 +461,7 @@ function examples(s: DemoSession | boolean) {
 }
 function chatPanel(s: DemoSession) {
   const turns = turnsOf(s);
-  return `<aside class="chat-panel" aria-label="Playground"><header><div class="playground-heading"><strong>Playground</strong><span class="playground-attribution">Powered by <span class="tailor-pill">Tailor</span></span></div><span class="chat-actions"><button type="button" data-end-demo class="end-demo">End demo</button><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></span></header><div class="chat-thread">${turns.length?chatThread(turns, s):`<p class="chat-empty">Describe the agent you’re building, or ask me to explain the open trace.</p>`}</div>${progress()}${examples(s)}${composer(chatBusy, openTrace(s))}</aside>`;
+  return `<aside class="chat-panel${activeGuidance?' has-contextual-guidance':''}" aria-label="Playground"><header><div class="playground-heading"><strong>Playground</strong><span class="playground-attribution">Powered by <span class="tailor-pill">Tailor</span></span></div><span class="chat-actions"><button type="button" data-end-demo class="end-demo">End demo</button><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></span></header><div class="chat-thread">${turns.length?chatThread(turns, s):`<p class="chat-empty">Describe the agent you’re building, or ask me to explain the open trace.</p>`}</div>${progress()}${examples(s)}${composer(chatBusy, openTrace(s))}</aside>`;
 }
 function landing() {
   document.documentElement.classList.remove('chat-dock', 'rail-open');
@@ -457,8 +536,9 @@ function list(s: DemoSession,data: TraceList) {
     return `<tr class="${active.trim()}" data-trace="${esc(t.id)}"><td><input type="checkbox" aria-label="Select ${esc(t.label)}" data-select></td><td><a data-nav href="${esc(start ? guidedTraceLink(t) : traceLink(t))}" class="trace-row-link${start ? ' trace-start-link' : ''}" ${start ? 'data-guide-target' : ''} aria-describedby="${esc(descriptionId)}"><span class="trace-row-label">${esc(t.label)}</span><small class="trace-row-description" id="${esc(descriptionId)}">${facts.steps} ${facts.steps === 1 ? 'step' : 'steps'} · ${facts.stepErrors} ${facts.stepErrors === 1 ? 'step error' : 'step errors'}</small><span class="trace-row-time">${esc(when.time)} · ${esc(when.date)}</span></a></td><td><span class="ready" title="Ready means processed; task outcome is separate">${icon('check')}<span class="sr">Ready</span></span></td><td>${found?`<span class="failure">Execution Failed &nbsp; ${found}</span>`:'–'}</td><td>—</td><td>${link(traceLink(t),`${esc(t.label)} · ${esc(s.story?.domain ?? 'sample workflow')}${isActive?'<span class="active-tag">Active</span>':s.story===null?'<span class="active-tag">Sample</span>':''}`)}</td><td>${link(traceLink(t),esc(facts.outputSummary))}</td><td>—</td><td><button data-unavailable aria-label="Replay is outside this demo">${icon('clock')}</button></td></tr>`;
   }).join('');
   const days = ['Sep 28','','Sep 30','','Oct 2','','','Oct 5','','Oct 7','','Oct 9','','Oct 11'];
-  root.innerHTML = shell(s,`<header class="list-header"><h1>${icon('list')}Traces</h1><div class="header-controls"><div class="trace-view-by"><span>View by</span><button type="button" class="active" aria-pressed="true">Traces</button><button type="button" data-unavailable>Sessions</button><button type="button" data-unavailable>Users</button></div><details class="search-popover" ${query.get('q')?'open':''}><summary aria-label="Search traces">${icon('search')}</summary><form id="search-form"><input name="q" aria-label="Search traces" placeholder="Search traces…" value="${esc(query.get('q') ?? '')}"></form></details><button type="button" data-fixed-date-range class="trace-date-range" title="Fixed demo date range" aria-label="Last 14 days — fixed demo date range">${icon('calendar')}<span>Last 14 days</span>${icon('chevron')}</button><button data-refresh aria-label="Refresh traces">${icon('refresh')}</button></div></header><form id="filters" class="filters"><div class="filter-scroll">${['Session ID','User ID'].map(n=>`<button type="button" data-unavailable class="filter">${n}⌄</button>`).join('')}${select('scenario','Scenario',s.dataset.traces.map(t=>[t.scenario,t.label]))}${select('detection','Detections',[['yes','Execution Failed'],['no','No detections']])}<button type="button" data-unavailable class="filter">Evals⌄</button>${select('tag','Tags',[...new Set(s.dataset.traces.flatMap(t=>t.tags))].map(x=>[x,x]))}<details class="filter-popover${query.get('minMs')?' is-selected':''}"><summary>Latency${query.get('minMs')?` ≥ ${esc(query.get('minMs'))}ms`:''}${chip('minMs')}⌄</summary><div class="filter-editor" popover="manual"><label>Minimum latency in milliseconds<input name="minMs" type="number" min="0" step="0.1" aria-label="Minimum latency in milliseconds" value="${esc(query.get('minMs') ?? '')}" placeholder="ms"></label><button type="submit">Apply filters</button></div></details><button type="button" data-unavailable class="filter">Metadata⌄</button><button type="button" data-unavailable class="filter">More filters⌄</button><button type="button" data-unavailable class="filter">＋ Advanced</button>${link(base(s.id),'Clear')}</div></form><div class="histogram" aria-label="${data.filtered} filtered traces on Oct 10">${days.map((label,i)=>{const count=i===12?data.filtered:0;return `<div class="day" style="--count:${count}" title="${count} traces">${count?`<i class="day-bar" style="--count:${count}"></i>`:''}<span>${label}</span></div>`;}).join('')}</div>${traceGuide(s, data.traces)}<div class="table-scroll"><table><thead><tr><th><input type="checkbox" aria-label="Select all traces" id="select-all"></th>${['Ingested at','Status','Detections','Evals','Input','Output','Comments','Replay'].map(traceFieldHeader).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="9" class="empty"><div class="empty-mark">${icon('doc')}</div><h2>No traces found</h2><p>Try adjusting your filters. The demo date range is fixed.</p>${link(base(s.id),'Clear filters','empty-clear')}</td></tr>`}</tbody></table></div>${notice(s)}<footer class="pagination"><label>Rows per page <select aria-label="Rows per page"><option>25</option></select></label><span data-count>${data.filtered?`1 – ${data.filtered}`:'0'} of ${data.filtered}</span><button disabled aria-label="Previous page">‹</button><button class="active">1</button><button disabled aria-label="Next page">›</button></footer>`);
+  root.innerHTML = shell(s,`<header class="list-header"><h1>${icon('list')}Traces</h1><div class="header-controls"><div class="trace-view-by"><span>View by</span><button type="button" class="active" aria-pressed="true">Traces</button><button type="button" data-unavailable>Sessions</button><button type="button" data-unavailable>Users</button></div><details class="search-popover" ${query.get('q')?'open':''}><summary aria-label="Search traces">${icon('search')}</summary><form id="search-form"><input name="q" aria-label="Search traces" placeholder="Search traces…" value="${esc(query.get('q') ?? '')}"></form></details><button type="button" data-fixed-date-range class="trace-date-range" title="Fixed demo date range" aria-label="Last 14 days — fixed demo date range">${icon('calendar')}<span>Last 14 days</span>${icon('chevron')}</button><button data-refresh aria-label="Refresh traces">${icon('refresh')}</button></div></header><form id="filters" class="filters"><div class="filter-scroll">${['Session ID','User ID'].map(n=>`<button type="button" data-unavailable class="filter">${n}⌄</button>`).join('')}${select('scenario','Scenario',s.dataset.traces.map(t=>[t.scenario,t.label]))}${select('detection','Detections',[['yes','Execution Failed'],['no','No detections']])}<button type="button" data-unavailable class="filter">Evals⌄</button>${select('tag','Tags',[...new Set(s.dataset.traces.flatMap(t=>t.tags))].map(x=>[x,x]))}<details class="filter-popover${query.get('minMs')?' is-selected':''}"><summary>Latency${query.get('minMs')?` ≥ ${esc(query.get('minMs'))}ms`:''}${chip('minMs')}⌄</summary><div class="filter-editor" popover="manual"><label>Minimum latency in milliseconds<input name="minMs" type="number" min="0" step="0.1" aria-label="Minimum latency in milliseconds" value="${esc(query.get('minMs') ?? '')}" placeholder="ms"></label><button type="submit">Apply filters</button></div></details><button type="button" data-unavailable class="filter">Metadata⌄</button><button type="button" data-unavailable class="filter">More filters⌄</button><button type="button" data-unavailable class="filter">＋ Advanced</button>${link(base(s.id),'Clear')}</div></form><div class="histogram" aria-label="${data.filtered} filtered traces on Oct 10">${days.map((label,i)=>{const count=i===12?data.filtered:0;return `<div class="day" style="--count:${count}" title="${count} traces">${count?`<i class="day-bar" style="--count:${count}"></i>`:''}<span>${label}</span></div>`;}).join('')}</div><div class="table-scroll"><table><thead><tr><th><input type="checkbox" aria-label="Select all traces" id="select-all"></th>${['Ingested at','Status','Detections','Evals','Input','Output','Comments','Replay'].map(traceFieldHeader).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="9" class="empty"><div class="empty-mark">${icon('doc')}</div><h2>No traces found</h2><p>Try adjusting your filters. The demo date range is fixed.</p>${link(base(s.id),'Clear filters','empty-clear')}</td></tr>`}</tbody></table></div>${notice(s)}<footer class="pagination"><label>Rows per page <select aria-label="Rows per page"><option>25</option></select></label><span data-count>${data.filtered?`1 – ${data.filtered}`:'0'} of ${data.filtered}</span><button disabled aria-label="Previous page">‹</button><button class="active">1</button><button disabled aria-label="Next page">›</button></footer>`);
   root.querySelector<HTMLElement>('.workspace')?.classList.add('trace-workspace');
+  restoreGuidanceHighlight();
 }
 function spanRow(t:Trace,s:Span,selected:string|null):string {
   const open = expanded.has(s.id) || s.id===selected;
@@ -471,7 +551,8 @@ function detail(s:DemoSession,t:Trace) {
   const path = traceLink(t);
   const back = returnTo.startsWith(base(s.id)) && !returnTo.slice(base(s.id).length).startsWith('/') ? returnTo : base(s.id);
   const graphNode = (x: Span) => `<a href="${path}?span=${x.id}" data-graph-select="${x.id}" class="${kindClass(x.kind)} ${graphSelection===x.id?'graph-selected':''}">${icon(kindMark(x.kind))}${x.status==='ERROR'?`<span class="error-x">${icon('close')}</span>`:''}${esc(x.name)}</a>`;
-  root.innerHTML=shell(s,`<header class="detail-header">${link(back,icon('back'),'back-link')}<span>${esc(ingested(t.ingestedAt).heading)}</span><div><button data-unavailable aria-label="Search this trace">${icon('search')}</button><button data-unavailable aria-label="Replay unavailable">${icon('clock')}</button><button data-unavailable aria-label="Comments unavailable">${icon('message')}</button><button data-tags>${t.tags.length} tags</button><button data-unavailable>Ask neat AI</button></div></header><div class="trace-toolbar"><details class="trace-picker"><summary aria-label="Trace navigator">${icon('list')}<span>${esc(t.name)}</span><small>${t.spans.length}</small>${icon('chevron')}</summary><nav aria-label="Synthetic trace choices">${s.dataset.traces.map(x=>link(traceLink(x),`${esc(x.label)} · ${x.spans[0]!.durationMs}ms · ${x.spans.length} spans`,x.id===t.id?'active':'')).join('')}</nav></details><button data-graph aria-pressed="${graph}" aria-label="Toggle span tree">${icon('tree')}</button><button data-timeline aria-pressed="${timeline}" aria-label="Toggle timeline">${icon('list')}</button><span class="trace-identity">${esc(t.name)} · ${t.spans.length} spans</span></div>${traceGuide(s, [t], t, selected)}<main class="trace-canvas ${timeline?'with-timeline':''}">${graph?`<div class="graph-tree" aria-label="Span parent tree"><div class="graph-nodes"><svg class="graph-connectors" viewBox="0 0 360 360" preserveAspectRatio="none" aria-hidden="true">${t.spans.slice(1).map((_,i)=>`<path d="M140 32 C175 32 175 ${32+i*64} 205 ${32+i*64}"/>`).join('')}</svg><strong class="${kindClass(t.spans[0]!.kind)}">${icon(kindMark(t.spans[0]!.kind))}${esc(t.spans[0]!.name)}</strong><div class="graph-children">${t.spans.slice(1).map(graphNode).join('')}</div></div></div>`:''}<section class="trace-flow"><div class="root-input"><label>INPUT</label><div class="input-bubble">${io(t.input)}</div></div><div class="steps"><header><span>${t.spans.length} STEPS · ${t.spans[0]!.durationMs/1000}S</span><button data-expand-all>EXPAND ALL</button></header>${t.spans.filter(x=>!x.parentId||!collapsedRoots.has(x.parentId)).map(x=>spanRow(t,x,selected)).join('')}</div><div class="root-output"><label>OUTPUT</label><p>${io(t.output)}</p></div></section></main>${timeline?`<section class="timeline" aria-label="Trace timeline"><header>TIMELINE · ${t.spans[0]!.durationMs} ms</header>${t.spans.map(x=>`<div class="timeline-row ${graphSelection===x.id?'graph-selected':''}"><a data-nav href="${path}?span=${x.id}">${esc(x.name)}</a><div class="time-track"><a data-nav aria-label="Select ${esc(x.name)} in timeline" href="${path}?span=${x.id}" class="time-bar ${x.status==='ERROR'?'bad':''}" style="left:${x.startMs/t.spans[0]!.durationMs*100}%;width:${Math.max(0.5,x.durationMs/t.spans[0]!.durationMs*100)}%"></a></div><time>${durationLabel(x.durationMs)}</time></div>`).join('')}</section>`:''}${notice(s)}`);
+  root.innerHTML=shell(s,`<header class="detail-header">${link(back,icon('back'),'back-link')}<span>${esc(ingested(t.ingestedAt).heading)}</span><div><button data-unavailable aria-label="Search this trace">${icon('search')}</button><button data-unavailable aria-label="Replay unavailable">${icon('clock')}</button><button data-unavailable aria-label="Comments unavailable">${icon('message')}</button><button data-tags>${t.tags.length} tags</button><button data-unavailable>Ask neat AI</button></div></header><div class="trace-toolbar"><details class="trace-picker"><summary aria-label="Trace navigator">${icon('list')}<span>${esc(t.name)}</span><small>${t.spans.length}</small>${icon('chevron')}</summary><nav aria-label="Synthetic trace choices">${s.dataset.traces.map(x=>link(traceLink(x),`${esc(x.label)} · ${x.spans[0]!.durationMs}ms · ${x.spans.length} spans`,x.id===t.id?'active':'')).join('')}</nav></details><button data-graph aria-pressed="${graph}" aria-label="Toggle span tree">${icon('tree')}</button><button data-timeline aria-pressed="${timeline}" aria-label="Toggle timeline">${icon('list')}</button><span class="trace-identity">${esc(t.name)} · ${t.spans.length} spans</span></div><main class="trace-canvas ${timeline?'with-timeline':''}">${graph?`<div class="graph-tree" aria-label="Span parent tree"><div class="graph-nodes"><svg class="graph-connectors" viewBox="0 0 360 360" preserveAspectRatio="none" aria-hidden="true">${t.spans.slice(1).map((_,i)=>`<path d="M140 32 C175 32 175 ${32+i*64} 205 ${32+i*64}"/>`).join('')}</svg><strong class="${kindClass(t.spans[0]!.kind)}">${icon(kindMark(t.spans[0]!.kind))}${esc(t.spans[0]!.name)}</strong><div class="graph-children">${t.spans.slice(1).map(graphNode).join('')}</div></div></div>`:''}<section class="trace-flow"><div class="root-input"><label>INPUT</label><div class="input-bubble">${io(t.input)}</div></div><div class="steps"><header><span>${t.spans.length} STEPS · ${t.spans[0]!.durationMs/1000}S</span><button data-expand-all>EXPAND ALL</button></header>${t.spans.filter(x=>!x.parentId||!collapsedRoots.has(x.parentId)).map(x=>spanRow(t,x,selected)).join('')}</div><div class="root-output"><label>OUTPUT</label><p>${io(t.output)}</p></div></section></main>${timeline?`<section class="timeline" aria-label="Trace timeline"><header>TIMELINE · ${t.spans[0]!.durationMs} ms</header>${t.spans.map(x=>`<div class="timeline-row ${graphSelection===x.id?'graph-selected':''}"><a data-nav href="${path}?span=${x.id}">${esc(x.name)}</a><div class="time-track"><a data-nav aria-label="Select ${esc(x.name)} in timeline" href="${path}?span=${x.id}" class="time-bar ${x.status==='ERROR'?'bad':''}" style="left:${x.startMs/t.spans[0]!.durationMs*100}%;width:${Math.max(0.5,x.durationMs/t.spans[0]!.durationMs*100)}%"></a></div><time>${durationLabel(x.durationMs)}</time></div>`).join('')}</section>`:''}${notice(s)}`);
+  restoreGuidanceHighlight();
 }
 function evalInput(q: EvaluationQuestion, traceId: string) {
   const name = `response:${traceId}:${q.key}`, required = q.required ? 'required' : '';
@@ -551,7 +632,7 @@ async function render(preserveEntry = false): Promise<boolean> {
   if (location.pathname==='/') { landing(); return true; }
   if (location.pathname==='/entry') { void loadBrowserSession(); entry(); return true; }
   document.documentElement.classList.remove('chat-dock');
-  if (!keepEntry) root.innerHTML='<main class="loading" role="status">Loading synthetic traces…</main>';
+  if (!keepEntry) root.innerHTML=activeGuidance && current ? shell(current,'<main class="loading" role="status">Loading the relevant area…</main>') : '<main class="loading" role="status">Loading synthetic traces…</main>';
   try {
     const route = /^\/demo\/([^/]+)\/(traces|evals)(?:\/([^/]+))?$/.exec(location.pathname);
     if (!route) throw new Error('NOT_FOUND: Page not found.');
@@ -946,6 +1027,7 @@ document.addEventListener('scroll', event => {
 window.addEventListener('resize', closeTracePopovers);
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
+  if(activeGuidance) clearGuidance();
   const nativeHelpOpen = [...root.querySelectorAll<HTMLElement>('.trace-tooltip')].some(tooltip => typeof tooltip.showPopover === 'function' && tooltip.matches(':popover-open'));
   if (nativeHelpOpen || root.querySelector('.filter-popover[open], .trace-tooltip.is-open')) closeTracePopovers();
 });
@@ -960,6 +1042,8 @@ document.addEventListener('click', event => {
 }, true);
 document.addEventListener('click',async event=>{
   const el=(event.target as Element).closest<HTMLElement>('a,button'); if (!el || el.hasAttribute('data-clear-filter')) return;
+  if(el.hasAttribute('data-guidance-id')) { event.preventDefault();await showGuidance(el.dataset.guidanceMessage!,el.dataset.guidanceId!);return; }
+  if(el.hasAttribute('data-guidance-dismiss')) {clearGuidance();return;}
   const traceHelp = el.closest<HTMLElement>('.trace-help');
   if (traceHelp) { event.preventDefault(); showTraceHelp(traceHelp); return; }
   if (el.hasAttribute('data-trace-guide-dismiss') || el.hasAttribute('data-trace-guide-show')) {
@@ -998,6 +1082,7 @@ document.addEventListener('click',async event=>{
   if (el.matches('a[data-nav]') && !(event as MouseEvent).metaKey && !(event as MouseEvent).ctrlKey) {
     event.preventDefault();
     const href = (el as HTMLAnchorElement).getAttribute('href')!;
+    clearGuidance('navigation',false);
     if (el.classList.contains('back-link')) {
       if (historyDepth() > 0) { history.back(); return; }
       navigate(href);
@@ -1063,7 +1148,7 @@ document.addEventListener('change',event=>{
 });
 // Keep the newest message (and any clarification buttons) in view after every repaint.
 new MutationObserver(() => { const thread = document.querySelector<HTMLElement>('.chat-panel .chat-thread'); if (thread) thread.scrollTop = thread.scrollHeight; }).observe(root, { childList: true });
-window.addEventListener('popstate',()=>void render());
+window.addEventListener('popstate',()=>{clearGuidance('navigation',false);void render();});
 window.addEventListener('pagehide',()=>stopEntryRotation());
 window.addEventListener('pageshow', event => {
   if (event.persisted && location.pathname === '/entry') { stopEntryRotation(); startEntryRotation(); }

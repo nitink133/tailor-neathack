@@ -20,7 +20,21 @@ import { requestBoundary } from './request-boundaries.ts';
 export function createMockProvider(): ModelProvider {
   // Round-trip through the strict parser: the mock is held to the same contract as a live provider.
   const planner = createOfflineProvider<AgentAction>({
-    decide: request => decide(request as ProviderRequest),
+    decide: request => {
+      const action = decide(request as ProviderRequest);
+      if (!['propose', 'explain', 'answer'].includes(action.type)) return action;
+      const found = findRequest(request as ProviderRequest);
+      if (!found) return action;
+      // Explicitly heuristic mock selection, using only rendered-capability targets.
+      const text = found.text;
+      const targets: import('./agent-contract.ts').GuidanceSelection[] = /slow|latency|duration|timing/i.test(text)
+        ? [{ targetId: 'trace.slowest-span' }, { targetId: 'trace.model-call' }]
+        : action.type === 'propose'
+        ? [{ targetId: 'trace.overview' }, { targetId: 'trace.output' }]
+        : action.type === 'explain' ? [{ targetId: 'trace.overview' }, { targetId: 'trace.output' }]
+        : /model|span|trace|request|input|output/i.test(text) ? [{ targetId: /model/i.test(text) ? 'trace.model-call' : 'trace.overview' }] : [];
+      return { ...action, guidance: targets };
+    },
     check: action => parseAgentAction(JSON.stringify(action)),
   });
   return {

@@ -63,6 +63,11 @@ export interface Clarification {
   choices: [ClarificationChoice, ClarificationChoice, ClarificationChoice];
   allowFreeText: true;
 }
+/** Adapter-owned, read-only contextual navigation. Bindings are opaque to the core. */
+export interface GuidanceSuggestion {
+  id: string; label: string; purpose: string; targetId: string;
+  binding: Record<string, string | number | null>;
+}
 export interface ChatTurn<TEvidence = unknown> {
   id: string;
   role: ChatRole;
@@ -73,6 +78,7 @@ export interface ChatTurn<TEvidence = unknown> {
   clarification?: Clarification;
   /** Present on tailor turns that explain or confirm saved state. IDs are real saved evidence. */
   evidence?: TEvidence;
+  guidance?: GuidanceSuggestion[];
 }
 export type TailorMessage<TEvidence = unknown> = Omit<ChatTurn<TEvidence>, 'id' | 'at'>;
 

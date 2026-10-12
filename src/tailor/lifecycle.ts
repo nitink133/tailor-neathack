@@ -84,6 +84,7 @@ export function reconcileTurnResult<E, R extends { version: number }, S>(result:
     const turn: TailorMessage<E> = { role: 'tailor', text, status };
     if (status === 'question' && m.clarification) turn.clarification = m.clarification;
     if (['committed', 'answered'].includes(outcome) && m.evidence) turn.evidence = m.evidence;
+    if (['committed', 'answered'].includes(outcome) && Array.isArray(m.guidance)) turn.guidance = m.guidance.slice(0, 3);
     return [turn];
   }).slice(0, 8);
   return {

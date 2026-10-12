@@ -551,7 +551,7 @@ test('schemas obey the structured-output rules: additionalProperties:false every
 test('AGENT_ACTION_SCHEMA is the flat union (no anyOf of six objects: the grammar compiler rejects that), with contract enums and field names', () => {
   const props = AGENT_ACTION_SCHEMA.properties as unknown as Record<string, { type?: unknown; enum?: readonly string[]; anyOf?: unknown[] }>;
   assert.deepEqual(props.type!.enum, ['ask', 'propose', 'explain', 'answer', 'unsupported', 'refuse']);
-  assert.deepEqual(Object.keys(props), ['type', 'text', 'clarification', 'proposal', 'explanation', 'traceId', 'spanIds', 'knowledgeIds', 'capabilityId', 'reason']);
+  assert.deepEqual(Object.keys(props), ['type', 'guidance', 'text', 'clarification', 'proposal', 'explanation', 'traceId', 'spanIds', 'knowledgeIds', 'capabilityId', 'reason']);
   const text = JSON.stringify(AGENT_ACTION_SCHEMA);
   assert.equal((text.match(/"anyOf":\[\{"type":"object"/g) ?? []).length, 2, 'only clarification and proposal are object-or-null');
   const enumOf = (key: string) => { const m = new RegExp(`"${key}":\\{"type":"string","enum":(\\[[^\\]]*\\])`).exec(text); return m ? (JSON.parse(m[1]!) as string[]) : null; };

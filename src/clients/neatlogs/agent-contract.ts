@@ -221,11 +221,16 @@ export interface AgentService {
 // ---------------------------------------------------------------------------
 // Model provider abstraction. Mock first; live provider/model IDs stay unset until approved.
 // ---------------------------------------------------------------------------
+export interface GuidanceSelection {
+  targetId: 'trace.overview' | 'trace.slowest-span' | 'trace.model-call' | 'trace.output';
+  /** Saved id only; omit to use the current authorised trace. */
+  traceId?: string;
+}
 export type AgentAction =
   | { type: 'ask'; clarification: Clarification }
-  | { type: 'propose'; proposal: ScenarioProposal; explanation: string }
-  | { type: 'explain'; text: string; traceId?: string; spanIds?: string[] }
-  | { type: 'answer'; text: string; knowledgeIds: string[] }
+  | { type: 'propose'; proposal: ScenarioProposal; explanation: string; guidance?: GuidanceSelection[] }
+  | { type: 'explain'; text: string; traceId?: string; spanIds?: string[]; guidance?: GuidanceSelection[] }
+  | { type: 'answer'; text: string; knowledgeIds: string[]; guidance?: GuidanceSelection[] }
   | { type: 'unsupported'; text: string; capabilityId?: string }
   | { type: 'refuse'; text: string; reason: 'injection' | 'arbitrary_code' | 'cross_session' | 'real_mutation' | 'off_topic' };
 
