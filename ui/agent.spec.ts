@@ -8,7 +8,7 @@ import type { DemoSession } from '../src/contracts.ts';
 test('Personalised agent journey: entry, proposal, error grounding, follow-up, reload, clarification, lifecycle, isolation', async ({ page, browser }) => {
   // 1. Entry page flow
   await page.goto('/entry');
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('hello');
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('See your agent in action');
 
   // Verify the 'Powered by Tailor' attribution (a single element; the .or() form tripped strict mode)
   await expect(page.getByText(/Powered by Tailor/i)).toBeVisible();
@@ -145,7 +145,8 @@ test('provider label comes from the server on every page; unknown is neutral, ne
   // /entry, before any turn, no sessionStorage: the label is rendered from GET /api/execution.
   await page.goto('/entry');
   await expect(page.locator('.chat-stage [data-exec-chip]')).toHaveText('Mock-backed');
-  await expect(page.locator('.chat-stage [data-exec-line]')).toContainText(/Mock-backed prototype/);
+  await expect(page.locator('.chat-stage [data-exec-line]')).toHaveCount(0);
+  await expect(page.locator('.chat-stage')).toContainText('Synthetic data');
   await page.screenshot({ path: `${evidenceDir}/owner-e-entry-mock-label.png` });
 
   // A second, brand-new browser context has no sessionStorage and no earlier turn.
@@ -174,7 +175,7 @@ test('provider label comes from the server on every page; unknown is neutral, ne
     const answered = failing.waitForResponse('**/api/execution');
     await failing.goto('/entry');
     await answered;
-    await expect(failing.locator('.chat-stage [data-exec-line]'), name).toHaveText('Provider status unavailable');
+    await expect(failing.locator('.chat-stage [data-exec-line]'), name).toHaveCount(0);
     await expect(failing.locator('.chat-stage [data-exec-chip]'), name).toHaveText('Provider status unavailable');
     await expect(failing.locator('.chat-stage')).not.toContainText(/Mock-backed|Live model/);
     if (name === '500') await failing.screenshot({ path: `${evidenceDir}/owner-e-entry-provider-unavailable.png` });
@@ -335,7 +336,7 @@ test('an ended or unknown session URL is a friendly page, not a raw code (L5-05)
   await page.screenshot({ path: `${evidenceDir}/owner-e-demo-unavailable.png` });
   // A new demo can be started straight away.
   await page.getByRole('link', { name: 'Start a new demo' }).click();
-  await expect(page.getByRole('heading', { name: 'hello' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'See your agent in action' })).toBeVisible();
 });
 
 test('buyer wording: no internal terms, Declined for refusals, one link per trace, step strip in plain words and kept after reload', async ({ page }) => {

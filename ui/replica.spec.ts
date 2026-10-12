@@ -27,7 +27,7 @@ test('every generated scenario agrees across API, trace tree, timeline, navigati
   expect(await page.evaluate(()=>document.documentElement.scrollHeight<=document.documentElement.clientHeight+1)).toBe(true);
   await expect(page.locator('.hero-copy')).toContainText('fictional workflow');
   await page.getByRole('link',{name:'Explore the demo ↗'}).first().click();
-  await expect(page.getByRole('heading',{name:'hello'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'See your agent in action'})).toBeVisible();
   await page.getByLabel('Ask anything').fill(BUILD);await page.getByRole('button',{name:'Send message'}).click();
   await expect(page.locator('[data-count]')).toBeVisible();
   // The list repaints when the turn's applied status arrives; wait for that, then measure in one poll so a mid-repaint read (0/0 = NaN) retries.
@@ -131,9 +131,10 @@ test('dated desktop/mobile evidence',async({page})=>{
 
 test('entry makes the synthetic scope clear and keeps suggestions editable',async({page})=>{
   await page.goto('/entry');
-  await expect(page.locator('.chat-stage')).toContainText('Powered by Tailor · fictional workflows and synthetic traces');
-  await expect(page.locator('.chat-stage')).toContainText('Mock-backed prototype');
-  await expect(page.locator('.chat-stage')).toContainText('synthetic traces');
+  await expect(page.locator('.tailor-attribution')).toHaveText('Powered by Tailor');
+  await expect(page.locator('.chat-stage [data-exec-chip]')).toHaveText('Mock-backed');
+  await expect(page.locator('.chat-stage [data-exec-line]')).toHaveCount(0);
+  await expect(page.locator('.chat-stage .chat-tools')).toContainText('Synthetic data');
   await expect(page.locator('[data-starter-list] button')).toHaveCount(3);
   const first=page.locator('[data-starter-list] button').first(),prompt=await first.getAttribute('data-example');
   expect(prompt).toBeTruthy();expect(await first.getAttribute('data-capability-id')).toBeTruthy();
@@ -198,7 +199,7 @@ test('evaluation overview, questions, saved results and simulated provenance',as
 
 test('buyer conversation: clarify, build, edit, explain, answer; a failed send retries without duplicating; End demo clears the session',async({page})=>{
   await page.goto('/entry');
-  await expect(page.locator('.chat-stage')).toContainText('Powered by Tailor · fictional workflows and synthetic traces');
+  await expect(page.locator('.tailor-attribution')).toHaveText('Powered by Tailor');
   await page.getByLabel('Ask anything').fill('Show me something failing.');
   await page.getByRole('button',{name:'Send message'}).click();
   await expect(page.locator('[data-count]')).toBeVisible();

@@ -2,6 +2,7 @@ import type { ChatTurn, DemoSession, Json, Span, Trace, TraceList } from './cont
 import type { ExecutionInfoResponse, ExecutionLabel, TurnOutcome, TurnRequest, TurnResponse, TurnStep } from './agent-contract.ts';
 import type { BrowserSession } from '../../tailor/demo-contract.ts';
 import type { EvaluationDetail, EvaluationList, EvaluationQuestion, ReviewEvaluationRequest } from './eval-contract.ts';
+import { entrySavedState, entrySuggestions, suggestionBatch } from './entry-state.ts';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -28,6 +29,8 @@ let executionLoad: Promise<void> | undefined;
 let capabilityLoad: Promise<void> | undefined;
 let capabilities: PublicCapabilities | undefined;
 let browserSession: BrowserSession | undefined;
+let entrySuggestionBatch = 0;
+let stopEntryRotation = () => {};
 let evaluations: EvaluationList | undefined;
 let evaluation: EvaluationDetail | undefined;
 let evaluationTab: 'Overview' | 'Questions' | 'Results' = 'Overview';
@@ -85,6 +88,7 @@ function clearLocalState() {
   draft = []; pendingTurn = undefined; lastResult = undefined; turnNote = ''; chatBusy = false; current = undefined; lastList = undefined;
 }
 function showEnded() {
+  stopEntryRotation();
   ended = true; generation++; controller?.abort();
   clearLocalState();
   document.documentElement.classList.remove('chat-dock', 'rail-open');
@@ -92,6 +96,7 @@ function showEnded() {
 }
 /** Friendly page for a demo this browser cannot open (ended, expired in another tab, or someone else's). No raw codes. */
 function showUnavailable() {
+  stopEntryRotation();
   document.documentElement.classList.remove('chat-dock', 'rail-open');
   root.innerHTML = `<main class="ended request-error"><h1>Demo unavailable</h1><p role="alert">This demo isn’t available in this browser. It may have ended or expired, or it was started somewhere else.</p>${link('/entry','Start a new demo','solid')}</main>`;
 }
@@ -167,15 +172,38 @@ async function loadBrowserSession(): Promise<void> {
   paintSavedDemos();
 }
 function savedDemoButtons() {
-  return browserSession?.demos.map(d=>`<button type="button" data-select-demo="${esc(d.id)}">${esc(d.label)} · v${d.version}</button>`).join('') ?? '';
+  return entrySavedState(browserSession).demos.map(d=>`<button type="button" data-select-demo="${esc(d.id)}">${esc(d.label)} · v${d.version}</button>`).join('');
 }
 function paintSavedDemos() {
   const target=document.querySelector<HTMLElement>('[data-saved-demos]');
-  if(target) { target.innerHTML=savedDemoButtons(); target.closest<HTMLElement>('.saved-demos')!.hidden = !browserSession?.demos.length; }
+  const saved = entrySavedState(browserSession);
+  if(target) { target.innerHTML=savedDemoButtons(); target.closest<HTMLElement>('.saved-demos')!.hidden = !saved.demos.length; }
+  const resume = document.querySelector<HTMLButtonElement>('#resume');
+  if (resume) resume.hidden = !saved.activeDemo;
 }
 function paintStarters() {
   const target = document.querySelector<HTMLElement>('[data-starter-list]');
-  if (target) target.innerHTML = starterButtons();
+  if (target) target.innerHTML = target.classList.contains('entry-suggestions') ? entrySuggestionButtons() : starterButtons();
+}
+function entrySuggestionButtons() {
+  return suggestionBatch(entrySuggestions(capabilities), entrySuggestionBatch).map(x => `<button type="button" data-example="${esc(x.prompt)}" data-capability-id="${esc(x.capabilityId)}">${x.lead ? `<span class="suggestion-lead">${esc(x.lead)}</span> ` : ''}${esc(x.text)}</button>`).join('');
+}
+function startEntryRotation() {
+  const target = document.querySelector<HTMLElement>('.entry-suggestions');
+  const stage = target?.closest<HTMLElement>('.chat-stage');
+  if (!target || !stage) return;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const timer = window.setInterval(() => {
+    if (!target.isConnected || location.pathname !== '/entry') { stopEntryRotation(); return; }
+    // Keep suggestions still while reading, editing or using the keyboard. Reduced
+    // motion also opts out of automatic content changes, not just animation.
+    if (reducedMotion.matches || document.hidden || stage.matches(':hover') || stage.contains(document.activeElement) || chatBusy) return;
+    const input = stage.querySelector<HTMLTextAreaElement>('textarea[name="message"]');
+    if (input?.value.trim() || entrySuggestions(capabilities).length <= 3) return;
+    entrySuggestionBatch++;
+    target.innerHTML = entrySuggestionButtons();
+  }, 8000);
+  stopEntryRotation = () => { window.clearInterval(timer); stopEntryRotation = () => {}; };
 }
 const sameExecution = (a: ExecutionLabel | undefined, b: ExecutionLabel | undefined) =>
   !!a && !!b && a.mode === b.mode && a.provider === b.provider && (a.model ?? null) === (b.model ?? null) && (a.effort ?? null) === (b.effort ?? null);
@@ -302,14 +330,17 @@ function landing() {
   root.innerHTML = `<div class="landing"><div class="hack"><span class="hack-date">Oct 10–12</span> Join neatHack · $19,000 in prizes & credits ↗</div><header class="public-nav">${link('/','neatlogs','wordmark')}<nav>${['Manifesto','Product','Pricing','Docs','Blog','Changelog','Careers'].map(item).join('')}<span class="nav-rule" aria-hidden="true"></span>${link('/entry','Explore the demo ↗','solid')}</nav></header><main class="hero"><picture><source media="(max-width:600px)" srcset="/assets/portrait.webp"><img src="/assets/landscape.webp" alt="San Francisco skyline and bridge in silver fog"></picture><div class="hero-copy"><h1><span>See where your agent workflow can fail.</span><br>Explore it with Tailor</h1><p>Describe a fictional workflow, inspect its synthetic traces, and ask Tailor to explain or change the demo.</p><div class="hero-actions">${link('/entry','Explore the demo ↗','outline')}</div></div></main><footer class="landing-foot">Tailor proof of concept · fictional workflows and synthetic traces. ${link('/entry','Start a demo')}</footer></div>`;
 }
 function entry() {
+  stopEntryRotation();
   document.documentElement.classList.remove('chat-dock', 'rail-open');
   void loadExecution();
   void loadCapabilities();
   const turns = draft;
   const started = turns.length > 0;
   const banner = entryNotice ? `<p class="entry-notice" role="status">${esc(entryNotice)}</p>` : '';
-  const savedDemos = browserSession?.demos.length ? `<section class="saved-demos"><h2>Your saved demos</h2><div data-saved-demos>${savedDemoButtons()}</div></section>` : `<section class="saved-demos" hidden><h2>Your saved demos</h2><div data-saved-demos></div></section>`;
-  root.innerHTML = `<div class="chat-home"><header class="entry-nav">${link('/','neatlogs','wordmark')}${link('/','← Back to landing')}</header><div class="chat-stage">${banner}<p class="chat-label">Powered by Tailor · fictional workflows and synthetic traces</p><p class="chat-label ${execClass()}" data-exec-line>${esc(execLine())}</p>${started?`<div class="chat-thread">${chatThread(turns)}</div>`:`<h1>hello</h1><p>Describe an agent workflow or choose a prompt. Tailor will help you explore a fictional example with synthetic traces.</p>`}${chatBusy?`<p class="chat-steps" role="status">Setting up your demo…</p>`:''}${composer(chatBusy)}${examples(true)}${savedDemos}${started?`${turns[turns.length-1]!.status==='failed'?`<button type="button" data-retry-draft>Retry</button> `:''}<button type="button" data-discard-draft>Discard draft</button>`:`<button type="button" id="resume">Resume this browser’s saved session</button>`}<p class="form-error" role="alert"></p></div></div>`;
+  const saved = entrySavedState(browserSession);
+  const savedDemos = `<section class="saved-demos" ${saved.demos.length ? '' : 'hidden'}><h2>Your saved demos</h2><div data-saved-demos>${savedDemoButtons()}</div></section>`;
+  root.innerHTML = `<div class="chat-home"><header class="entry-nav">${link('/','neatlogs','wordmark')}${link('/','← Back to landing')}</header><div class="chat-stage">${banner}${started?`<div class="chat-thread">${chatThread(turns)}</div>`:`<div class="entry-intro"><h1>See your agent in action</h1><p>Explore a workflow. See what happens at every step.</p></div>`}${chatBusy?`<p class="chat-steps" role="status">Setting up your demo…</p>`:''}${composer(chatBusy)}<div class="chat-examples entry-suggestions" data-starter-list aria-label="Suggested workflow questions">${entrySuggestionButtons()}</div><p class="tailor-attribution">Powered by <span class="tailor-pill">Tailor</span></p>${savedDemos}${started?`${turns[turns.length-1]!.status==='failed'?`<button type="button" data-retry-draft>Retry</button> `:''}<button type="button" data-discard-draft>Discard draft</button>`:`<button type="button" id="resume" ${saved.activeDemo ? '' : 'hidden'}>Resume this browser’s saved session</button>`}<p class="form-error" role="alert"></p></div></div>`;
+  startEntryRotation();
 }
 function list(s: DemoSession,data: TraceList) {
   lastList = data;
@@ -403,6 +434,7 @@ async function saveEvaluationReview(form: HTMLFormElement) {
   catch(error){toast(plain((error as Error).message));}finally{evalBusy=false;}
 }
 async function render() {
+  stopEntryRotation();
   const run = ++generation; controller?.abort(); controller = new AbortController(); ended = false;
   void loadExecution();
   if (location.pathname==='/') { landing(); return; }
@@ -665,7 +697,11 @@ async function endDemo() {
   navigate('/entry');
 }
 async function selectDemo(demoId: string) {
-  if (!browserSession || demoId === current?.id) return;
+  if (!browserSession || !entrySavedState(browserSession).demos.some(d => d.id === demoId)) return;
+  if (demoId === current?.id && demoId === browserSession.activeDemoId) {
+    if (location.pathname === '/entry') await navigate(base(demoId));
+    return;
+  }
   const previous = browserSession;
   try {
     browserSession = await request<BrowserSession>('/api/browser-session/active-demo', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({demoId,expectedVersion:previous.version})}, true);
@@ -739,7 +775,14 @@ document.addEventListener('click',async event=>{
   if (el.hasAttribute('data-refresh')) { void render(); return; }
   if (el.hasAttribute('data-unavailable')) { toast('Outside this limited demo. No action was performed.'); return; }
   if (el.hasAttribute('data-theme')) { document.documentElement.classList.toggle('dark'); return; }
-  if (el.id==='resume') { try {const s=await request<DemoSession>('/api/session');navigate(base(s.id));} catch(e){toast(plain((e as Error).message));} return; }
+  if (el.id==='resume') {
+    await loadBrowserSession();
+    const active = entrySavedState(browserSession).activeDemo;
+    if (!active) return;
+    try { const s=await request<DemoSession>(`/api/sessions/${active.id}`); await navigate(base(s.id)); }
+    catch { await loadBrowserSession(); toast('This saved demo is no longer available. Choose another demo or start a new one.'); }
+    return;
+  }
   if (!current) return;
   const t=current.dataset.traces.find(t=>location.pathname.endsWith(t.id));
   if (el.hasAttribute('data-timeline')) {timeline=!timeline; if(t) detail(current,t);}
@@ -777,5 +820,9 @@ document.addEventListener('change',event=>{
 // Keep the newest message (and any clarification buttons) in view after every repaint.
 new MutationObserver(() => { const thread = document.querySelector<HTMLElement>('.chat-panel .chat-thread'); if (thread) thread.scrollTop = thread.scrollHeight; }).observe(root, { childList: true });
 window.addEventListener('popstate',()=>void render());
+window.addEventListener('pagehide',()=>stopEntryRotation());
+window.addEventListener('pageshow', event => {
+  if (event.persisted && location.pathname === '/entry') { stopEntryRotation(); startEntryRotation(); }
+});
 if (!history.state || typeof (history.state as {tailor?: unknown}).tailor !== 'number') history.replaceState({ tailor: 0 }, '');
 void render();
