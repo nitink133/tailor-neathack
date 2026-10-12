@@ -383,3 +383,17 @@ html.chat-dock{--chat-w:380px}
 .eval-preview-path{position:sticky;top:0;z-index:2;padding:10px 0;background:var(--ground)}.evaluation-preview-target{scroll-margin-top:82px}
 .eval-preview-results-summary{margin-bottom:20px}.eval-preview-results-summary h2{font-size:16px}.eval-preview-results-summary>div{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.eval-preview-results-summary article{padding:13px;border:1px solid var(--line);border-radius:7px;background:var(--ground);font-size:11px;line-height:1.6;overflow-wrap:anywhere}.eval-preview-results-summary strong{display:block}.eval-preview-results-summary small{font-size:10px;color:var(--muted)}
 @media(max-width:900px){.eval-preview-results-summary>div{grid-template-columns:1fr;gap:8px}.eval-preview-results-summary article{padding:10px}}
+
+/* Opt-in native reference sheets stay inside the demo workspace beside Tailor. */
+.native-fidelity-preview .workspace{position:relative}
+.native-fidelity-preview .native-eval-host{padding:0}
+.native-fidelity-preview .native-eval-host>.eval-detail-header,.native-fidelity-preview .native-eval-host>.eval-provenance,.native-fidelity-preview .native-eval-host>.eval-preview-path,.native-fidelity-preview .native-eval-host>.eval-preview-fidelity{margin:12px 20px}
+.native-fidelity-preview .ne-editor-backdrop{position:absolute;z-index:8}
+.native-fidelity-preview .routing-sheet,.native-fidelity-preview .routing-scrim{position:absolute}
+.native-fidelity-preview .ne-wizard{min-height:650px}
+.native-fidelity-preview .eval-preview-dataset.ne-wizard{padding:0;background:#101111;border:0;border-radius:0}
+.native-fidelity-preview .eval-criteria-summary{background:transparent;padding:0;border:0}
+.native-fidelity-preview .ne-editor.eval-evaluator-guide{margin:0;padding:0;border-radius:0;background:#151616}
+@media(max-width:700px){.native-fidelity-preview .ne-editor-backdrop{position:relative;min-height:710px}.native-fidelity-preview .ne-editor{position:relative;height:710px}.native-fidelity-preview .ne-wizard{min-height:650px}}
+
+.native-fidelity-preview .routing-page:has(.routing-sheet){height:100vh;min-height:0;overflow:hidden}

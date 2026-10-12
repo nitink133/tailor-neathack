@@ -384,6 +384,9 @@ export function appServer(store: Store, options: AppServerOptions) {
       else if (path === '/entry-state.js') file = '../dist/clients/neatlogs/entry-state.js';
       else if (path === '/trace-guide.js') file = '../dist/clients/neatlogs/trace-guide.js';
       else if (path === '/guidance.js') file = '../dist/clients/neatlogs/guidance.js';
+      else if (path === '/eval-ui.js') file = '../dist/clients/neatlogs/eval-ui.js';
+      else if (path === '/routing-icons.js') file = '../dist/clients/neatlogs/routing-icons.js';
+      else if (path === '/routing-renderer.js') file = '../dist/clients/neatlogs/routing-renderer.js';
       else if (path === '/eval-guidance-preview.js') file = '../dist/clients/neatlogs/eval-guidance-preview.js';
       else if (path === '/reply-format.js') file = '../dist/clients/neatlogs/reply-format.js';
       else if (path === '/turn-summary.js') file = '../dist/clients/neatlogs/turn-summary.js';
