@@ -84,7 +84,11 @@ function clearGuidance(reason: 'navigation'|'dismissed' = 'dismissed', focus = t
   const a = activeGuidance; activeGuidance = undefined; guidanceAttempt++;
   root.querySelectorAll('.contextual-guide-target').forEach(el => el.classList.remove('contextual-guide-target'));
   if(a) guidanceEvent(a.messageId,a.suggestion,'dismissed',reason);
-  if(focus && a) { repaint(); [...root.querySelectorAll<HTMLElement>('[data-guidance-id]')].find(el=>el.dataset.guidanceId===a.suggestion.id && el.dataset.guidanceMessage===a.messageId)?.focus(); }
+  if(focus && a) {
+    repaint();
+    const card=[...root.querySelectorAll<HTMLElement>('[data-guidance-id]')].find(el=>el.dataset.guidanceId===a.suggestion.id && el.dataset.guidanceMessage===a.messageId);
+    (card && !card.hasAttribute('disabled') ? card : root.querySelector<HTMLElement>('#chat-form textarea'))?.focus();
+  }
 }
 function restoreGuidanceHighlight() {
   const a = activeGuidance; if (!a || a.state !== 'shown' || !current) return;
@@ -95,7 +99,7 @@ function restoreGuidanceHighlight() {
   };
   if (!guidanceCurrent(a.suggestion,current)) { unavailable('stale'); return; }
   const g=a.suggestion;
-  if (location.pathname !== (g.targetId==='alerts.overview'?routingBase(current.id):g.targetId==='evals.overview'?evalBase(current.id):`${base(current.id)}/${g.binding.traceId}`)) { clearGuidance('navigation',false); return; }
+  if (location.pathname !== (g.targetId==='alerts.overview'?routingBase(current.id):g.targetId==='evals.overview'?evalBase(current.id):`${base(current.id)}/${g.binding.traceId}`)) { clearGuidance('navigation',false); queueMicrotask(() => { if (!activeGuidance) repaint(); }); return; }
   const target = g.binding.spanId ? [...root.querySelectorAll<HTMLElement>('[data-span-id]')].find(el=>el.dataset.spanId===g.binding.spanId) : root.querySelector<HTMLElement>(g.targetId==='alerts.overview'?'.routing-create':g.targetId==='evals.overview'?'.eval-create':g.targetId==='trace.output'?'.root-output':'.steps');
   if(target && target.getClientRects().length) target.classList.add('contextual-guide-target');
   else unavailable('missing');
@@ -126,7 +130,7 @@ async function showGuidance(messageId: string, suggestionId: string) {
   activeGuidance={messageId,suggestion:g,state:'shown'};repaint();restoreGuidanceHighlight();
   const shown=root.querySelector<HTMLElement>('.contextual-guide-target');
   if(!shown || !shown.getClientRects().length){fail('render');return;}
-  shown.scrollIntoView({block:'center',behavior:'auto'});
+  shown.scrollIntoView({block:g.targetId==='evals.overview'||g.targetId==='alerts.overview'?'start':'center',behavior:'auto'});
   guidanceEvent(messageId,g,'shown');
   requestAnimationFrame(() => {
     const card=[...root.querySelectorAll<HTMLElement>('[data-guidance-id]')].find(el=>el.dataset.guidanceId===g.id && el.dataset.guidanceMessage===messageId);
@@ -608,6 +612,7 @@ function evaluationsPage(s: DemoSession, data: EvaluationList) {
   const rows=data.evaluations.map(({evaluation:e,stale})=>`<tr><td>${link(evalLink(s.id,e.id),esc(e.name))}${stale?'<small>Saved trace snapshot</small>':''}</td><td>${e.traceIds.length} traces</td><td>${e.questions.map(q=>q.reviewer==='buyer'?'Your review':'Simulated score').filter((x,i,a)=>a.indexOf(x)===i).join(' · ')}</td><td>${e.state==='completed'?'Complete':'In progress'} · ${e.responses.length} saved answers</td></tr>`).join('');
   const defaults=syntheticReviewQuestions();
   root.innerHTML=shell(s,`<main class="eval-page"><header class="list-header"><h1>${icon('check')}Evals</h1><span class="eval-local-label">Docs-grounded reconstruction · synthetic · local demo</span></header><p class="eval-provenance">Synthetic evaluation · local demo · no AI evaluator ran</p><section class="eval-create"><h2>New evaluation</h2><p>Start with the outcome your agent must achieve. Select saved traces, add one question per requirement, and include good, failing and ambiguous examples. A trace without errors can still give a poor answer.</p><form id="create-eval-form"><label>Name<input name="name" maxlength="100" required value="Workflow review"></label><label>Description<input name="description" maxlength="300" placeholder="Optional"></label><fieldset><legend>Saved traces</legend>${s.dataset.traces.map((t,i)=>`<label><input type="checkbox" name="traceId" value="${esc(t.id)}" ${i===0?'checked':''}> ${esc(t.label)}</label>`).join('')}</fieldset><fieldset id="eval-question-editor"><legend>Questions</legend>${defaults.map(evalQuestionRow).join('')}<button type="button" data-add-question>Add question</button></fieldset><fieldset><legend>Deterministic sample checks</legend><label><input type="checkbox" name="check-no-error"> No execution errors</label><label><input type="checkbox" name="check-latency"> Maximum request duration (ms)<input type="number" name="check-max-ms" min="0" max="600000" value="1000"></label><label><input type="checkbox" name="check-fields"> Required output fields<input name="check-fields-list" maxlength="200" placeholder="e.g. answer, citations"></label><small>These checks execute on the saved synthetic snapshot. They do not judge truth, tone or task resolution. Use human review for those requirements.</small></fieldset><button type="submit" ${evalBusy?'disabled':''}>Create evaluation</button><small>Assign each question to you or a simulated reviewer. Simulated review is deterministic demo data; no AI evaluator runs.</small></form></section><section class="eval-list"><h2>Saved evaluations</h2><table><thead><tr><th>Name</th><th>Trace set</th><th>Reviewers</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="4">No evaluations yet.</td></tr>'}</tbody></table></section></main>${notice(s)}`);
+  restoreGuidanceHighlight();
 }
 function evaluationPage(s: DemoSession, result: EvaluationDetail) {
   evaluation=result; evaluations=undefined;
@@ -626,6 +631,7 @@ function evaluationPage(s: DemoSession, result: EvaluationDetail) {
     panel=`<section class="eval-results">${evaluationCheckTable(e)}<h2>Per-question summary</h2><table><thead><tr><th>Question</th><th>Answered</th><th>Result</th><th>Source</th></tr></thead><tbody>${aggs||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table><h2>Saved responses</h2><table><thead><tr><th>Trace</th><th>Question</th><th>Response</th><th>Source</th></tr></thead><tbody>${responses||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table></section>`;
   }
   root.innerHTML=shell(s,`<main class="eval-page"><header class="eval-detail-header">${link(evalBase(s.id),'← Evals')}<div>${evalHeader(e.name)}<p>${esc(e.description||'Review of saved synthetic traces')}</p></div><span class="eval-local-label">Docs-grounded reconstruction</span></header><p class="eval-provenance">Synthetic evaluation · local demo · no AI evaluator ran</p>${result.stale?'<p role="status" class="eval-stale">Saved trace snapshot · the current dataset has changed.</p>':''}<nav class="eval-tabs" aria-label="Evaluation detail">${tabs}</nav>${panel}</main>${notice(s)}`);
+  restoreGuidanceHighlight();
 }
 async function createEvaluation(form: HTMLFormElement) {
   if(!current||evalBusy)return;
@@ -648,7 +654,7 @@ async function createEvaluation(form: HTMLFormElement) {
   if(f.has('check-no-error'))checks.push({key:'no-error',label:'No execution errors',kind:'no_error'});
   if(f.has('check-latency'))checks.push({key:'latency',label:'Request duration limit',kind:'latency',maxDurationMs:Number(f.get('check-max-ms'))});
   if(f.has('check-fields'))checks.push({key:'required-fields',label:'Required output fields',kind:'required_output_fields',fields:String(f.get('check-fields-list')??'').split(',').map(x=>x.trim()).filter(Boolean)});
-  try { const result=await request<EvaluationDetail>(`/api/sessions/${current.id}/evaluations`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientOperationId:crypto.randomUUID(),datasetVersion:current.version,name:String(f.get('name')??''),description:String(f.get('description')??''),traceIds,questions,checks})},true); evaluationTab='Overview'; await navigate(evalLink(current.id,result.evaluation.id)); }
+  try { const result=await request<EvaluationDetail>(`/api/sessions/${current.id}/evaluations`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientOperationId:crypto.randomUUID(),datasetVersion:current.version,name:String(f.get('name')??''),description:String(f.get('description')??''),traceIds,questions,...(checks.length?{checks}:{})})},true); evaluationTab='Overview'; await navigate(evalLink(current.id,result.evaluation.id)); }
   catch(e){toast(plain((e as Error).message));} finally{evalBusy=false;}
 }
 async function saveEvaluationReview(form: HTMLFormElement) {
@@ -678,6 +684,7 @@ function routingPage(s:DemoSession){
     panel=`<section class="eval-create routing-create"><nav class="eval-tabs" aria-label="Alert preview steps">${steps.map((x,i)=>`<span ${i===routingStep?'aria-current="step"':''}>${i+1}. ${x}</span>`).join('')}</nav><form id="routing-form">${panel}<div>${routingStep?'<button type="button" data-routing-back>Back</button>':''}<button type="submit" ${routingBusy?'disabled':''}>${routingStep===4?'Save simulated preview':'Next'}</button></div></form></section><section class="eval-list"><h2>Saved previews</h2>${routingList?.previews.map(r=>link(`${routingBase(s.id)}/${r.preview.id}`,esc(r.preview.name))).join('<br>')||'<p>No previews yet.</p>'}</section>`;
   }
   root.innerHTML=shell(s,`<main class="eval-page"><header class="list-header"><h1>${icon('bell')}alerts</h1><span class="eval-local-label">Synthetic routing preview</span></header><p class="eval-provenance">Local demo · no real contact, alert rule or outbound message</p>${panel}</main>${notice(s)}`);
+  restoreGuidanceHighlight();
 }
 function saveRoutingDraft(form:HTMLFormElement){if(!current)return;const d=routingDraft(current),f=new FormData(form);for(const key of ['name','type','threshold','severity','cooldown','recipient','destination'])if(f.has(key))d[key]=String(f.get(key));if(routingStep===1)d.traceIds=f.getAll('traceId').map(String);}
 async function submitRouting(form:HTMLFormElement){
