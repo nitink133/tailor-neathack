@@ -143,7 +143,8 @@ test('entry makes the synthetic scope clear and keeps suggestions editable',asyn
   await first.click();
   const composer=page.getByLabel('Ask anything');await expect(composer).toHaveValue(prompt!);await expect(composer).toBeFocused();
   expect(creates).toBe(0);expect(await page.evaluate(()=>sessionStorage.getItem('creation-operation'))).toBeNull();
-  await composer.fill(prompt!);
+  const editedPrompt=`${prompt!} Use synthetic data.`;
+  await composer.fill(editedPrompt);await expect(composer).toHaveValue(editedPrompt);
   await page.getByRole('button',{name:'Send message'}).click();await expect(page).toHaveURL(/\/demo\/[^/]+\/traces$/);
   expect(creates).toBe(1);expect(ownerCalls).toEqual(['bootstrap','create']);await expect(page.locator('.chat-panel')).toContainText('Powered by Tailor');
   await expect(page.locator('.chat-panel [data-status=applied]').first()).toBeVisible();
