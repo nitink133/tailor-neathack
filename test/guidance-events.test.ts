@@ -32,9 +32,16 @@ test('guidance observations are session-owned, redacted and reject stale success
     const dump = JSON.stringify(spans);
     for (const raw of [a.data.id, messageId, suggestionId, guidance[0]!.binding.traceId]) assert.equal(dump.includes(raw), false);
     assert.equal(spans[1]!.attributes['tailor.guidance_target'], 'trace.slowest-span');
+    for (const targetId of ['evals.overview', 'alerts.overview'] as const) {
+      const surfaceGuidance = resolveGuidance([{ targetId }], snapshot);
+      const message = h.store.appendTurns(a.data.id, [{ role: 'tailor', status: 'note', text: 'Synthetic review surface.', guidance: surfaceGuidance }]).appended[0]!;
+      const response = await h.call(route, 'POST', { messageId: message.id, suggestionId: surfaceGuidance[0]!.id, outcome: 'shown' }, a.cookie);
+      assert.equal(response.data.recorded, true);
+      assert.equal(h.telemetry.captured().filter(s => s.name === 'tailor.guidance').at(-1)!.attributes['tailor.guidance_target'], targetId);
+    }
     h.store.applyScenario(a.data.id, 'exhausted', before.version);
     assert.equal((await h.call(route, 'POST', observation, a.cookie)).status, 409);
     assert.equal((await h.call(route, 'POST', { ...observation, outcome: 'failed', reason: 'stale' }, a.cookie)).status, 200);
-    assert.equal(h.telemetry.captured().filter(s => s.name === 'tailor.guidance').length, 4);
+    assert.equal(h.telemetry.captured().filter(s => s.name === 'tailor.guidance').length, 6);
   } finally { await h.close(); }
 });

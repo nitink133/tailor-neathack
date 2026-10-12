@@ -262,7 +262,7 @@ export function appServer(store: Store, options: AppServerOptions) {
           const session = store.read(id);
           const message = session.conversation.find(m => m.id === data.messageId && m.role === 'tailor');
           const suggestion = message?.guidance?.find(g => g.id === data.suggestionId);
-          if (!suggestion || !['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output'].includes(suggestion.targetId)) {
+          if (!suggestion || !['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output', 'evals.overview', 'alerts.overview'].includes(suggestion.targetId)) {
             throw new Failure(404, 'NOT_FOUND', 'Guidance not found in this demo.');
           }
           const binding = suggestion.binding;

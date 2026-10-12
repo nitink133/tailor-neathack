@@ -271,7 +271,7 @@ const isDecision: Check = (v, vocab) => str(v) && v.length > 0 && v.length <= DE
 const VALIDATED: Record<string, Check> = {
   guidanceOutcome: inEnum(['selected', 'shown', 'failed', 'dismissed']),
   guidanceReason: inEnum(['stale', 'missing', 'navigation', 'loading', 'dismissed', 'render', 'read_failed']),
-  guidanceTarget: inEnum(['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output']),
+  guidanceTarget: inEnum(['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output', 'evals.overview', 'alerts.overview']),
   messageRef: format(/^m[0-9a-f]{16}$/), suggestionRef: format(/^g[0-9a-f]{16}$/), targetRef: format(/^x[0-9a-f]{16}$/),
   turnId: format(HASHED_TURN),
   correlationId: format(/^[0-9a-f]{16}$/),
