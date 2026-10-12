@@ -14,10 +14,11 @@
 // Schemas go on the wire exactly as written (plain format objects, no SDK transform).
 
 import Anthropic from '@anthropic-ai/sdk';
+import { createHash } from 'node:crypto';
 import { CORE_LIMITS as LIMITS, type ProviderErrorKind, type ProviderMessage, type ProviderUsage } from './contract.ts';
 import { ProviderError } from './provider-error.ts';
 import { PER_CALL_OUTPUT_TOKEN_CEILING, WORST_CHARS_PER_TOKEN, validProviderUsage, type SpendGuard } from './spend.ts';
-import { INPUT_ESTIMATION_VERSION, PRICING_VERSION, type InputAccounting, type AttemptSettlement } from './accounting.ts';
+import { INPUT_ESTIMATION_VERSION, PRICING_VERSION, isResolvedAnthropicModel, type InputAccounting, type AttemptSettlement, type ProviderMetadata, type ReportedProviderUsage } from './accounting.ts';
 
 export { ProviderError } from './provider-error.ts';
 
@@ -51,6 +52,7 @@ export interface AnthropicMessageParams {
 }
 /** The raw (unparsed) Messages API response fields Tailor reads. */
 export interface RawMessageLike {
+  model?: string;
   stop_reason: string | null;
   stop_details?: { type?: string; category?: string | null; explanation?: string | null } | null;
   usage?: {
@@ -58,6 +60,7 @@ export interface RawMessageLike {
     output_tokens: number;
     cache_creation_input_tokens?: number | null;
     cache_read_input_tokens?: number | null;
+    cache_creation?: { ephemeral_5m_input_tokens?: number | null; ephemeral_1h_input_tokens?: number | null } | null;
     output_tokens_details?: { thinking_tokens: number } | null;
   } | null;
   content?: { type: string; text?: string }[] | null;
@@ -170,6 +173,27 @@ export function toProviderUsage(usage: RawMessageLike['usage'] | undefined | nul
   return validProviderUsage(result) ? result : null;
 }
 
+/** Copy known numerical fields, never the raw response, content, thinking blocks or arbitrary usage keys.
+ * Invalid optional diagnostics are omitted without changing settlement's stricter validation rules. */
+export function reportedUsage(usage: RawMessageLike['usage'] | undefined | null): ReportedProviderUsage | undefined {
+  const count = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+  if (!usage || !count(usage.input_tokens) || !count(usage.output_tokens)) return undefined;
+  const result: ReportedProviderUsage = { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens };
+  for (const key of ['cache_read_input_tokens', 'cache_creation_input_tokens'] as const) if (count(usage[key])) result[key] = usage[key];
+  const creation: NonNullable<ReportedProviderUsage['cache_creation']> = {};
+  for (const key of ['ephemeral_5m_input_tokens', 'ephemeral_1h_input_tokens'] as const) {
+    const value = usage.cache_creation?.[key];
+    if (count(value)) creation[key] = value;
+  }
+  // Preserve reported zero; do not derive a missing TTL bucket from the total or the other bucket.
+  if (Object.keys(creation).length) result.cache_creation = creation;
+  const thinking = usage.output_tokens_details?.thinking_tokens;
+  if (count(thinking) && thinking <= usage.output_tokens) result.output_tokens_details = { thinking_tokens: thinking };
+  return result;
+}
+
+const fingerprint = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Transport
 // ---------------------------------------------------------------------------------------------------------------------
@@ -201,6 +225,7 @@ export interface StructuredResult<T> {
   settlement: AttemptSettlement;
   pricingVersion: string;
   inputAccounting: InputAccounting;
+  providerMetadata: ProviderMetadata;
 }
 export interface AnthropicTransport {
   readonly name: 'anthropic';
@@ -260,7 +285,9 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
     const inputAccounting: InputAccounting = { estimationVersion: INPUT_ESTIMATION_VERSION,
       system: { bytes: systemBytes, estimatedTokens: tokensOf(systemBytes) }, conversation: { bytes: conversationBytes, estimatedTokens: tokensOf(conversationBytes) },
       schema: { bytes: schemaBytes, estimatedTokens: tokensOf(schemaBytes) }, framing: { estimatedTokens: REQUEST_FRAMING_TOKENS },
-      estimatedInputTokens: tokensOf(systemBytes + conversationBytes + schemaBytes) + REQUEST_FRAMING_TOKENS, totalInputBytes: systemBytes + conversationBytes + schemaBytes };
+      estimatedInputTokens: tokensOf(systemBytes + conversationBytes + schemaBytes) + REQUEST_FRAMING_TOKENS, totalInputBytes: systemBytes + conversationBytes + schemaBytes,
+      messageCount: mapped.messages.length, systemPrefixSha256: fingerprint(mapped.system), schemaSha256: fingerprint(JSON.stringify(args.schema)) };
+    const providerMetadata: ProviderMetadata = { requestedModel: model, outputTokensIncludeThinking: true };
     const worstCase = reservationFor(args as StructuredCall<unknown>, systemBytes + conversationBytes, maxTokens);
     let reservation: string;
     try { reservation = spend.reserve(worstCase, { kind: args.kind, model }); }
@@ -294,6 +321,7 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
       mappedError.reservationRef = reservation;
       mappedError.latencyMs = Math.max(0, Math.round(performance.now() - started));
       mappedError.inputAccounting = inputAccounting;
+      mappedError.providerMetadata = providerMetadata;
       mappedError.pricingVersion = PRICING_VERSION;
       // The API answered with an HTTP error: not billed. Anything else (timeout, dropped connection, unknown) may
       // have been billed: keep the worst case, marked unreconciled.
@@ -308,6 +336,9 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
     const latencyMs = Math.max(0, Math.round(performance.now() - started));
     const requestId = typeof message._request_id === 'string' && message._request_id ? message._request_id : undefined;
     const usage = toProviderUsage(message.usage);
+    if (isResolvedAnthropicModel(message.model)) providerMetadata.resolvedModel = message.model;
+    const reported = reportedUsage(message.usage);
+    if (reported) providerMetadata.reportedUsage = reported;
     // Refusals, truncations and malformed replies are billed: settle BEFORE any throw below.
     spend.settle(reservation, usage);
     const priced = usage ? spend.priceUsd?.(usage, model) : null;
@@ -321,6 +352,7 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
       error.latencyMs = latencyMs;
       error.settlement = usage ? 'settled_reported' : 'settled_unreconciled';
       error.inputAccounting = inputAccounting;
+      error.providerMetadata = providerMetadata;
       error.pricingVersion = PRICING_VERSION;
       if (costUsd !== undefined) error.costUsd = costUsd;
       return error;
@@ -343,7 +375,7 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
     const value = args.extract(parsed);
     if (value === null) throw failure('malformed', 'The structured response failed validation');
     return { value, usage, latencyMs, stopReason: message.stop_reason, reservationUsd: worstCase, reservationRef: reservation,
-      settlement: usage ? 'settled_reported' : 'settled_unreconciled', pricingVersion: PRICING_VERSION, inputAccounting,
+      settlement: usage ? 'settled_reported' : 'settled_unreconciled', pricingVersion: PRICING_VERSION, inputAccounting, providerMetadata,
       ...(costUsd !== undefined ? { costUsd } : {}), ...(requestId ? { requestId } : {}) };
   }
 

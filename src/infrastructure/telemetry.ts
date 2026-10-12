@@ -14,6 +14,7 @@ import { setGlobalErrorHandler, loggingErrorHandler } from '@opentelemetry/core'
 import type { Span as OtelSpan } from '@opentelemetry/api';
 import { CORE_LIMITS as LIMITS, type ProviderErrorKind, type ProviderUsage, type TelemetryStep, type TelemetryVocabulary, type TurnTelemetry } from '../tailor/contract.ts';
 import { MODEL_RATES } from '../tailor/spend.ts';
+import { isResolvedAnthropicModel } from '../tailor/accounting.ts';
 import { createEvidenceObserver, compareEvidence, type EvidenceObserver, type EvidenceManifestSnapshot, type EvidenceComparison, type EvidenceOperation } from '../tailor/evidence.ts';
 
 export type TelemetryMode = 'disabled' | 'captured' | 'neatlogs';
@@ -269,6 +270,13 @@ function decisionToken(t: string, vocab: Vocabulary): boolean {
 const isDecision: Check = (v, vocab) => str(v) && v.length > 0 && v.length <= DECISION_MAX && v.split('→').every(t => decisionToken(t, vocab));
 
 const VALIDATED: Record<string, Check> = {
+  requestedModel: (v, vocab) => str(v) && (Object.hasOwn(MODEL_RATES, v) || vocab.modelIds.has(v)),
+  resolvedModel: v => isResolvedAnthropicModel(v),
+  systemPrefixSha256: format(/^[0-9a-f]{64}$/), schemaSha256: format(/^[0-9a-f]{64}$/),
+  outputTokensIncludeThinking: v => v === true,
+  reportedUsageAvailable: v => typeof v === 'boolean',
+  ...Object.fromEntries(['reportedInputTokens', 'reportedOutputTokens', 'reportedCacheReadTokens', 'reportedCacheWriteTokens', 'reportedCacheWrite5mTokens', 'reportedCacheWrite1hTokens', 'reportedThinkingTokens']
+    .map(key => [key, (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0])),
   guidanceOutcome: inEnum(['selected', 'shown', 'failed', 'dismissed']),
   guidanceReason: inEnum(['stale', 'missing', 'navigation', 'loading', 'dismissed', 'render', 'read_failed']),
   guidanceTarget: inEnum(['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output', 'evals.overview', 'alerts.overview']),
@@ -351,7 +359,8 @@ export function cleanAttributes(attrs: Record<string, unknown> | undefined, hash
     // A 32-hex OTel trace id is a long mixed run by construction; its strict format is the whole check.
     const strictTraceId = k === 'traceId' && VALIDATED.traceId!(v, vocab);
     const strictCodeVersion = k === 'codeVersion' && VALIDATED.codeVersion!(v, vocab) && typeof v === 'string' && /^[0-9a-f]{7,40}$/.test(v);
-    if (!strictTraceId && !strictCodeVersion && looksSensitive(v)) { dropped++; redacted++; continue; }
+    const strictFingerprint = (k === 'systemPrefixSha256' || k === 'schemaSha256') && VALIDATED[k]!(v, vocab);
+    if (!strictTraceId && !strictCodeVersion && !strictFingerprint && looksSensitive(v)) { dropped++; redacted++; continue; }
     if (k === 'toolName') {
       const known = typeof v === 'string' && (vocab.toolNames.has(v) || v === INVALID_TOOL_NAME);
       clean['tailor.tool_name'] = known ? v : INVALID_TOOL_NAME;
@@ -375,7 +384,8 @@ function exportValidators(): Record<string, Check> {
 }
 const EXPORT_VALIDATORS = exportValidators();
 function exportable(key: string, value: unknown, vocab: Vocabulary): boolean {
-  if (looksSensitive(value) && !(key === 'tailor.code_version' && typeof value === 'string' && /^[0-9a-f]{7,40}$/.test(value) && vocab.codeVersions.has(value))) return false;
+  const fingerprint = (key === 'tailor.system_prefix_sha256' || key === 'tailor.schema_sha256') && typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+  if (looksSensitive(value) && !fingerprint && !(key === 'tailor.code_version' && typeof value === 'string' && /^[0-9a-f]{7,40}$/.test(value) && vocab.codeVersions.has(value))) return false;
   if (key.startsWith('tailor.')) {
     if (typeof value === 'string') {
       const check = EXPORT_VALIDATORS[key];
@@ -404,6 +414,15 @@ export function summariseObservedDiagnostics(records: Record<string, unknown>[])
   const selected = new Set(attrs.flatMap(value => typeof value['tailor.source_ids'] === 'string' ? value['tailor.source_ids'].split(',') : []));
   const fields = (value: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.flatMap(key => value[key] === undefined ? [] : [[key, value[key]]]));
   return {
+    // Numbers and closed ids only. These are observed attempts, not totals; absent counters stay absent.
+    providerAttempts: attrs.filter(value => value['tailor.requested_model'] !== undefined).slice(0, 4).map(value => fields(value, [
+      'tailor.step', 'tailor.purpose', 'tailor.effort', 'tailor.attempt', 'tailor.requested_model', 'tailor.resolved_model', 'tailor.stop_reason',
+      'tailor.request_id', 'tailor.attempt_result', 'tailor.latency_ms', 'tailor.cost_usd', 'tailor.settlement', 'tailor.pricing_version',
+      'tailor.reported_usage_available', 'tailor.output_tokens_include_thinking', 'tailor.reported_input_tokens', 'tailor.reported_output_tokens',
+      'tailor.reported_cache_read_tokens', 'tailor.reported_cache_write_tokens', 'tailor.reported_cache_write5m_tokens', 'tailor.reported_cache_write1h_tokens', 'tailor.reported_thinking_tokens',
+      'tailor.message_count', 'tailor.system_bytes', 'tailor.conversation_bytes', 'tailor.schema_bytes', 'tailor.total_input_bytes', 'tailor.input_estimated_tokens',
+      'tailor.framing_estimated_tokens', 'tailor.estimation_version', 'tailor.system_prefix_sha256', 'tailor.schema_sha256',
+    ])),
     capabilities: { available: attrs.some(value => value['tailor.record_count'] !== undefined || value['tailor.source_ids'] !== undefined), sourceIds: [...selected].slice(0,12) },
     context: attrs.map(value => fields(value, ['tailor.context_bytes','tailor.context_chars','tailor.context_budget_chars','tailor.context_recent_turns_kept','tailor.context_recent_turns_dropped','tailor.context_payloads_dropped','tailor.context_knowledge_records_kept'])).filter(value => Object.keys(value).length).slice(0,8),
     guards: attrs.map(value => fields(value, ['tailor.guard_stage','tailor.guard_classification','tailor.guard_reason','tailor.guard_outcome','tailor.policy_outcome','tailor.policy_reason'])).filter(value => Object.keys(value).length).slice(0,8),

@@ -20,7 +20,7 @@ import { clip, cleanNarrative, oneLine } from './text.ts';
 import { isProviderError, ProviderError } from './provider-error.ts';
 import { PER_CALL_OUTPUT_TOKEN_CEILING } from './spend.ts';
 import { POLICY_VERSION, POLICY_LIMITS } from './policy.ts';
-import { PRICING_VERSION, type InputAccounting } from './accounting.ts';
+import { PRICING_VERSION, providerMetadataAttrs, type InputAccounting, type ProviderMetadata } from './accounting.ts';
 
 /**
  * Turn-loop limits that extend CORE_LIMITS.
@@ -200,8 +200,11 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
   function citedOnly(ids: readonly string[] | undefined, readback: T['readback'] | null, detail: T['detail'] | null, drops: Drops): string[] {
     if (!ids?.length) return [];
     const known = new Set(adapter.grounding.citable(readback, detail));
-    const kept = [...new Set(ids.filter(id => known.has(id)))];
-    drops.n += new Set(ids).size - kept.length;
+    const resolved = [...new Set(ids)].map(id => adapter.grounding.normaliseCitation
+      ? adapter.grounding.normaliseCitation(id, readback, detail) : id);
+    const kept = [...new Set(resolved.filter((id): id is string => id !== null && known.has(id)))];
+    // Two valid aliases may resolve to one saved id; deduplication is not a grounding failure.
+    drops.n += resolved.filter(id => id === null || !known.has(id)).length;
     return kept;
   }
 
@@ -277,7 +280,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
       };
     }
     /** Outcome of one provider attempt, recorded on that attempt's telemetry step. The mock is free: its cost is known (0). */
-    function attemptSettled(prov: ModelProvider<T['action'], T['explanation']>, r: { usage: unknown; latencyMs: number; requestId?: string; stopReason?: string; costUsd?: number; reservationUsd?: number; reservationRef?: string; settlement?: string; pricingVersion?: string; inputAccounting?: InputAccounting }, result: 'ok' | 'invalid' | 'error'): void {
+    function attemptSettled(prov: ModelProvider<T['action'], T['explanation']>, r: { usage: unknown; latencyMs: number; requestId?: string; stopReason?: string; costUsd?: number; reservationUsd?: number; reservationRef?: string; settlement?: string; pricingVersion?: string; inputAccounting?: InputAccounting; providerMetadata?: ProviderMetadata }, result: 'ok' | 'invalid' | 'error'): void {
       const cost = r.costUsd ?? (prov.mode === 'mock' ? 0 : undefined);
       annotate({
         attemptResult: result, latencyMs: r.latencyMs, costKnown: cost !== undefined,
@@ -286,11 +289,12 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
         ...(r.requestId ? { requestId: r.requestId } : {}), ...(r.stopReason ? { stopReason: r.stopReason } : {}),
       });
     }
-    function accountingAttrs(r: { reservationRef?: string; settlement?: string; pricingVersion?: string; inputAccounting?: InputAccounting }): Attrs {
+    function accountingAttrs(r: { reservationRef?: string; settlement?: string; pricingVersion?: string; inputAccounting?: InputAccounting; providerMetadata?: ProviderMetadata }): Attrs {
       const a = r.inputAccounting;
       return { ...(r.reservationRef ? { reservationRef: r.reservationRef } : {}), ...(r.settlement ? { settlement: r.settlement } : {}),
         ...(r.pricingVersion ? { pricingVersion: r.pricingVersion } : {}),
-        ...(a ? { estimationVersion: a.estimationVersion, systemBytes: a.system.bytes, systemEstimatedTokens: a.system.estimatedTokens, conversationBytes: a.conversation.bytes, conversationEstimatedTokens: a.conversation.estimatedTokens, schemaBytes: a.schema.bytes, schemaEstimatedTokens: a.schema.estimatedTokens, framingEstimatedTokens: a.framing.estimatedTokens, totalInputBytes: a.totalInputBytes, inputEstimatedTokens: a.estimatedInputTokens } : {}) };
+        ...providerMetadataAttrs(r.providerMetadata),
+        ...(a ? { estimationVersion: a.estimationVersion, systemBytes: a.system.bytes, systemEstimatedTokens: a.system.estimatedTokens, conversationBytes: a.conversation.bytes, conversationEstimatedTokens: a.conversation.estimatedTokens, schemaBytes: a.schema.bytes, schemaEstimatedTokens: a.schema.estimatedTokens, framingEstimatedTokens: a.framing.estimatedTokens, totalInputBytes: a.totalInputBytes, inputEstimatedTokens: a.estimatedInputTokens, ...(a.messageCount !== undefined ? { messageCount: a.messageCount } : {}), ...(a.systemPrefixSha256 ? { systemPrefixSha256: a.systemPrefixSha256 } : {}), ...(a.schemaSha256 ? { schemaSha256: a.schemaSha256 } : {}) } : {}) };
     }
     function attemptFailed(prov: ModelProvider<T['action'], T['explanation']>, error: unknown): void {
       if (!isProviderError(error)) { annotate({ attemptResult: 'error', providerErrorKind: 'unknown', costKnown: prov.mode === 'mock', ...(prov.mode === 'mock' ? { costUsd: 0 } : {}) }); return; }

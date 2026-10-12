@@ -13,9 +13,9 @@ import {
 import type { Evidence, Story, Trace } from './contracts.ts';
 import { buyerWording, composeAnswer } from './answer.ts';
 import { PRODUCT_NAMES } from './claims.ts';
-import { buildContext } from './context.ts';
+import { buildContext, spanKeyOf } from './context.ts';
 import { entryPreflight, proposalAlignment } from './entry-policy.ts';
-import { citedSpanIds, describeCommit, describeTrace, groundNarrative, safeNarrative } from './explain.ts';
+import { citedSpanIds, describeCommit, describeTrace, groundNarrative, qualityDefectNarrative, safeNarrative } from './explain.ts';
 import { explanationMessage, EXPLANATION_SYSTEM_PROMPT, PROMPT_VERSION, repairMessage, SYSTEM_PROMPT } from './prompts.ts';
 import { validateAgentAction, validateEvidenceExplanation } from './provider.ts';
 
@@ -127,8 +127,9 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
       },
       describe(readback, trace, narrative, cited) {
         const { text, evidence } = describeCommit(readback, trace, narrative);
-        // Evidence span ids stay inside the read-back trace: the model's picks (if any survive) replace the default error spans.
-        return { text, evidence: { ...evidence, spanIds: cited.length ? cited : evidence.spanIds } };
+        // A model's valid subset cannot erase the source/check observations used by code-owned quality wording.
+        const spanIds = trace && qualityDefectNarrative(trace) ? [...new Set([...cited, ...evidence.spanIds])] : cited.length ? cited : evidence.spanIds;
+        return { text, evidence: { ...evidence, spanIds } };
       },
       storyOf: (proposal: ScenarioProposal) => sanitiseStory(proposal.story),
     },
@@ -165,8 +166,10 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
         return { state: 'found', detail: read.trace, version: read.version };
       },
       describe(trace, version, narrative, cited) {
-        const evidence: Evidence = { version, traceIds: [trace.id], spanIds: cited.length ? cited : citedSpanIds(trace) };
-        return { text: `${describeTrace(trace)}${narrative ? `\n${narrative}` : ''}`, evidence };
+        const required = citedSpanIds(trace);
+        const evidence: Evidence = { version, traceIds: [trace.id], spanIds: qualityDefectNarrative(trace) ? [...new Set([...cited, ...required])] : cited.length ? cited : required };
+        const description = describeTrace(trace);
+        return { text: `${description}${narrative && !description.includes(narrative) ? `\n${narrative}` : ''}`, evidence };
       },
     },
   },
@@ -174,6 +177,14 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
     ground: (text, readback, trace) => groundNarrative(text, trace, readback),
     safeNarrative: (readback, trace) => safeNarrative(trace, readback),
     citable: (_readback, trace) => (trace ? trace.spans.map(s => s.id) : []),
+    normaliseCitation(id, _readback, trace) {
+      if (!trace) return null;
+      if (trace.spans.some(span => span.id === id)) return id;
+      // The planner sees these short keys. Resolve only within the freshly read selected trace;
+      // never strip a foreign id's prefix, search other traces, or guess a span from its name.
+      const matches = trace.spans.filter(span => spanKeyOf(trace, span) === id);
+      return matches.length === 1 ? matches[0]!.id : null;
+    },
   },
   composeAnswer,
   recordTitle: record => record.title,

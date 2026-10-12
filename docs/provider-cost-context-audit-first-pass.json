@@ -1,0 +1,1216 @@
+{
+  "method": "Offline reconstructed baseline requests from exact recorded synthetic inputs, baseline policy, unchanged plan/context code, final approved session history and fixtures. Byte counts exact for reconstruction, not measured API tokenizer counts or cached prefixes; API-added framing excluded. No provider calls.",
+  "staticParts": {
+    "planSystem": {
+      "bytes": 5019,
+      "sha256": "304b522102ab9bb783c3bd6bcd9a9edd96cc619c9fe735d72ee3ced2c22f491e"
+    },
+    "guardSystem": {
+      "bytes": 2149,
+      "sha256": "325d12418f080689db0796a58e943d04b18bdd8778f7b465db3d970a49527f00"
+    },
+    "explainSystem": {
+      "bytes": 884,
+      "sha256": "212c159734ac3a339ac7aaec9f2e030acf22896536f8a9761d353670e400963c"
+    },
+    "schemas": {
+      "plan": {
+        "bytes": 5051,
+        "sha256": "2d8e7f4496668560f93d4420fa0821159a537a73fb28b73ca5fccdeab83a8b0b"
+      },
+      "explain": {
+        "bytes": 328,
+        "sha256": "12106147d3c98e4dec4bc745be02deb414fa20b33b8f61701cd1ea95b07da658"
+      },
+      "guard": {
+        "bytes": 395,
+        "sha256": "8e7502b209a7a65f8a06033a695b950d2a5aa888f92ac08e0dc49911d033d5ed"
+      }
+    },
+    "knowledgeFileRecords": 25,
+    "knowledgeSummaryBytes": 17663
+  },
+  "distributions": {
+    "guardBytes": {
+      "n": 29,
+      "p50": 4036,
+      "p95": 4235,
+      "max": 4257,
+      "min": 3978
+    },
+    "guardUserBytes": {
+      "n": 29,
+      "p50": 1492,
+      "p95": 1691,
+      "max": 1713,
+      "min": 1434
+    },
+    "planBytes": {
+      "n": 24,
+      "p50": 19813,
+      "p95": 21431,
+      "max": 21844,
+      "min": 19193
+    },
+    "planUserBytes": {
+      "n": 24,
+      "p50": 9743,
+      "p95": 11361,
+      "max": 11774,
+      "min": 9123
+    },
+    "contextBytes": {
+      "n": 24,
+      "p50": 9577,
+      "p95": 11250,
+      "max": 11652,
+      "min": 9040
+    },
+    "contextChars": {
+      "n": 24,
+      "p50": 9577,
+      "p95": 11250,
+      "max": 11630,
+      "min": 9040
+    },
+    "contextBudget": {
+      "n": 24,
+      "p50": 38185,
+      "p95": 38237,
+      "max": 38242,
+      "min": 38089
+    },
+    "queryBytes": {
+      "n": 29,
+      "p50": 79,
+      "p95": 155,
+      "max": 177,
+      "min": 24
+    },
+    "historyBytes": {
+      "n": 24,
+      "p50": 107,
+      "p95": 1435,
+      "max": 2183,
+      "min": 4
+    },
+    "knowledgeBytes": {
+      "n": 24,
+      "p50": 4203,
+      "p95": 4412,
+      "max": 4429,
+      "min": 3862
+    },
+    "datasetBytes": {
+      "n": 24,
+      "p50": 2511,
+      "p95": 2511,
+      "max": 3288,
+      "min": 1072
+    },
+    "activeTraceBytes": {
+      "n": 24,
+      "p50": 2089,
+      "p95": 2570,
+      "max": 2657,
+      "min": 1933
+    },
+    "explainBytes": {
+      "n": 7,
+      "p50": 3425,
+      "p95": 3761,
+      "max": 3761,
+      "min": 3123
+    },
+    "explainUserBytes": {
+      "n": 7,
+      "p50": 2213,
+      "p95": 2549,
+      "max": 2549,
+      "min": 1911
+    }
+  },
+  "rows": [
+    {
+      "caseId": "buyer-insurance-journey",
+      "turn": 1,
+      "turnId": "944a03d0-20ac-464e-87d2-c1034e501636",
+      "guardBytes": 4109,
+      "guardUserBytes": 1565,
+      "queryBytes": 154,
+      "planBytes": 19636,
+      "planUserBytes": 9566,
+      "contextBytes": 9358,
+      "contextChars": 9358,
+      "contextBudget": 38112,
+      "historyBytes": 4,
+      "knowledgeBytes": 4040,
+      "knowledgeIds": [
+        "synthetic-session-isolation",
+        "transactional-versioned-readback",
+        "retry-timeout-scenarios",
+        "official-traces-and-spans",
+        "official-session-replay",
+        "saved-trace-inspection"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38112,
+        "jsonChars": 9358,
+        "recentTurnsKept": 0,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 0,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      },
+      "explainBytes": 3622,
+      "explainUserBytes": 2410
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turn": 2,
+      "turnId": "67b80df6-134e-4c93-8677-5fc94e26e72a",
+      "guardBytes": 4032,
+      "guardUserBytes": 1488,
+      "queryBytes": 78,
+      "planBytes": 20689,
+      "planUserBytes": 10619,
+      "contextBytes": 10487,
+      "contextChars": 10483,
+      "contextBudget": 38188,
+      "historyBytes": 875,
+      "knowledgeBytes": 4372,
+      "knowledgeIds": [
+        "transactional-versioned-readback",
+        "official-trace-ai-assistant",
+        "saved-trace-inspection",
+        "official-traces-and-spans",
+        "official-session-replay",
+        "official-pricing-unverified"
+      ],
+      "datasetBytes": 1542,
+      "activeTraceBytes": 2470,
+      "selection": {
+        "budgetChars": 38188,
+        "jsonChars": 10483,
+        "recentTurnsKept": 2,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 1,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turn": 3,
+      "turnId": "4b18f12b-cf3b-497e-9718-5533dd5aa86a",
+      "guardBytes": 4060,
+      "guardUserBytes": 1516,
+      "queryBytes": 106,
+      "planBytes": 21229,
+      "planUserBytes": 11159,
+      "contextBytes": 10999,
+      "contextChars": 10979,
+      "contextBudget": 38160,
+      "historyBytes": 1435,
+      "knowledgeBytes": 4324,
+      "knowledgeIds": [
+        "retry-timeout-scenarios",
+        "official-trace-ai-assistant",
+        "official-traces-and-spans",
+        "synthetic-evaluation-review",
+        "official-analytics",
+        "official-ai-evaluators"
+      ],
+      "datasetBytes": 1542,
+      "activeTraceBytes": 2470,
+      "selection": {
+        "budgetChars": 38160,
+        "jsonChars": 10979,
+        "recentTurnsKept": 3,
+        "recentTurnsDropped": 1,
+        "buyerStatementsKept": 1,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turn": 4,
+      "turnId": "44c4fd63-6b42-4985-aa6b-123382c0cbad",
+      "guardBytes": 4022,
+      "guardUserBytes": 1478,
+      "queryBytes": 68,
+      "planBytes": 21844,
+      "planUserBytes": 11774,
+      "contextBytes": 11652,
+      "contextChars": 11630,
+      "contextBudget": 38198,
+      "historyBytes": 2183,
+      "knowledgeBytes": 4229,
+      "knowledgeIds": [
+        "official-alerts-and-slack",
+        "trace-search-and-filters",
+        "retry-timeout-scenarios",
+        "real-project-mutations-refused",
+        "official-pricing-unverified",
+        "saved-trace-inspection"
+      ],
+      "datasetBytes": 1542,
+      "activeTraceBytes": 2470,
+      "selection": {
+        "budgetChars": 38198,
+        "jsonChars": 11630,
+        "recentTurnsKept": 5,
+        "recentTurnsDropped": 1,
+        "buyerStatementsKept": 2,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "retrieval-success-bad-answer",
+      "turn": 1,
+      "turnId": "aeea54a7-e5f2-4946-bf47-890382ad7faf",
+      "guardBytes": 4110,
+      "guardUserBytes": 1566,
+      "queryBytes": 155,
+      "planBytes": 19711,
+      "planUserBytes": 9641,
+      "contextBytes": 9432,
+      "contextChars": 9432,
+      "contextBudget": 38111,
+      "historyBytes": 4,
+      "knowledgeBytes": 4114,
+      "knowledgeIds": [
+        "synthetic-quality-workflows",
+        "official-traces-and-spans",
+        "official-session-replay",
+        "retry-timeout-scenarios",
+        "synthetic-session-isolation",
+        "transactional-versioned-readback"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38111,
+        "jsonChars": 9432,
+        "recentTurnsKept": 0,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 0,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      },
+      "explainBytes": 3123,
+      "explainUserBytes": 1911
+    },
+    {
+      "caseId": "retrieval-success-bad-answer",
+      "turn": 2,
+      "turnId": "e77e4d7d-be70-465a-bb94-c982ac72e641",
+      "guardBytes": 4036,
+      "guardUserBytes": 1492,
+      "queryBytes": 82,
+      "planBytes": 20991,
+      "planUserBytes": 10921,
+      "contextBytes": 10785,
+      "contextChars": 10781,
+      "contextBudget": 38184,
+      "historyBytes": 672,
+      "knowledgeBytes": 4360,
+      "knowledgeIds": [
+        "official-traces-and-spans",
+        "official-timeline-analysis",
+        "official-pricing-unverified",
+        "saved-trace-inspection",
+        "official-trace-ai-assistant",
+        "synthetic-quality-workflows"
+      ],
+      "datasetBytes": 2143,
+      "activeTraceBytes": 2499,
+      "selection": {
+        "budgetChars": 38184,
+        "jsonChars": 10781,
+        "recentTurnsKept": 2,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 1,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "retrieval-success-bad-answer",
+      "turn": 3,
+      "turnId": "8e5dde47-c264-4739-8a39-997d507488f3",
+      "guardBytes": 4027,
+      "guardUserBytes": 1483,
+      "queryBytes": 73,
+      "planBytes": 21113,
+      "planUserBytes": 11043,
+      "contextBytes": 10916,
+      "contextChars": 10900,
+      "contextBudget": 38193,
+      "historyBytes": 921,
+      "knowledgeBytes": 4242,
+      "knowledgeIds": [
+        "official-evaluations",
+        "official-ai-evaluators",
+        "official-human-review",
+        "transactional-versioned-readback",
+        "official-trace-ai-assistant",
+        "official-pii-redaction"
+      ],
+      "datasetBytes": 2143,
+      "activeTraceBytes": 2499,
+      "selection": {
+        "budgetChars": 38193,
+        "jsonChars": 10900,
+        "recentTurnsKept": 2,
+        "recentTurnsDropped": 2,
+        "buyerStatementsKept": 1,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "extraction-field-precision",
+      "turn": 1,
+      "turnId": "b2e0986c-110d-4104-8a7f-8d6e32ff770a",
+      "guardBytes": 4074,
+      "guardUserBytes": 1530,
+      "queryBytes": 119,
+      "planBytes": 19764,
+      "planUserBytes": 9694,
+      "contextBytes": 9521,
+      "contextChars": 9521,
+      "contextBudget": 38147,
+      "historyBytes": 4,
+      "knowledgeBytes": 4203,
+      "knowledgeIds": [
+        "synthetic-quality-workflows",
+        "official-session-replay",
+        "retry-timeout-scenarios",
+        "official-traces-and-spans",
+        "official-ai-evaluators",
+        "transactional-versioned-readback"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38147,
+        "jsonChars": 9521,
+        "recentTurnsKept": 0,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 0,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      },
+      "explainBytes": 3132,
+      "explainUserBytes": 1920
+    },
+    {
+      "caseId": "extraction-field-precision",
+      "turn": 2,
+      "turnId": "e69e6308-c9a2-489f-a629-41aa9649552e",
+      "guardBytes": 4056,
+      "guardUserBytes": 1512,
+      "queryBytes": 102,
+      "planBytes": 19485,
+      "planUserBytes": 9415,
+      "contextBytes": 9259,
+      "contextChars": 9255,
+      "contextBudget": 38164,
+      "historyBytes": 588,
+      "knowledgeBytes": 4253,
+      "knowledgeIds": [
+        "official-ai-evaluators",
+        "retry-timeout-scenarios",
+        "transactional-versioned-readback",
+        "two-regression-samples",
+        "official-pricing-unverified",
+        "official-detections"
+      ],
+      "datasetBytes": 1072,
+      "activeTraceBytes": 2177,
+      "selection": {
+        "budgetChars": 38164,
+        "jsonChars": 9255,
+        "recentTurnsKept": 2,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 1,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "support-personalization",
+      "turn": 1,
+      "turnId": "45f63c19-8b47-4d67-8693-3bc5cb921589",
+      "guardBytes": 4132,
+      "guardUserBytes": 1588,
+      "queryBytes": 177,
+      "planBytes": 19848,
+      "planUserBytes": 9778,
+      "contextBytes": 9547,
+      "contextChars": 9547,
+      "contextBudget": 38089,
+      "historyBytes": 4,
+      "knowledgeBytes": 4229,
+      "knowledgeIds": [
+        "official-traces-and-spans",
+        "synthetic-quality-workflows",
+        "official-session-replay",
+        "saved-trace-inspection",
+        "retry-timeout-scenarios",
+        "synthetic-evaluation-review"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38089,
+        "jsonChars": 9547,
+        "recentTurnsKept": 0,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 0,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      },
+      "explainBytes": 3425,
+      "explainUserBytes": 2213
+    },
+    {
+      "caseId": "support-personalization",
+      "turn": 2,
+      "turnId": "c6b1fc2d-eb73-4555-8de3-84ff8bf03281",
+      "guardBytes": 4035,
+      "guardUserBytes": 1491,
+      "queryBytes": 81,
+      "planBytes": 19979,
+      "planUserBytes": 9909,
+      "contextBytes": 9774,
+      "contextChars": 9770,
+      "contextBudget": 38185,
+      "historyBytes": 720,
+      "knowledgeBytes": 4112,
+      "knowledgeIds": [
+        "trace-graph-and-timeline",
+        "synthetic-quality-workflows",
+        "saved-trace-inspection",
+        "official-traces-and-spans",
+        "official-timeline-analysis",
+        "official-session-replay"
+      ],
+      "datasetBytes": 1254,
+      "activeTraceBytes": 2570,
+      "selection": {
+        "budgetChars": 38185,
+        "jsonChars": 9770,
+        "recentTurnsKept": 2,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 1,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turn": 1,
+      "turnId": "8e95fe0b-dc98-4886-bb6c-302afe92ea54",
+      "guardBytes": 4055,
+      "guardUserBytes": 1511,
+      "queryBytes": 100,
+      "planBytes": 19623,
+      "planUserBytes": 9553,
+      "contextBytes": 9399,
+      "contextChars": 9399,
+      "contextBudget": 38166,
+      "historyBytes": 4,
+      "knowledgeBytes": 4081,
+      "knowledgeIds": [
+        "retry-timeout-scenarios",
+        "official-ai-evaluators",
+        "synthetic-session-isolation",
+        "trace-search-and-filters",
+        "real-project-mutations-refused",
+        "synthetic-evaluation-review"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38166,
+        "jsonChars": 9399,
+        "recentTurnsKept": 0,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 0,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      },
+      "explainBytes": 3686,
+      "explainUserBytes": 2474
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turn": 2,
+      "turnId": "6ec0bfde-e8bb-4888-8582-1e9d1b8f9e50",
+      "guardBytes": 3978,
+      "guardUserBytes": 1434,
+      "queryBytes": 24,
+      "planBytes": 19944,
+      "planUserBytes": 9874,
+      "contextBytes": 9796,
+      "contextChars": 9792,
+      "contextBudget": 38242,
+      "historyBytes": 670,
+      "knowledgeBytes": 3862,
+      "knowledgeIds": [
+        "retry-timeout-scenarios",
+        "saved-trace-inspection",
+        "trace-search-and-filters",
+        "trace-graph-and-timeline",
+        "synthetic-session-isolation",
+        "transactional-versioned-readback"
+      ],
+      "datasetBytes": 1561,
+      "activeTraceBytes": 2548,
+      "selection": {
+        "budgetChars": 38242,
+        "jsonChars": 9792,
+        "recentTurnsKept": 2,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 1,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      },
+      "explainBytes": 3761,
+      "explainUserBytes": 2549
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turn": 3,
+      "turnId": "f335d085-8caa-4302-90c6-781814a21fe6",
+      "guardBytes": 4011,
+      "guardUserBytes": 1467,
+      "queryBytes": 57,
+      "planBytes": 21431,
+      "planUserBytes": 11361,
+      "contextBytes": 11250,
+      "contextChars": 11250,
+      "contextBudget": 38209,
+      "historyBytes": 99,
+      "knowledgeBytes": 3951,
+      "knowledgeIds": [
+        "retry-timeout-scenarios",
+        "two-regression-samples",
+        "saved-trace-inspection",
+        "official-traces-and-spans",
+        "trace-graph-and-timeline",
+        "trace-search-and-filters"
+      ],
+      "datasetBytes": 3288,
+      "activeTraceBytes": 2657,
+      "selection": {
+        "budgetChars": 38209,
+        "jsonChars": 11250,
+        "recentTurnsKept": 1,
+        "recentTurnsDropped": 3,
+        "buyerStatementsKept": 1,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "context-correction",
+      "turn": 1,
+      "turnId": "0295f214-33e1-443c-adaa-1e859871ead4",
+      "guardBytes": 4020,
+      "guardUserBytes": 1476,
+      "queryBytes": 65,
+      "planBytes": 19522,
+      "planUserBytes": 9452,
+      "contextBytes": 9333,
+      "contextChars": 9333,
+      "contextBudget": 38201,
+      "historyBytes": 4,
+      "knowledgeBytes": 4015,
+      "knowledgeIds": [
+        "retry-timeout-scenarios",
+        "official-ai-evaluators",
+        "trace-search-and-filters",
+        "official-api-runtime-gates",
+        "official-session-replay",
+        "synthetic-session-isolation"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38201,
+        "jsonChars": 9333,
+        "recentTurnsKept": 0,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 0,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      },
+      "explainBytes": 3171,
+      "explainUserBytes": 1959
+    },
+    {
+      "caseId": "context-correction",
+      "turn": 2,
+      "turnId": "981cffce-dd1b-4240-b978-61f5c91baf01",
+      "guardBytes": 4048,
+      "guardUserBytes": 1504,
+      "queryBytes": 94,
+      "planBytes": 19506,
+      "planUserBytes": 9436,
+      "contextBytes": 9288,
+      "contextChars": 9284,
+      "contextBudget": 38172,
+      "historyBytes": 690,
+      "knowledgeBytes": 4201,
+      "knowledgeIds": [
+        "retry-timeout-scenarios",
+        "trace-search-and-filters",
+        "official-ai-evaluators",
+        "official-traces-and-spans",
+        "official-timeline-analysis",
+        "official-session-replay"
+      ],
+      "datasetBytes": 1346,
+      "activeTraceBytes": 1933,
+      "selection": {
+        "budgetChars": 38172,
+        "jsonChars": 9284,
+        "recentTurnsKept": 2,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 1,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "context-correction",
+      "turn": 3,
+      "turnId": "6abcd7e4-383a-4282-9e65-ef6a43fd54d2",
+      "guardBytes": 4208,
+      "guardUserBytes": 1664,
+      "queryBytes": 29,
+      "planBytes": 19193,
+      "planUserBytes": 9123,
+      "contextBytes": 9040,
+      "contextChars": 9040,
+      "contextBudget": 38237,
+      "historyBytes": 321,
+      "knowledgeBytes": 4037,
+      "knowledgeIds": [
+        "synthetic-quality-workflows",
+        "trace-search-and-filters",
+        "official-analytics",
+        "retry-timeout-scenarios",
+        "saved-trace-inspection",
+        "trace-graph-and-timeline"
+      ],
+      "datasetBytes": 1346,
+      "activeTraceBytes": 1933,
+      "selection": {
+        "budgetChars": 38237,
+        "jsonChars": 9040,
+        "recentTurnsKept": 2,
+        "recentTurnsDropped": 2,
+        "buyerStatementsKept": 1,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "eval-fit-not-just-errors",
+      "turn": 1,
+      "turnId": "392f835b-ee5e-48a3-9044-61744dadf032",
+      "guardBytes": 4067,
+      "guardUserBytes": 1523,
+      "queryBytes": 112,
+      "planBytes": 19813,
+      "planUserBytes": 9743,
+      "contextBytes": 9577,
+      "contextChars": 9577,
+      "contextBudget": 38154,
+      "historyBytes": 4,
+      "knowledgeBytes": 4259,
+      "knowledgeIds": [
+        "official-ai-evaluators",
+        "official-human-review",
+        "synthetic-session-isolation",
+        "synthetic-evaluation-review",
+        "official-evaluations",
+        "official-prompt-management"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38154,
+        "jsonChars": 9577,
+        "recentTurnsKept": 0,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 0,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "eval-fit-not-just-errors",
+      "turn": 2,
+      "turnId": "9456d5ec-322a-46b4-a17a-0384c6de948e",
+      "guardBytes": 4031,
+      "guardUserBytes": 1487,
+      "queryBytes": 76,
+      "planBytes": 20762,
+      "planUserBytes": 10692,
+      "contextBytes": 10562,
+      "contextChars": 10560,
+      "contextBudget": 38190,
+      "historyBytes": 818,
+      "knowledgeBytes": 4429,
+      "knowledgeIds": [
+        "synthetic-quality-workflows",
+        "official-trace-ai-assistant",
+        "official-pricing-unverified",
+        "transactional-versioned-readback",
+        "synthetic-evaluation-review",
+        "official-alerts-and-slack"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38190,
+        "jsonChars": 10560,
+        "recentTurnsKept": 2,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 1,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "capability-grounding",
+      "turn": 1,
+      "turnId": "bfb85a4b-3dbc-4f3b-aa06-436384d595df",
+      "guardBytes": 4019,
+      "guardUserBytes": 1475,
+      "queryBytes": 64,
+      "planBytes": 19788,
+      "planUserBytes": 9718,
+      "contextBytes": 9600,
+      "contextChars": 9600,
+      "contextBudget": 38202,
+      "historyBytes": 4,
+      "knowledgeBytes": 4282,
+      "knowledgeIds": [
+        "official-evaluations",
+        "official-trace-ai-assistant",
+        "official-ai-evaluators",
+        "official-detections",
+        "trace-search-and-filters",
+        "transactional-versioned-readback"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38202,
+        "jsonChars": 9600,
+        "recentTurnsKept": 0,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 0,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "capability-grounding",
+      "turn": 2,
+      "turnId": "4b5181fb-87f5-4649-9001-c610a9e22c88",
+      "guardBytes": 4041,
+      "guardUserBytes": 1497,
+      "queryBytes": 86
+    },
+    {
+      "caseId": "routing-and-update-ambiguity",
+      "turn": 1,
+      "turnId": "ec869e38-c52b-4863-864c-aaf10f6dd1d2",
+      "guardBytes": 4009,
+      "guardUserBytes": 1465,
+      "queryBytes": 54
+    },
+    {
+      "caseId": "routing-and-update-ambiguity",
+      "turn": 2,
+      "turnId": "bd7af8df-ebc9-4638-b27b-a69066e368cc",
+      "guardBytes": 4257,
+      "guardUserBytes": 1713,
+      "queryBytes": 80,
+      "planBytes": 20320,
+      "planUserBytes": 10250,
+      "contextBytes": 10116,
+      "contextChars": 10116,
+      "contextBudget": 38186,
+      "historyBytes": 107,
+      "knowledgeBytes": 4412,
+      "knowledgeIds": [
+        "real-project-mutations-refused",
+        "official-pricing-unverified",
+        "official-alerts-and-slack",
+        "official-evaluations",
+        "transactional-versioned-readback",
+        "official-traces-and-spans"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38186,
+        "jsonChars": 10116,
+        "recentTurnsKept": 1,
+        "recentTurnsDropped": 1,
+        "buyerStatementsKept": 0,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "language-and-expertise",
+      "turn": 1,
+      "turnId": "76ead9a0-db3d-4302-9ea3-1a078d7d58f7",
+      "guardBytes": 4070,
+      "guardUserBytes": 1526,
+      "queryBytes": 115,
+      "planBytes": 19615,
+      "planUserBytes": 9545,
+      "contextBytes": 9376,
+      "contextChars": 9376,
+      "contextBudget": 38151,
+      "historyBytes": 4,
+      "knowledgeBytes": 4058,
+      "knowledgeIds": [
+        "synthetic-session-isolation",
+        "official-traces-and-spans",
+        "official-ai-evaluators",
+        "two-regression-samples",
+        "official-detections",
+        "retry-timeout-scenarios"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38151,
+        "jsonChars": 9376,
+        "recentTurnsKept": 0,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 0,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "language-and-expertise",
+      "turn": 2,
+      "turnId": "b6cdc3ed-04b4-4611-8945-ecbd0ad195a7",
+      "guardBytes": 4034,
+      "guardUserBytes": 1490,
+      "queryBytes": 79
+    },
+    {
+      "caseId": "mixed-intent-recovery",
+      "turn": 1,
+      "turnId": "b20d3d38-47a2-4387-a1d8-cc72efb2517c",
+      "guardBytes": 4027,
+      "guardUserBytes": 1483,
+      "queryBytes": 72
+    },
+    {
+      "caseId": "mixed-intent-recovery",
+      "turn": 2,
+      "turnId": "55267d2d-0441-442a-ae62-a2b74dea0f23",
+      "guardBytes": 4235,
+      "guardUserBytes": 1691,
+      "queryBytes": 58,
+      "planBytes": 19953,
+      "planUserBytes": 9883,
+      "contextBytes": 9771,
+      "contextChars": 9771,
+      "contextBudget": 38208,
+      "historyBytes": 107,
+      "knowledgeBytes": 4068,
+      "knowledgeIds": [
+        "official-traces-and-spans",
+        "official-ai-evaluators",
+        "official-timeline-analysis",
+        "synthetic-session-isolation",
+        "real-project-mutations-refused",
+        "trace-search-and-filters"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38208,
+        "jsonChars": 9771,
+        "recentTurnsKept": 1,
+        "recentTurnsDropped": 1,
+        "buyerStatementsKept": 0,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "claim-adversary-controls",
+      "turn": 1,
+      "turnId": "9df28e43-0d7a-414e-9659-da63432192b0",
+      "guardBytes": 4009,
+      "guardUserBytes": 1465,
+      "queryBytes": 54,
+      "planBytes": 19711,
+      "planUserBytes": 9641,
+      "contextBytes": 9533,
+      "contextChars": 9533,
+      "contextBudget": 38212,
+      "historyBytes": 4,
+      "knowledgeBytes": 4215,
+      "knowledgeIds": [
+        "synthetic-session-isolation",
+        "official-traces-and-spans",
+        "official-detections",
+        "official-evaluations",
+        "saved-trace-inspection",
+        "official-trace-ai-assistant"
+      ],
+      "datasetBytes": 2511,
+      "activeTraceBytes": 2089,
+      "selection": {
+        "budgetChars": 38212,
+        "jsonChars": 9533,
+        "recentTurnsKept": 0,
+        "recentTurnsDropped": 0,
+        "buyerStatementsKept": 0,
+        "payloadsDropped": 0,
+        "knowledgeRecordsKept": 6
+      }
+    },
+    {
+      "caseId": "claim-adversary-controls",
+      "turn": 2,
+      "turnId": "bae6468e-4c13-40ca-9338-8acb9e49d62d",
+      "guardBytes": 4031,
+      "guardUserBytes": 1487,
+      "queryBytes": 76
+    }
+  ],
+  "sourceRun": {
+    "commit": "ea7d0f028c3570a6ee834138c33717bdddf39bc9",
+    "startedAt": "2026-10-12T11:49:02.513Z",
+    "finishedAt": "2026-10-12T11:53:04.807Z"
+  },
+  "measured": {
+    "initialSpendUsd": 1.6196459999999988,
+    "finalSpendUsd": 2.4133519999999993,
+    "deltaUsd": 0.793706,
+    "stages": {
+      "guard": {
+        "calls": 29,
+        "inputTokens": 47508,
+        "outputTokens": 748,
+        "thinkingTokens": 0,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "spentUsd": 0.102496,
+        "requestedModel": "claude-sonnet-5-5",
+        "apiResolvedModel": null,
+        "effort": "low",
+        "inputTokensMean": 1638.2068965517242,
+        "outputTokensMean": 25.79310344827586,
+        "apiMaxOutputTokens": 1024,
+        "tokenPercentiles": null,
+        "cacheWrite5mTokens": null,
+        "cacheWrite1hTokens": null
+      },
+      "plan": {
+        "calls": 24,
+        "inputTokens": 218352,
+        "outputTokens": 21050,
+        "thinkingTokens": 765,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "spentUsd": 0.647204,
+        "requestedModel": "claude-sonnet-5-5",
+        "apiResolvedModel": null,
+        "effort": "medium",
+        "inputTokensMean": 9098.0,
+        "outputTokensMean": 877.0833333333334,
+        "apiMaxOutputTokens": 8000,
+        "tokenPercentiles": null,
+        "cacheWrite5mTokens": null,
+        "cacheWrite1hTokens": null,
+        "recordedStepMs": {
+          "n": 24,
+          "p50": 4774,
+          "p95": 10434,
+          "max": 22742,
+          "sum": 154749
+        }
+      },
+      "explain": {
+        "calls": 7,
+        "inputTokens": 11593,
+        "outputTokens": 2082,
+        "thinkingTokens": 0,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "spentUsd": 0.044006,
+        "requestedModel": "claude-sonnet-5-5",
+        "apiResolvedModel": null,
+        "effort": "medium",
+        "inputTokensMean": 1656.142857142857,
+        "outputTokensMean": 297.42857142857144,
+        "apiMaxOutputTokens": 800,
+        "tokenPercentiles": null,
+        "cacheWrite5mTokens": null,
+        "cacheWrite1hTokens": null,
+        "recordedStepMs": {
+          "n": 7,
+          "p50": 3310,
+          "p95": 4231,
+          "max": 4231,
+          "sum": 23546
+        }
+      }
+    },
+    "turnWallMs": {
+      "n": 29,
+      "p50": 6201,
+      "p95": 17002,
+      "max": 27906,
+      "sum": 227718
+    }
+  },
+  "qualityGroups": [
+    {
+      "id": "contextual-followups-false-blocked",
+      "turnCount": 3,
+      "cause": "Immediately preceding product context is lost at entry classification. Benign reference-based follow-ups stop before planning and receive the generic remit question.",
+      "sumTurnCostUsd": 0.01046
+    },
+    {
+      "id": "all-green-defects-collapse-to-execution-status",
+      "turnCount": 6,
+      "cause": "Fixture-specific quality observations and narrative admission fallback do not explain actual live payload variants; replies reduce output quality to execution status.",
+      "sumTurnCostUsd": 0.223724
+    },
+    {
+      "id": "eval-criteria-and-calibration-replaced-by-feature-catalogs",
+      "turnCount": 4,
+      "cause": "Grounded capability records are rendered as catalogs instead of answering the buyer's requested review standard, human/check split or calibration procedure.",
+      "sumTurnCostUsd": 0.10802
+    },
+    {
+      "id": "workflow-correction-not-applied-and-old-state-not-acknowledged",
+      "turnCount": 2,
+      "cause": "The requested warehouse correction does not complete; the next answer explains still-saved travel state without acknowledging the unapplied correction.",
+      "sumTurnCostUsd": 0.058948
+    },
+    {
+      "id": "beginner-answer-not-adapted",
+      "turnCount": 1,
+      "cause": "A beginner product question gets a long technical catalog rather than a plain explanation and concrete research-agent example.",
+      "sumTurnCostUsd": 0.026562
+    }
+  ],
+  "expensiveTurns": [
+    {
+      "caseId": "retrieval-success-bad-answer",
+      "turn": 1,
+      "usd": 0.06231,
+      "wallMs": 27906,
+      "calls": 3,
+      "badGroup": "all-green-defects-collapse-to-execution-status"
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turn": 2,
+      "usd": 0.046992,
+      "wallMs": 14843,
+      "calls": 3,
+      "badGroup": null
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turn": 1,
+      "usd": 0.0455,
+      "wallMs": 14624,
+      "calls": 3,
+      "badGroup": null
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turn": 1,
+      "usd": 0.045228,
+      "wallMs": 17002,
+      "calls": 3,
+      "badGroup": null
+    },
+    {
+      "caseId": "support-personalization",
+      "turn": 1,
+      "usd": 0.043614,
+      "wallMs": 14722,
+      "calls": 3,
+      "badGroup": "all-green-defects-collapse-to-execution-status"
+    },
+    {
+      "caseId": "extraction-field-precision",
+      "turn": 1,
+      "usd": 0.04194,
+      "wallMs": 13561,
+      "calls": 3,
+      "badGroup": "all-green-defects-collapse-to-execution-status"
+    },
+    {
+      "caseId": "context-correction",
+      "turn": 1,
+      "usd": 0.039778,
+      "wallMs": 12773,
+      "calls": 3,
+      "badGroup": null
+    },
+    {
+      "caseId": "context-correction",
+      "turn": 2,
+      "usd": 0.034408,
+      "wallMs": 9709,
+      "calls": 2,
+      "badGroup": "workflow-correction-not-applied-and-old-state-not-acknowledged"
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turn": 3,
+      "usd": 0.028262,
+      "wallMs": 6995,
+      "calls": 2,
+      "badGroup": "eval-criteria-and-calibration-replaced-by-feature-catalogs"
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turn": 2,
+      "usd": 0.027818,
+      "wallMs": 6598,
+      "calls": 2,
+      "badGroup": null
+    }
+  ],
+  "limits": [
+    "Local configured-rate estimates, not invoice totals. No API/account/model calls or root edits.",
+    "Per-call token percentiles, API-resolved model, raw usage and TTL cache split unavailable in inspected local artifacts.",
+    "Zero aggregate cache counters cannot distinguish omitted usage from explicit provider zero; request code has no cache_control.",
+    "Stop reasons emitted to telemetry but absent locally. Successful transport requires end_turn (inference only).",
+    "Prompt sizes are pinned-baseline offline reconstruction, not captured wire requests or tokenizer counts; API framing excluded.",
+    "Knowledge is static25record keyword-ranked bundle, not graph traversal.",
+    "Single-reviewer quality ratings, no human/hosted calibration.",
+    "Entire caller01a12f26-8424-749c-adff-b171d9f5d048 no session state, live capture unverified."
+  ]
+}

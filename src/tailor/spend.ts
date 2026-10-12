@@ -30,7 +30,11 @@ export interface SpendRates {
 /** Published rates by model id (USD per million tokens). A model without an entry cannot be priced and is refused. */
 export const MODEL_RATES: Readonly<Record<string, SpendRates>> = {
   'claude-sonnet-5-5': { inputPerMTok: 2, outputPerMTok: 10, cacheReadPerMTok: 0.10, cacheWrite5mPerMTok: 2.5, cacheWrite1hPerMTok: 4 },
+  'claude-haiku-5-5': { inputPerMTok: 0.10, outputPerMTok: 0.50, cacheReadPerMTok: 0.01, cacheWrite5mPerMTok: 0.125, cacheWrite1hPerMTok: 0.20 },
 };
+/** Official pricing verified 2026-10-12: https://platform.claude.com/docs/en/about-claude/pricing
+ * The higher tier applies to the entire call when input + cache reads + cache writes exceeds 100k. */
+const HAIKU_LONG_CONTEXT_RATES: SpendRates = { inputPerMTok: 0.50, outputPerMTok: 2.50, cacheReadPerMTok: 0.05, cacheWrite5mPerMTok: 0.625, cacheWrite1hPerMTok: 1 };
 export const DEFAULT_RATES: SpendRates = MODEL_RATES['claude-sonnet-5-5']!;
 
 export function hasRatesFor(model: string): boolean {
@@ -157,10 +161,11 @@ export function createSpendGuard(options: SpendGuardOptions): SpendGuard {
   let safetyViolation = false;
 
   /** Custom rates replace the table wholesale (a missing cache rate then falls back to that custom input rate). */
-  function ratesFor(model: string | null | undefined): SpendRates {
+  function ratesFor(model: string | null | undefined, totalPromptTokens = 0): SpendRates {
     if (options.rates) return options.rates;
     const rates = model ? MODEL_RATES[model] : DEFAULT_RATES;
     if (!rates) throw new ProviderError('spend_cap', 'No spend rates are configured for this model, so its cost cannot be capped');
+    if (model === 'claude-haiku-5-5' && totalPromptTokens > 100_000) return HAIKU_LONG_CONTEXT_RATES;
     return rates;
   }
   const usdOf = (rates: SpendRates, u: { input: number; output: number; cacheRead: number; cacheWrite: number }): number =>
@@ -225,7 +230,9 @@ export function createSpendGuard(options: SpendGuardOptions): SpendGuard {
   /** Output tokens are inclusive of thinking (provider-reported total); thinking is tracked, never billed twice. */
   const usageUsd = (usage: ProviderUsage, model: string | null) => {
     if (!validProviderUsage(usage)) throw new Error('Reported token usage is invalid');
-    const usd = usdOf(ratesFor(model), { input: usage.inputTokens, output: usage.outputTokens, cacheRead: usage.cacheReadInputTokens ?? 0, cacheWrite: usage.cacheCreationInputTokens ?? 0 });
+    const totalPromptTokens = usage.inputTokens + (usage.cacheReadInputTokens ?? 0) + (usage.cacheCreationInputTokens ?? 0);
+    if (!Number.isSafeInteger(totalPromptTokens)) throw new Error('Combined prompt usage is invalid');
+    const usd = usdOf(ratesFor(model, totalPromptTokens), { input: usage.inputTokens, output: usage.outputTokens, cacheRead: usage.cacheReadInputTokens ?? 0, cacheWrite: usage.cacheCreationInputTokens ?? 0 });
     if (!Number.isFinite(usd) || usd < 0) throw new Error('Reported usage could not be priced');
     return usd;
   };
@@ -241,7 +248,7 @@ export function createSpendGuard(options: SpendGuardOptions): SpendGuard {
     worstCaseUsd(promptChars, maxOutputTokens, model, overheadTokens = 0) {
       const inputTokens = Math.ceil(Math.max(0, promptChars) / WORST_CHARS_PER_TOKEN) + Math.max(0, Math.ceil(overheadTokens));
       const outputTokens = Math.min(Math.max(0, maxOutputTokens), perCallMaxOutputTokens);
-      return usdOf(ratesFor(model ?? null), { input: inputTokens, output: outputTokens, cacheRead: 0, cacheWrite: 0 });
+      return usdOf(ratesFor(model ?? null, inputTokens), { input: inputTokens, output: outputTokens, cacheRead: 0, cacheWrite: 0 });
     },
     reserve(worstCaseUsd, meta) {
       if (!Number.isFinite(worstCaseUsd) || worstCaseUsd < 0) throw new ProviderError('spend_cap', 'The worst-case cost of this call could not be estimated');

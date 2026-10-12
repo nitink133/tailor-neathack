@@ -1,0 +1,3072 @@
+{
+  "schema": "tailor-hosted-cost-reconciliation-v1",
+  "source": {
+    "approvedExportSha256": "9fd00ec0a4fae351bb0fb8fcf639a41239ccb8217ff11be56ae871d7e25cb9d9",
+    "approvedExportObservedAt": "2026-10-12T12:44:22.754Z",
+    "projectId": "18c4b4b6-0b1e-4d41-9405-7960fc2d0aa8",
+    "sourceScope": "Read-only exact approved controlled synthetic suite traces; no ingestion/model calls",
+    "selectedPhase": "first",
+    "sourceRunCommit": "ea7d0f028c3570a6ee834138c33717bdddf39bc9",
+    "earlierLocalAudit": "provider-cost-context-audit-first-pass.json"
+  },
+  "method": {
+    "percentiles": "nearest rank: sorted values at ceil(p*N), one-based",
+    "stages": "Use guard step for guard; tailor.purpose for plan/explain. Hosted explanation telemetryStep is model. Count each span ID once; never add nativeModelSpans again.",
+    "pricing": "Recompute with configured baseline input2/output10/cache read0.1/cache write4 USD/MTok; all observed cache counts are explicitly zero. Thinking already included in output. Estimates only; billing authoritative."
+  },
+  "coverage": {
+    "selectedTurns": 29,
+    "uniqueReportedAttempts": 60,
+    "guardCalls": 29,
+    "planCalls": 24,
+    "explainCalls": 7,
+    "allProjectAndExactInputOutputMatches": true,
+    "allNativeEnvelopesUntruncated": true,
+    "nativeModelSpanCorroborations": 60,
+    "allStopsEndTurn": true,
+    "allSettlementsReported": true,
+    "explicitCacheReadZeroAttempts": 60,
+    "explicitCacheWriteZeroAttempts": 60,
+    "reconstructionComparedAttempts": 60,
+    "reconstructionComparedContexts": 24,
+    "reconstructionMismatches": [],
+    "ledgerStageAndPerTurnReconciliationPassed": true
+  },
+  "total": {
+    "estimatedCostUsd": 0.793706,
+    "inputTokens": 277453,
+    "outputTokens": 23880,
+    "thinkingTokensIncludedInOutput": 765
+  },
+  "stages": {
+    "guard": {
+      "calls": 29,
+      "requestedModels": {
+        "claude-sonnet-5-5": 29
+      },
+      "efforts": {
+        "low": 29
+      },
+      "stopReasons": {
+        "end_turn": 29
+      },
+      "settlements": {
+        "settled_reported": 29
+      },
+      "inputTokens": {
+        "n": 29,
+        "min": 1610,
+        "p50": 1628,
+        "p95": 1696,
+        "max": 1698,
+        "sum": 47508,
+        "mean": 1638.206896552
+      },
+      "outputTokens": {
+        "n": 29,
+        "min": 24,
+        "p50": 25,
+        "p95": 27,
+        "max": 27,
+        "sum": 748,
+        "mean": 25.793103448
+      },
+      "thinkingTokens": {
+        "n": 29,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "sum": 0,
+        "mean": 0.0
+      },
+      "cacheReadTokens": {
+        "n": 29,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "sum": 0,
+        "mean": 0.0
+      },
+      "cacheWriteTokens": {
+        "n": 29,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "sum": 0,
+        "mean": 0.0
+      },
+      "latencyMs": {
+        "n": 29,
+        "min": 1355,
+        "p50": 1727,
+        "p95": 2006,
+        "max": 2241,
+        "sum": 48551,
+        "mean": 1674.172413793
+      },
+      "estimatedCostUsd": {
+        "n": 29,
+        "min": 0.00348,
+        "p50": 0.00352,
+        "p95": 0.003642,
+        "max": 0.003646,
+        "sum": 0.102496,
+        "mean": 0.003534345
+      },
+      "inputAccounting": {
+        "system_bytes": {
+          "n": 29,
+          "min": 2149,
+          "p50": 2149,
+          "p95": 2149,
+          "max": 2149,
+          "sum": 62321,
+          "mean": 2149.0
+        },
+        "schema_bytes": {
+          "n": 29,
+          "min": 395,
+          "p50": 395,
+          "p95": 395,
+          "max": 395,
+          "sum": 11455,
+          "mean": 395.0
+        },
+        "conversation_bytes": {
+          "n": 29,
+          "min": 1434,
+          "p50": 1492,
+          "p95": 1691,
+          "max": 1713,
+          "sum": 44067,
+          "mean": 1519.551724138
+        },
+        "total_input_bytes": {
+          "n": 29,
+          "min": 3978,
+          "p50": 4036,
+          "p95": 4235,
+          "max": 4257,
+          "sum": 117843,
+          "mean": 4063.551724138
+        },
+        "input_estimated_tokens": {
+          "n": 29,
+          "min": 4578,
+          "p50": 4636,
+          "p95": 4835,
+          "max": 4857,
+          "sum": 135243,
+          "mean": 4663.551724138
+        }
+      }
+    },
+    "plan": {
+      "calls": 24,
+      "requestedModels": {
+        "claude-sonnet-5-5": 24
+      },
+      "efforts": {
+        "medium": 24
+      },
+      "stopReasons": {
+        "end_turn": 24
+      },
+      "settlements": {
+        "settled_reported": 24
+      },
+      "inputTokens": {
+        "n": 24,
+        "min": 8572,
+        "p50": 9012,
+        "p95": 9730,
+        "max": 9741,
+        "sum": 218352,
+        "mean": 9098.0
+      },
+      "outputTokens": {
+        "n": 24,
+        "min": 284,
+        "p50": 483,
+        "p95": 1811,
+        "max": 3511,
+        "sum": 21050,
+        "mean": 877.083333333
+      },
+      "thinkingTokens": {
+        "n": 24,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 765,
+        "sum": 765,
+        "mean": 31.875
+      },
+      "cacheReadTokens": {
+        "n": 24,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "sum": 0,
+        "mean": 0.0
+      },
+      "cacheWriteTokens": {
+        "n": 24,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "sum": 0,
+        "mean": 0.0
+      },
+      "latencyMs": {
+        "n": 24,
+        "min": 3119,
+        "p50": 4770,
+        "p95": 10422,
+        "max": 22738,
+        "sum": 154646,
+        "mean": 6443.583333333
+      },
+      "estimatedCostUsd": {
+        "n": 24,
+        "min": 0.020708,
+        "p50": 0.023422,
+        "p95": 0.0363,
+        "max": 0.053032,
+        "sum": 0.647204,
+        "mean": 0.026966833
+      },
+      "inputAccounting": {
+        "system_bytes": {
+          "n": 24,
+          "min": 5019,
+          "p50": 5019,
+          "p95": 5019,
+          "max": 5019,
+          "sum": 120456,
+          "mean": 5019.0
+        },
+        "schema_bytes": {
+          "n": 24,
+          "min": 5051,
+          "p50": 5051,
+          "p95": 5051,
+          "max": 5051,
+          "sum": 121224,
+          "mean": 5051.0
+        },
+        "conversation_bytes": {
+          "n": 24,
+          "min": 9123,
+          "p50": 9743,
+          "p95": 11361,
+          "max": 11774,
+          "sum": 241790,
+          "mean": 10074.583333333
+        },
+        "total_input_bytes": {
+          "n": 24,
+          "min": 19193,
+          "p50": 19813,
+          "p95": 21431,
+          "max": 21844,
+          "sum": 483470,
+          "mean": 20144.583333333
+        },
+        "input_estimated_tokens": {
+          "n": 24,
+          "min": 19793,
+          "p50": 20413,
+          "p95": 22031,
+          "max": 22444,
+          "sum": 497870,
+          "mean": 20744.583333333
+        }
+      }
+    },
+    "explain": {
+      "calls": 7,
+      "requestedModels": {
+        "claude-sonnet-5-5": 7
+      },
+      "efforts": {
+        "medium": 7
+      },
+      "stopReasons": {
+        "end_turn": 7
+      },
+      "settlements": {
+        "settled_reported": 7
+      },
+      "inputTokens": {
+        "n": 7,
+        "min": 1511,
+        "p50": 1642,
+        "p95": 1836,
+        "max": 1836,
+        "sum": 11593,
+        "mean": 1656.142857143
+      },
+      "outputTokens": {
+        "n": 7,
+        "min": 251,
+        "p50": 280,
+        "p95": 353,
+        "max": 353,
+        "sum": 2082,
+        "mean": 297.428571429
+      },
+      "thinkingTokens": {
+        "n": 7,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "sum": 0,
+        "mean": 0.0
+      },
+      "cacheReadTokens": {
+        "n": 7,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "sum": 0,
+        "mean": 0.0
+      },
+      "cacheWriteTokens": {
+        "n": 7,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "sum": 0,
+        "mean": 0.0
+      },
+      "latencyMs": {
+        "n": 7,
+        "min": 2873,
+        "p50": 3307,
+        "p95": 4228,
+        "max": 4228,
+        "sum": 23520,
+        "mean": 3360.0
+      },
+      "estimatedCostUsd": {
+        "n": 7,
+        "min": 0.00558,
+        "p50": 0.00642,
+        "p95": 0.007202,
+        "max": 0.007202,
+        "sum": 0.044006,
+        "mean": 0.006286571
+      },
+      "inputAccounting": {
+        "system_bytes": {
+          "n": 7,
+          "min": 884,
+          "p50": 884,
+          "p95": 884,
+          "max": 884,
+          "sum": 6188,
+          "mean": 884.0
+        },
+        "schema_bytes": {
+          "n": 7,
+          "min": 328,
+          "p50": 328,
+          "p95": 328,
+          "max": 328,
+          "sum": 2296,
+          "mean": 328.0
+        },
+        "conversation_bytes": {
+          "n": 7,
+          "min": 1911,
+          "p50": 2213,
+          "p95": 2549,
+          "max": 2549,
+          "sum": 15436,
+          "mean": 2205.142857143
+        },
+        "total_input_bytes": {
+          "n": 7,
+          "min": 3123,
+          "p50": 3425,
+          "p95": 3761,
+          "max": 3761,
+          "sum": 23920,
+          "mean": 3417.142857143
+        },
+        "input_estimated_tokens": {
+          "n": 7,
+          "min": 3723,
+          "p50": 4025,
+          "p95": 4361,
+          "max": 4361,
+          "sum": 28120,
+          "mean": 4017.142857143
+        }
+      }
+    }
+  },
+  "explanationFallbacks": {
+    "calls": 7,
+    "allReasonUngrounded": true,
+    "estimatedCostUsd": 0.044006,
+    "accumulatedProviderLatencyMs": 23520,
+    "members": [
+      {
+        "caseId": "buyer-insurance-journey",
+        "turnOrdinal": 1,
+        "turnId": "944a03d0-20ac-464e-87d2-c1034e501636",
+        "reason": "ungrounded",
+        "groundingDrops": 4
+      },
+      {
+        "caseId": "retrieval-success-bad-answer",
+        "turnOrdinal": 1,
+        "turnId": "aeea54a7-e5f2-4946-bf47-890382ad7faf",
+        "reason": "ungrounded",
+        "groundingDrops": 5
+      },
+      {
+        "caseId": "extraction-field-precision",
+        "turnOrdinal": 1,
+        "turnId": "b2e0986c-110d-4104-8a7f-8d6e32ff770a",
+        "reason": "ungrounded",
+        "groundingDrops": 4
+      },
+      {
+        "caseId": "support-personalization",
+        "turnOrdinal": 1,
+        "turnId": "45f63c19-8b47-4d67-8693-3bc5cb921589",
+        "reason": "ungrounded",
+        "groundingDrops": 5
+      },
+      {
+        "caseId": "operational-retry-context",
+        "turnOrdinal": 1,
+        "turnId": "8e95fe0b-dc98-4886-bb6c-302afe92ea54",
+        "reason": "ungrounded",
+        "groundingDrops": 4
+      },
+      {
+        "caseId": "operational-retry-context",
+        "turnOrdinal": 2,
+        "turnId": "6ec0bfde-e8bb-4888-8582-1e9d1b8f9e50",
+        "reason": "ungrounded",
+        "groundingDrops": 5
+      },
+      {
+        "caseId": "context-correction",
+        "turnOrdinal": 1,
+        "turnId": "0295f214-33e1-443c-adaa-1e859871ead4",
+        "reason": "ungrounded",
+        "groundingDrops": 4
+      }
+    ]
+  },
+  "guardVerdicts": [
+    {
+      "turnId": "944a03d0-20ac-464e-87d2-c1034e501636",
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 1,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "67b80df6-134e-4c93-8677-5fc94e26e72a",
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 2,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "4b18f12b-cf3b-497e-9718-5533dd5aa86a",
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 3,
+      "outcome": "allow_product_question",
+      "reason": "product_question"
+    },
+    {
+      "turnId": "44c4fd63-6b42-4985-aa6b-123382c0cbad",
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 4,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "aeea54a7-e5f2-4946-bf47-890382ad7faf",
+      "caseId": "retrieval-success-bad-answer",
+      "turnOrdinal": 1,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "e77e4d7d-be70-465a-bb94-c982ac72e641",
+      "caseId": "retrieval-success-bad-answer",
+      "turnOrdinal": 2,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "8e5dde47-c264-4739-8a39-997d507488f3",
+      "caseId": "retrieval-success-bad-answer",
+      "turnOrdinal": 3,
+      "outcome": "allow_product_question",
+      "reason": "product_question"
+    },
+    {
+      "turnId": "b2e0986c-110d-4104-8a7f-8d6e32ff770a",
+      "caseId": "extraction-field-precision",
+      "turnOrdinal": 1,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "e69e6308-c9a2-489f-a629-41aa9649552e",
+      "caseId": "extraction-field-precision",
+      "turnOrdinal": 2,
+      "outcome": "allow_product_question",
+      "reason": "product_question"
+    },
+    {
+      "turnId": "45f63c19-8b47-4d67-8693-3bc5cb921589",
+      "caseId": "support-personalization",
+      "turnOrdinal": 1,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "c6b1fc2d-eb73-4555-8de3-84ff8bf03281",
+      "caseId": "support-personalization",
+      "turnOrdinal": 2,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "8e95fe0b-dc98-4886-bb6c-302afe92ea54",
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 1,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "6ec0bfde-e8bb-4888-8582-1e9d1b8f9e50",
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 2,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "f335d085-8caa-4302-90c6-781814a21fe6",
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 3,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "0295f214-33e1-443c-adaa-1e859871ead4",
+      "caseId": "context-correction",
+      "turnOrdinal": 1,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "981cffce-dd1b-4240-b978-61f5c91baf01",
+      "caseId": "context-correction",
+      "turnOrdinal": 2,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "6abcd7e4-383a-4282-9e65-ef6a43fd54d2",
+      "caseId": "context-correction",
+      "turnOrdinal": 3,
+      "outcome": "allow_demo_action",
+      "reason": "demo_action"
+    },
+    {
+      "turnId": "392f835b-ee5e-48a3-9044-61744dadf032",
+      "caseId": "eval-fit-not-just-errors",
+      "turnOrdinal": 1,
+      "outcome": "allow_product_question",
+      "reason": "product_question"
+    },
+    {
+      "turnId": "9456d5ec-322a-46b4-a17a-0384c6de948e",
+      "caseId": "eval-fit-not-just-errors",
+      "turnOrdinal": 2,
+      "outcome": "allow_product_question",
+      "reason": "product_question"
+    },
+    {
+      "turnId": "bfb85a4b-3dbc-4f3b-aa06-436384d595df",
+      "caseId": "capability-grounding",
+      "turnOrdinal": 1,
+      "outcome": "allow_product_question",
+      "reason": "product_question"
+    },
+    {
+      "turnId": "4b5181fb-87f5-4649-9001-c610a9e22c88",
+      "caseId": "capability-grounding",
+      "turnOrdinal": 2,
+      "outcome": "clarify",
+      "reason": "ambiguous"
+    },
+    {
+      "turnId": "ec869e38-c52b-4863-864c-aaf10f6dd1d2",
+      "caseId": "routing-and-update-ambiguity",
+      "turnOrdinal": 1,
+      "outcome": "clarify",
+      "reason": "ambiguous"
+    },
+    {
+      "turnId": "bd7af8df-ebc9-4638-b27b-a69066e368cc",
+      "caseId": "routing-and-update-ambiguity",
+      "turnOrdinal": 2,
+      "outcome": "allow_product_question",
+      "reason": "product_question"
+    },
+    {
+      "turnId": "76ead9a0-db3d-4302-9ea3-1a078d7d58f7",
+      "caseId": "language-and-expertise",
+      "turnOrdinal": 1,
+      "outcome": "allow_product_question",
+      "reason": "product_question"
+    },
+    {
+      "turnId": "b6cdc3ed-04b4-4611-8945-ecbd0ad195a7",
+      "caseId": "language-and-expertise",
+      "turnOrdinal": 2,
+      "outcome": "clarify",
+      "reason": "ambiguous"
+    },
+    {
+      "turnId": "b20d3d38-47a2-4387-a1d8-cc72efb2517c",
+      "caseId": "mixed-intent-recovery",
+      "turnOrdinal": 1,
+      "outcome": "clarify",
+      "reason": "ambiguous"
+    },
+    {
+      "turnId": "55267d2d-0441-442a-ae62-a2b74dea0f23",
+      "caseId": "mixed-intent-recovery",
+      "turnOrdinal": 2,
+      "outcome": "allow_product_question",
+      "reason": "product_question"
+    },
+    {
+      "turnId": "9df28e43-0d7a-414e-9659-da63432192b0",
+      "caseId": "claim-adversary-controls",
+      "turnOrdinal": 1,
+      "outcome": "allow_product_question",
+      "reason": "product_question"
+    },
+    {
+      "turnId": "bae6468e-4c13-40ca-9338-8acb9e49d62d",
+      "caseId": "claim-adversary-controls",
+      "turnOrdinal": 2,
+      "outcome": "clarify",
+      "reason": "ambiguous"
+    }
+  ],
+  "topExpensiveAttempts": [
+    {
+      "caseId": "retrieval-success-bad-answer",
+      "turnOrdinal": 1,
+      "turnId": "aeea54a7-e5f2-4946-bf47-890382ad7faf",
+      "traceId": "043e35023e3c325fdc934fc226c8230c",
+      "spanId": "1c503b071dafd48d",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8961,
+        "output_tokens": 3511,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 765
+      },
+      "latencyMs": 22738,
+      "reportedEstimatedCostUsd": 0.053032,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9641,
+        "total_input_bytes": 19711,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20311,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.053032
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 2,
+      "turnId": "6ec0bfde-e8bb-4888-8582-1e9d1b8f9e50",
+      "traceId": "198829f0fc0aaed34d491d2a3432b3e5",
+      "spanId": "b076f1cf908d8a80",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9095,
+        "output_tokens": 1811,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 9613,
+      "reportedEstimatedCostUsd": 0.0363,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9874,
+        "total_input_bytes": 19944,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20544,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.0363
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 1,
+      "turnId": "8e95fe0b-dc98-4886-bb6c-302afe92ea54",
+      "traceId": "0d55c6a4f6bbddc445835137bbfe08d1",
+      "spanId": "daaf66b90d2a9110",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8998,
+        "output_tokens": 1753,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 9598,
+      "reportedEstimatedCostUsd": 0.035526,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9553,
+        "total_input_bytes": 19623,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20223,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.035526
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 1,
+      "turnId": "944a03d0-20ac-464e-87d2-c1034e501636",
+      "traceId": "1767dacf6dcd4eef3c68406c2cc3b23b",
+      "spanId": "a1f6af33650699d1",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8947,
+        "output_tokens": 1690,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 10422,
+      "reportedEstimatedCostUsd": 0.034794,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9566,
+        "total_input_bytes": 19636,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20236,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.034794
+    },
+    {
+      "caseId": "support-personalization",
+      "turnOrdinal": 1,
+      "turnId": "45f63c19-8b47-4d67-8693-3bc5cb921589",
+      "traceId": "82494252b004ea9b029c3b9617121678",
+      "spanId": "0f7fd12212a5bc16",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9026,
+        "output_tokens": 1533,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 9888,
+      "reportedEstimatedCostUsd": 0.033382,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9778,
+        "total_input_bytes": 19848,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20448,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.033382
+    },
+    {
+      "caseId": "extraction-field-precision",
+      "turnOrdinal": 1,
+      "turnId": "b2e0986c-110d-4104-8a7f-8d6e32ff770a",
+      "traceId": "34dd8506f8a316e462e392c2dad386e1",
+      "spanId": "df0ddb447ef5992a",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8992,
+        "output_tokens": 1482,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 9237,
+      "reportedEstimatedCostUsd": 0.032804,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9694,
+        "total_input_bytes": 19764,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20364,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.032804
+    },
+    {
+      "caseId": "context-correction",
+      "turnOrdinal": 2,
+      "turnId": "981cffce-dd1b-4240-b978-61f5c91baf01",
+      "traceId": "f23359b8551ff05d6bf2d8392e91fe30",
+      "spanId": "ed63c571de7a958a",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8715,
+        "output_tokens": 1344,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 7876,
+      "reportedEstimatedCostUsd": 0.03087,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9436,
+        "total_input_bytes": 19506,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20106,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.03087
+    },
+    {
+      "caseId": "context-correction",
+      "turnOrdinal": 1,
+      "turnId": "0295f214-33e1-443c-adaa-1e859871ead4",
+      "traceId": "c3320f249e0860305c36a9046555ce52",
+      "spanId": "c2cb25b83106064e",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8937,
+        "output_tokens": 1276,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 7934,
+      "reportedEstimatedCostUsd": 0.030634,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9452,
+        "total_input_bytes": 19522,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20122,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.030634
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 3,
+      "turnId": "4b18f12b-cf3b-497e-9718-5533dd5aa86a",
+      "traceId": "191bea61a08dd2905d81574d441b8cef",
+      "spanId": "783cd24c40080b22",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9546,
+        "output_tokens": 565,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 5146,
+      "reportedEstimatedCostUsd": 0.024742,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 11159,
+        "total_input_bytes": 21229,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 21829,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.024742
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 2,
+      "turnId": "67b80df6-134e-4c93-8677-5fc94e26e72a",
+      "traceId": "c86e9940ea17ee3626391a06222429cc",
+      "spanId": "45312ee40fbadc34",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9209,
+        "output_tokens": 588,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 4770,
+      "reportedEstimatedCostUsd": 0.024298,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 10619,
+        "total_input_bytes": 20689,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 21289,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.024298
+    }
+  ],
+  "attempts": [
+    {
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 1,
+      "turnId": "944a03d0-20ac-464e-87d2-c1034e501636",
+      "traceId": "1767dacf6dcd4eef3c68406c2cc3b23b",
+      "spanId": "365627164b7d26ea",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1655,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 2241,
+      "reportedEstimatedCostUsd": 0.00358,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1565,
+        "total_input_bytes": 4109,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4709,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.00358
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 1,
+      "turnId": "944a03d0-20ac-464e-87d2-c1034e501636",
+      "traceId": "1767dacf6dcd4eef3c68406c2cc3b23b",
+      "spanId": "a1f6af33650699d1",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8947,
+        "output_tokens": 1690,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 10422,
+      "reportedEstimatedCostUsd": 0.034794,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9566,
+        "total_input_bytes": 19636,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20236,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.034794
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 1,
+      "turnId": "944a03d0-20ac-464e-87d2-c1034e501636",
+      "traceId": "1767dacf6dcd4eef3c68406c2cc3b23b",
+      "spanId": "3b5d68e2515175d3",
+      "stage": "explain",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1727,
+        "output_tokens": 340,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 4228,
+      "reportedEstimatedCostUsd": 0.006854,
+      "inputAccounting": {
+        "system_bytes": 884,
+        "schema_bytes": 328,
+        "conversation_bytes": 2410,
+        "total_input_bytes": 3622,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4222,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.006854
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 2,
+      "turnId": "67b80df6-134e-4c93-8677-5fc94e26e72a",
+      "traceId": "c86e9940ea17ee3626391a06222429cc",
+      "spanId": "9c3033a989f779ac",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1625,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1786,
+      "reportedEstimatedCostUsd": 0.00352,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1488,
+        "total_input_bytes": 4032,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4632,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.00352
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 2,
+      "turnId": "67b80df6-134e-4c93-8677-5fc94e26e72a",
+      "traceId": "c86e9940ea17ee3626391a06222429cc",
+      "spanId": "45312ee40fbadc34",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9209,
+        "output_tokens": 588,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 4770,
+      "reportedEstimatedCostUsd": 0.024298,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 10619,
+        "total_input_bytes": 20689,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 21289,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.024298
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 3,
+      "turnId": "4b18f12b-cf3b-497e-9718-5533dd5aa86a",
+      "traceId": "191bea61a08dd2905d81574d441b8cef",
+      "spanId": "201e2cd9150644ad",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1635,
+        "output_tokens": 25,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1824,
+      "reportedEstimatedCostUsd": 0.00352,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1516,
+        "total_input_bytes": 4060,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4660,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.00352
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 3,
+      "turnId": "4b18f12b-cf3b-497e-9718-5533dd5aa86a",
+      "traceId": "191bea61a08dd2905d81574d441b8cef",
+      "spanId": "783cd24c40080b22",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9546,
+        "output_tokens": 565,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 5146,
+      "reportedEstimatedCostUsd": 0.024742,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 11159,
+        "total_input_bytes": 21229,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 21829,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.024742
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 4,
+      "turnId": "44c4fd63-6b42-4985-aa6b-123382c0cbad",
+      "traceId": "6e6782cdd59a9a86483b57beba8cd210",
+      "spanId": "ac51b266cd2e3d37",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1623,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1367,
+      "reportedEstimatedCostUsd": 0.003516,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1478,
+        "total_input_bytes": 4022,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4622,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003516
+    },
+    {
+      "caseId": "buyer-insurance-journey",
+      "turnOrdinal": 4,
+      "turnId": "44c4fd63-6b42-4985-aa6b-123382c0cbad",
+      "traceId": "6e6782cdd59a9a86483b57beba8cd210",
+      "spanId": "e761072e430d8905",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9730,
+        "output_tokens": 305,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 3766,
+      "reportedEstimatedCostUsd": 0.02251,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 11774,
+        "total_input_bytes": 21844,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 22444,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.02251
+    },
+    {
+      "caseId": "retrieval-success-bad-answer",
+      "turnOrdinal": 1,
+      "turnId": "aeea54a7-e5f2-4946-bf47-890382ad7faf",
+      "traceId": "043e35023e3c325fdc934fc226c8230c",
+      "spanId": "8330e5d00df673fd",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1653,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1810,
+      "reportedEstimatedCostUsd": 0.003576,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1566,
+        "total_input_bytes": 4110,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4710,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003576
+    },
+    {
+      "caseId": "retrieval-success-bad-answer",
+      "turnOrdinal": 1,
+      "turnId": "aeea54a7-e5f2-4946-bf47-890382ad7faf",
+      "traceId": "043e35023e3c325fdc934fc226c8230c",
+      "spanId": "1c503b071dafd48d",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8961,
+        "output_tokens": 3511,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 765
+      },
+      "latencyMs": 22738,
+      "reportedEstimatedCostUsd": 0.053032,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9641,
+        "total_input_bytes": 19711,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20311,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.053032
+    },
+    {
+      "caseId": "retrieval-success-bad-answer",
+      "turnOrdinal": 1,
+      "turnId": "aeea54a7-e5f2-4946-bf47-890382ad7faf",
+      "traceId": "043e35023e3c325fdc934fc226c8230c",
+      "spanId": "1ab2f3d332b53acf",
+      "stage": "explain",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1511,
+        "output_tokens": 268,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 3307,
+      "reportedEstimatedCostUsd": 0.005702,
+      "inputAccounting": {
+        "system_bytes": 884,
+        "schema_bytes": 328,
+        "conversation_bytes": 1911,
+        "total_input_bytes": 3123,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 3723,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.005702
+    },
+    {
+      "caseId": "retrieval-success-bad-answer",
+      "turnOrdinal": 2,
+      "turnId": "e77e4d7d-be70-465a-bb94-c982ac72e641",
+      "traceId": "45da430faa0843bdf7a8a0f9d53c2b10",
+      "spanId": "31f566238b90c089",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1626,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1818,
+      "reportedEstimatedCostUsd": 0.003522,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1492,
+        "total_input_bytes": 4036,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4636,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003522
+    },
+    {
+      "caseId": "retrieval-success-bad-answer",
+      "turnOrdinal": 2,
+      "turnId": "e77e4d7d-be70-465a-bb94-c982ac72e641",
+      "traceId": "45da430faa0843bdf7a8a0f9d53c2b10",
+      "spanId": "aeb169acd89d14f3",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9266,
+        "output_tokens": 483,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 4843,
+      "reportedEstimatedCostUsd": 0.023362,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 10921,
+        "total_input_bytes": 20991,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 21591,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.023362
+    },
+    {
+      "caseId": "retrieval-success-bad-answer",
+      "turnOrdinal": 3,
+      "turnId": "8e5dde47-c264-4739-8a39-997d507488f3",
+      "traceId": "b4b53b835b7114e663060f8ade5e7bde",
+      "spanId": "04f85129eb28292c",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1625,
+        "output_tokens": 25,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1627,
+      "reportedEstimatedCostUsd": 0.0035,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1483,
+        "total_input_bytes": 4027,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4627,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.0035
+    },
+    {
+      "caseId": "retrieval-success-bad-answer",
+      "turnOrdinal": 3,
+      "turnId": "8e5dde47-c264-4739-8a39-997d507488f3",
+      "traceId": "b4b53b835b7114e663060f8ade5e7bde",
+      "spanId": "6c0a9d1791a4ef18",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9401,
+        "output_tokens": 462,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 5156,
+      "reportedEstimatedCostUsd": 0.023422,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 11043,
+        "total_input_bytes": 21113,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 21713,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.023422
+    },
+    {
+      "caseId": "extraction-field-precision",
+      "turnOrdinal": 1,
+      "turnId": "b2e0986c-110d-4104-8a7f-8d6e32ff770a",
+      "traceId": "34dd8506f8a316e462e392c2dad386e1",
+      "spanId": "32021dbff5ff9bca",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1643,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1410,
+      "reportedEstimatedCostUsd": 0.003556,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1530,
+        "total_input_bytes": 4074,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4674,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003556
+    },
+    {
+      "caseId": "extraction-field-precision",
+      "turnOrdinal": 1,
+      "turnId": "b2e0986c-110d-4104-8a7f-8d6e32ff770a",
+      "traceId": "34dd8506f8a316e462e392c2dad386e1",
+      "spanId": "df0ddb447ef5992a",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8992,
+        "output_tokens": 1482,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 9237,
+      "reportedEstimatedCostUsd": 0.032804,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9694,
+        "total_input_bytes": 19764,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20364,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.032804
+    },
+    {
+      "caseId": "extraction-field-precision",
+      "turnOrdinal": 1,
+      "turnId": "b2e0986c-110d-4104-8a7f-8d6e32ff770a",
+      "traceId": "34dd8506f8a316e462e392c2dad386e1",
+      "spanId": "13df2c9496b7a407",
+      "stage": "explain",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1515,
+        "output_tokens": 255,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 2873,
+      "reportedEstimatedCostUsd": 0.00558,
+      "inputAccounting": {
+        "system_bytes": 884,
+        "schema_bytes": 328,
+        "conversation_bytes": 1920,
+        "total_input_bytes": 3132,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 3732,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.00558
+    },
+    {
+      "caseId": "extraction-field-precision",
+      "turnOrdinal": 2,
+      "turnId": "e69e6308-c9a2-489f-a629-41aa9649552e",
+      "traceId": "4f0d408ed6f31a4c58fd39f97a39e00f",
+      "spanId": "b92da16d5b83a8c7",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1633,
+        "output_tokens": 25,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1806,
+      "reportedEstimatedCostUsd": 0.003516,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1512,
+        "total_input_bytes": 4056,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4656,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003516
+    },
+    {
+      "caseId": "extraction-field-precision",
+      "turnOrdinal": 2,
+      "turnId": "e69e6308-c9a2-489f-a629-41aa9649552e",
+      "traceId": "4f0d408ed6f31a4c58fd39f97a39e00f",
+      "spanId": "65e059da04dfad6b",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8694,
+        "output_tokens": 384,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 4172,
+      "reportedEstimatedCostUsd": 0.021228,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9415,
+        "total_input_bytes": 19485,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20085,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.021228
+    },
+    {
+      "caseId": "support-personalization",
+      "turnOrdinal": 1,
+      "turnId": "45f63c19-8b47-4d67-8693-3bc5cb921589",
+      "traceId": "82494252b004ea9b029c3b9617121678",
+      "spanId": "a81b2ae18bfb57cf",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1664,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1423,
+      "reportedEstimatedCostUsd": 0.003598,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1588,
+        "total_input_bytes": 4132,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4732,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003598
+    },
+    {
+      "caseId": "support-personalization",
+      "turnOrdinal": 1,
+      "turnId": "45f63c19-8b47-4d67-8693-3bc5cb921589",
+      "traceId": "82494252b004ea9b029c3b9617121678",
+      "spanId": "0f7fd12212a5bc16",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9026,
+        "output_tokens": 1533,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 9888,
+      "reportedEstimatedCostUsd": 0.033382,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9778,
+        "total_input_bytes": 19848,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20448,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.033382
+    },
+    {
+      "caseId": "support-personalization",
+      "turnOrdinal": 1,
+      "turnId": "45f63c19-8b47-4d67-8693-3bc5cb921589",
+      "traceId": "82494252b004ea9b029c3b9617121678",
+      "spanId": "4e4351a6b38d0d18",
+      "stage": "explain",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1642,
+        "output_tokens": 335,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 3374,
+      "reportedEstimatedCostUsd": 0.006634,
+      "inputAccounting": {
+        "system_bytes": 884,
+        "schema_bytes": 328,
+        "conversation_bytes": 2213,
+        "total_input_bytes": 3425,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4025,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.006634
+    },
+    {
+      "caseId": "support-personalization",
+      "turnOrdinal": 2,
+      "turnId": "c6b1fc2d-eb73-4555-8de3-84ff8bf03281",
+      "traceId": "e754758aa1a115ca741eaa83442cc2dc",
+      "spanId": "ee35a5187c8de525",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1627,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 2006,
+      "reportedEstimatedCostUsd": 0.003524,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1491,
+        "total_input_bytes": 4035,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4635,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003524
+    },
+    {
+      "caseId": "support-personalization",
+      "turnOrdinal": 2,
+      "turnId": "c6b1fc2d-eb73-4555-8de3-84ff8bf03281",
+      "traceId": "e754758aa1a115ca741eaa83442cc2dc",
+      "spanId": "20cd8f91f8bcda28",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8824,
+        "output_tokens": 306,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 3526,
+      "reportedEstimatedCostUsd": 0.020708,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9909,
+        "total_input_bytes": 19979,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20579,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.020708
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 1,
+      "turnId": "8e95fe0b-dc98-4886-bb6c-302afe92ea54",
+      "traceId": "0d55c6a4f6bbddc445835137bbfe08d1",
+      "spanId": "17b173b134bf6e04",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1642,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1962,
+      "reportedEstimatedCostUsd": 0.003554,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1511,
+        "total_input_bytes": 4055,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4655,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003554
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 1,
+      "turnId": "8e95fe0b-dc98-4886-bb6c-302afe92ea54",
+      "traceId": "0d55c6a4f6bbddc445835137bbfe08d1",
+      "spanId": "daaf66b90d2a9110",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8998,
+        "output_tokens": 1753,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 9598,
+      "reportedEstimatedCostUsd": 0.035526,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9553,
+        "total_input_bytes": 19623,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20223,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.035526
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 1,
+      "turnId": "8e95fe0b-dc98-4886-bb6c-302afe92ea54",
+      "traceId": "0d55c6a4f6bbddc445835137bbfe08d1",
+      "spanId": "767e9f1215b6baeb",
+      "stage": "explain",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1810,
+        "output_tokens": 280,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 3009,
+      "reportedEstimatedCostUsd": 0.00642,
+      "inputAccounting": {
+        "system_bytes": 884,
+        "schema_bytes": 328,
+        "conversation_bytes": 2474,
+        "total_input_bytes": 3686,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4286,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.00642
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 2,
+      "turnId": "6ec0bfde-e8bb-4888-8582-1e9d1b8f9e50",
+      "traceId": "198829f0fc0aaed34d491d2a3432b3e5",
+      "spanId": "8752a0864eb47d4a",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1610,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1668,
+      "reportedEstimatedCostUsd": 0.00349,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1434,
+        "total_input_bytes": 3978,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4578,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.00349
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 2,
+      "turnId": "6ec0bfde-e8bb-4888-8582-1e9d1b8f9e50",
+      "traceId": "198829f0fc0aaed34d491d2a3432b3e5",
+      "spanId": "b076f1cf908d8a80",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9095,
+        "output_tokens": 1811,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 9613,
+      "reportedEstimatedCostUsd": 0.0363,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9874,
+        "total_input_bytes": 19944,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20544,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.0363
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 2,
+      "turnId": "6ec0bfde-e8bb-4888-8582-1e9d1b8f9e50",
+      "traceId": "198829f0fc0aaed34d491d2a3432b3e5",
+      "spanId": "09e9e76edb769f2a",
+      "stage": "explain",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1836,
+        "output_tokens": 353,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 3508,
+      "reportedEstimatedCostUsd": 0.007202,
+      "inputAccounting": {
+        "system_bytes": 884,
+        "schema_bytes": 328,
+        "conversation_bytes": 2549,
+        "total_input_bytes": 3761,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4361,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.007202
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 3,
+      "turnId": "f335d085-8caa-4302-90c6-781814a21fe6",
+      "traceId": "20c9020b02b459863ee0fd32a9d98b25",
+      "spanId": "cc07f49d22a88901",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1619,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1849,
+      "reportedEstimatedCostUsd": 0.003508,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1467,
+        "total_input_bytes": 4011,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4611,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003508
+    },
+    {
+      "caseId": "operational-retry-context",
+      "turnOrdinal": 3,
+      "turnId": "f335d085-8caa-4302-90c6-781814a21fe6",
+      "traceId": "20c9020b02b459863ee0fd32a9d98b25",
+      "spanId": "384ca2111dad5655",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9741,
+        "output_tokens": 479,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 4320,
+      "reportedEstimatedCostUsd": 0.024272,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 11361,
+        "total_input_bytes": 21431,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 22031,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.024272
+    },
+    {
+      "caseId": "context-correction",
+      "turnOrdinal": 1,
+      "turnId": "0295f214-33e1-443c-adaa-1e859871ead4",
+      "traceId": "c3320f249e0860305c36a9046555ce52",
+      "spanId": "6c3502f8e0437740",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1630,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1572,
+      "reportedEstimatedCostUsd": 0.00353,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1476,
+        "total_input_bytes": 4020,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4620,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.00353
+    },
+    {
+      "caseId": "context-correction",
+      "turnOrdinal": 1,
+      "turnId": "0295f214-33e1-443c-adaa-1e859871ead4",
+      "traceId": "c3320f249e0860305c36a9046555ce52",
+      "spanId": "c2cb25b83106064e",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8937,
+        "output_tokens": 1276,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 7934,
+      "reportedEstimatedCostUsd": 0.030634,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9452,
+        "total_input_bytes": 19522,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20122,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.030634
+    },
+    {
+      "caseId": "context-correction",
+      "turnOrdinal": 1,
+      "turnId": "0295f214-33e1-443c-adaa-1e859871ead4",
+      "traceId": "c3320f249e0860305c36a9046555ce52",
+      "spanId": "35102012cde22108",
+      "stage": "explain",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1552,
+        "output_tokens": 251,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 3221,
+      "reportedEstimatedCostUsd": 0.005614,
+      "inputAccounting": {
+        "system_bytes": 884,
+        "schema_bytes": 328,
+        "conversation_bytes": 1959,
+        "total_input_bytes": 3171,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 3771,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.005614
+    },
+    {
+      "caseId": "context-correction",
+      "turnOrdinal": 2,
+      "turnId": "981cffce-dd1b-4240-b978-61f5c91baf01",
+      "traceId": "f23359b8551ff05d6bf2d8392e91fe30",
+      "spanId": "5932ca35a5cc9533",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1634,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1802,
+      "reportedEstimatedCostUsd": 0.003538,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1504,
+        "total_input_bytes": 4048,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4648,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003538
+    },
+    {
+      "caseId": "context-correction",
+      "turnOrdinal": 2,
+      "turnId": "981cffce-dd1b-4240-b978-61f5c91baf01",
+      "traceId": "f23359b8551ff05d6bf2d8392e91fe30",
+      "spanId": "ed63c571de7a958a",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8715,
+        "output_tokens": 1344,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 7876,
+      "reportedEstimatedCostUsd": 0.03087,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9436,
+        "total_input_bytes": 19506,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20106,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.03087
+    },
+    {
+      "caseId": "context-correction",
+      "turnOrdinal": 3,
+      "turnId": "6abcd7e4-383a-4282-9e65-ef6a43fd54d2",
+      "traceId": "6cbc33abf502683a4e6d388b002f0170",
+      "spanId": "3f91b9ecb00001a4",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1678,
+        "output_tokens": 27,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1432,
+      "reportedEstimatedCostUsd": 0.003626,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1664,
+        "total_input_bytes": 4208,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4808,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003626
+    },
+    {
+      "caseId": "context-correction",
+      "turnOrdinal": 3,
+      "turnId": "6abcd7e4-383a-4282-9e65-ef6a43fd54d2",
+      "traceId": "6cbc33abf502683a4e6d388b002f0170",
+      "spanId": "0e4fcb371cde4fac",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8572,
+        "output_tokens": 377,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 4084,
+      "reportedEstimatedCostUsd": 0.020914,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9123,
+        "total_input_bytes": 19193,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 19793,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.020914
+    },
+    {
+      "caseId": "eval-fit-not-just-errors",
+      "turnOrdinal": 1,
+      "turnId": "392f835b-ee5e-48a3-9044-61744dadf032",
+      "traceId": "00facd3d0dfa8c042b2b01cc67783a9b",
+      "spanId": "0fa790f8aa4b1525",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1647,
+        "output_tokens": 25,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1739,
+      "reportedEstimatedCostUsd": 0.003544,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1523,
+        "total_input_bytes": 4067,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4667,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003544
+    },
+    {
+      "caseId": "eval-fit-not-just-errors",
+      "turnOrdinal": 1,
+      "turnId": "392f835b-ee5e-48a3-9044-61744dadf032",
+      "traceId": "00facd3d0dfa8c042b2b01cc67783a9b",
+      "spanId": "ef538ece8ebeb8c2",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9060,
+        "output_tokens": 411,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 3951,
+      "reportedEstimatedCostUsd": 0.02223,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9743,
+        "total_input_bytes": 19813,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20413,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.02223
+    },
+    {
+      "caseId": "eval-fit-not-just-errors",
+      "turnOrdinal": 2,
+      "turnId": "9456d5ec-322a-46b4-a17a-0384c6de948e",
+      "traceId": "7e96632aa064601d2a0359f10fcf4113",
+      "spanId": "7ae516bf63cbefb7",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1619,
+        "output_tokens": 25,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1746,
+      "reportedEstimatedCostUsd": 0.003488,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1487,
+        "total_input_bytes": 4031,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4631,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003488
+    },
+    {
+      "caseId": "eval-fit-not-just-errors",
+      "turnOrdinal": 2,
+      "turnId": "9456d5ec-322a-46b4-a17a-0384c6de948e",
+      "traceId": "7e96632aa064601d2a0359f10fcf4113",
+      "spanId": "550916380e5efd85",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9342,
+        "output_tokens": 489,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 4614,
+      "reportedEstimatedCostUsd": 0.023574,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 10692,
+        "total_input_bytes": 20762,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 21362,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.023574
+    },
+    {
+      "caseId": "capability-grounding",
+      "turnOrdinal": 1,
+      "turnId": "bfb85a4b-3dbc-4f3b-aa06-436384d595df",
+      "traceId": "de80d359fbeead6ebaf62cd50c2c1e59",
+      "spanId": "411508413a73a42f",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1623,
+        "output_tokens": 25,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1355,
+      "reportedEstimatedCostUsd": 0.003496,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1475,
+        "total_input_bytes": 4019,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4619,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003496
+    },
+    {
+      "caseId": "capability-grounding",
+      "turnOrdinal": 1,
+      "turnId": "bfb85a4b-3dbc-4f3b-aa06-436384d595df",
+      "traceId": "de80d359fbeead6ebaf62cd50c2c1e59",
+      "spanId": "6e37dd6d7e93a355",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9012,
+        "output_tokens": 284,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 3119,
+      "reportedEstimatedCostUsd": 0.020864,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9718,
+        "total_input_bytes": 19788,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20388,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.020864
+    },
+    {
+      "caseId": "capability-grounding",
+      "turnOrdinal": 2,
+      "turnId": "4b5181fb-87f5-4649-9001-c610a9e22c88",
+      "traceId": "fb97de8687a744fd793f2de127f0abcb",
+      "spanId": "4623dae92c2a9214",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1626,
+        "output_tokens": 24,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1644,
+      "reportedEstimatedCostUsd": 0.003492,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1497,
+        "total_input_bytes": 4041,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4641,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003492
+    },
+    {
+      "caseId": "routing-and-update-ambiguity",
+      "turnOrdinal": 1,
+      "turnId": "ec869e38-c52b-4863-864c-aaf10f6dd1d2",
+      "traceId": "bde86ecccb946e80b78f897b43da1a6f",
+      "spanId": "b394db4f7f05bc9a",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1625,
+        "output_tokens": 24,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1489,
+      "reportedEstimatedCostUsd": 0.00349,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1465,
+        "total_input_bytes": 4009,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4609,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.00349
+    },
+    {
+      "caseId": "routing-and-update-ambiguity",
+      "turnOrdinal": 2,
+      "turnId": "bd7af8df-ebc9-4638-b27b-a69066e368cc",
+      "traceId": "580cef05ea95d2e5e0c49b7bf7e12dfb",
+      "spanId": "fdae397f34df6ffb",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1698,
+        "output_tokens": 25,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1400,
+      "reportedEstimatedCostUsd": 0.003646,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1713,
+        "total_input_bytes": 4257,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4857,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003646
+    },
+    {
+      "caseId": "routing-and-update-ambiguity",
+      "turnOrdinal": 2,
+      "turnId": "bd7af8df-ebc9-4638-b27b-a69066e368cc",
+      "traceId": "580cef05ea95d2e5e0c49b7bf7e12dfb",
+      "spanId": "1f2782e9e2545330",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9186,
+        "output_tokens": 386,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 3605,
+      "reportedEstimatedCostUsd": 0.022232,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 10250,
+        "total_input_bytes": 20320,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20920,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.022232
+    },
+    {
+      "caseId": "language-and-expertise",
+      "turnOrdinal": 1,
+      "turnId": "76ead9a0-db3d-4302-9ea3-1a078d7d58f7",
+      "traceId": "fbea2bc7a9d14a712cfa87022b9d2f73",
+      "spanId": "1dfc9c6ca87cfbad",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1653,
+        "output_tokens": 25,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1533,
+      "reportedEstimatedCostUsd": 0.003556,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1526,
+        "total_input_bytes": 4070,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4670,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003556
+    },
+    {
+      "caseId": "language-and-expertise",
+      "turnOrdinal": 1,
+      "turnId": "76ead9a0-db3d-4302-9ea3-1a078d7d58f7",
+      "traceId": "fbea2bc7a9d14a712cfa87022b9d2f73",
+      "spanId": "8c05b8ff97bb6ad7",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8993,
+        "output_tokens": 502,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 5581,
+      "reportedEstimatedCostUsd": 0.023006,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9545,
+        "total_input_bytes": 19615,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20215,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.023006
+    },
+    {
+      "caseId": "language-and-expertise",
+      "turnOrdinal": 2,
+      "turnId": "b6cdc3ed-04b4-4611-8945-ecbd0ad195a7",
+      "traceId": "524de351bfb5ea423915b0dade85ff51",
+      "spanId": "4e360af248c35879",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1620,
+        "output_tokens": 24,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1727,
+      "reportedEstimatedCostUsd": 0.00348,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1490,
+        "total_input_bytes": 4034,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4634,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.00348
+    },
+    {
+      "caseId": "mixed-intent-recovery",
+      "turnOrdinal": 1,
+      "turnId": "b20d3d38-47a2-4387-a1d8-cc72efb2517c",
+      "traceId": "7ba0120bd28f4fc687647c6018928147",
+      "spanId": "883248f8a5d747d6",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1627,
+        "output_tokens": 24,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1798,
+      "reportedEstimatedCostUsd": 0.003494,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1483,
+        "total_input_bytes": 4027,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4627,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003494
+    },
+    {
+      "caseId": "mixed-intent-recovery",
+      "turnOrdinal": 2,
+      "turnId": "55267d2d-0441-442a-ae62-a2b74dea0f23",
+      "traceId": "a3ea89860cf9926993b0ad965864d61d",
+      "spanId": "eceea4eeb6599e4d",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1696,
+        "output_tokens": 25,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1494,
+      "reportedEstimatedCostUsd": 0.003642,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1691,
+        "total_input_bytes": 4235,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4835,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003642
+    },
+    {
+      "caseId": "mixed-intent-recovery",
+      "turnOrdinal": 2,
+      "turnId": "55267d2d-0441-442a-ae62-a2b74dea0f23",
+      "traceId": "a3ea89860cf9926993b0ad965864d61d",
+      "spanId": "df0f191a388f61f6",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 9108,
+        "output_tokens": 340,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 3333,
+      "reportedEstimatedCostUsd": 0.021616,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9883,
+        "total_input_bytes": 19953,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20553,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.021616
+    },
+    {
+      "caseId": "claim-adversary-controls",
+      "turnOrdinal": 1,
+      "turnId": "9df28e43-0d7a-414e-9659-da63432192b0",
+      "traceId": "267298fb555a1002d512becc37cd4eef",
+      "spanId": "d8ea10afe879abc3",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1628,
+        "output_tokens": 25,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1427,
+      "reportedEstimatedCostUsd": 0.003506,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1465,
+        "total_input_bytes": 4009,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4609,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003506
+    },
+    {
+      "caseId": "claim-adversary-controls",
+      "turnOrdinal": 1,
+      "turnId": "9df28e43-0d7a-414e-9659-da63432192b0",
+      "traceId": "267298fb555a1002d512becc37cd4eef",
+      "spanId": "6c40eb5daa744135",
+      "stage": "plan",
+      "telemetryStep": "model",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "medium",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 8997,
+        "output_tokens": 289,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 3354,
+      "reportedEstimatedCostUsd": 0.020884,
+      "inputAccounting": {
+        "system_bytes": 5019,
+        "schema_bytes": 5051,
+        "conversation_bytes": 9641,
+        "total_input_bytes": 19711,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 20311,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.020884
+    },
+    {
+      "caseId": "claim-adversary-controls",
+      "turnOrdinal": 2,
+      "turnId": "bae6468e-4c13-40ca-9338-8acb9e49d62d",
+      "traceId": "c2ee3b354c48606e3ea76b4486e3e2cc",
+      "spanId": "28c18d9c7df641ad",
+      "stage": "guard",
+      "telemetryStep": "guard",
+      "requestedModel": "claude-sonnet-5-5",
+      "apiResolvedModel": null,
+      "effort": "low",
+      "stopReason": "end_turn",
+      "settlement": "settled_reported",
+      "reportedUsage": {
+        "available": true,
+        "input_tokens": 1624,
+        "output_tokens": 24,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "thinking_tokens": 0
+      },
+      "latencyMs": 1796,
+      "reportedEstimatedCostUsd": 0.003488,
+      "inputAccounting": {
+        "system_bytes": 2149,
+        "schema_bytes": 395,
+        "conversation_bytes": 1487,
+        "total_input_bytes": 4031,
+        "framing_estimated_tokens": 600,
+        "input_estimated_tokens": 4631,
+        "estimation_version": "utf8-conservative-v1"
+      },
+      "recomputedEstimatedCostUsd": 0.003488
+    }
+  ],
+  "limits": [
+    "API-resolved model IDs remain unavailable. Native model names were populated from configured/requested model labels.",
+    "Raw API usage objects and 5m/1h write split remain unavailable; selected validated provider counters are now recovered from hosted diagnostics. Both aggregate cache counters were explicitly reported as zero on all60 attempts.",
+    "Per-component tokenizer counts and measured cache-prefix hashes remain unavailable. Component bytes are actual recorded transport accounting; static hashes in the earlier audit came from source reconstruction.",
+    "This is one controlled synthetic baseline suite. No new model calls, account reads or ingestion were performed by this reconciliation.",
+    "Explanation fallback events establish code rejected all7 generated explanations as ungrounded; they do not establish every rejected statement was factually wrong.",
+    "Earlier local-only limits on token percentiles, per-attempt latency, stop reason and explicit cache zeros are superseded by this approved hosted evidence."
+  ]
+}

@@ -156,10 +156,55 @@ function codeReviewFit(cited: CapabilityRecord[], question: string, knowledgeVer
   return buyerWording(lines.join('\n\n'));
 }
 
+/** Suggested review questions/procedure, explicitly separate from documented capabilities and executed judgments. */
+function evaluationAdviceFit(cited: CapabilityRecord[], question: string, knowledgeVersion?: string): string | null {
+  const records = cited.filter(r => ['official-evaluations', 'official-human-review', 'official-ai-evaluators', 'synthetic-evaluation-review'].includes(r.id)).slice(0, 2);
+  if (!records.length) return null;
+  if (/\bchecks?\b/i.test(question) && /\b(?:accuracy|accurate|correctness)\b/i.test(question) && /\b(?:execution|field|required|due[ -]date)\b/i.test(question)) {
+    return buyerWording(['Neither execution success nor required-field presence proves accuracy.', 'An execution-success check asks whether the recorded steps completed without an execution error. A required-field check asks whether the output contains the required field. A present value can still disagree with the source, and a successful run can still omit it.', 'For a proposed invoice review, compare the extracted due date with the date in the approved source document, including how absent or ambiguous dates should be handled. This is a suggested criterion, not an executed accuracy verdict.', 'This demo has not run a hosted AI judge or measured evaluator accuracy.', sourceLine(records, knowledgeVersion), ...records.map(planLine)].join('\n\n'));
+  }
+  const calibration = /\bcalibrat\w*\b/i.test(question) && /\b(?:reviewer|judge|human|AI)\b/i.test(question);
+  const criteria = /\b(?:eval\w*|review\w*|judge|person|human)\b/i.test(question)
+    && /\b(?:quality|useful|question|evidence|research|criteria|automated|check|standard)\b/i.test(question);
+  if (!calibration && !criteria) return null;
+  const lines = calibration ? [
+    'Start with one written review question and a shared rubric. Suggested calibration procedure:',
+    '1. Collect approved examples that are good, failing and ambiguous, and have a person label them with a short reason.',
+    '2. If you have verified access to a configured AI judge, compare its actual verdicts with those labels. Inspect disagreements and missing context before changing the rubric.',
+    '3. Retest on separate held-out examples; agreement on the examples used to write the rubric does not establish general accuracy.',
+    'The cited Neatlogs capabilities provide structured review questions and human/AI evaluation workflows. This procedure is a suggestion, not a completed calibration result.',
+  ] : [
+    'Define the output requirement separately from execution success. Suggested review question:',
+    /\bclaims?\b/i.test(question)
+      ? 'For a fictional claims example: “Does the response identify the malformed information and explain why manual review is needed?”'
+      : '“Are the answer’s claims supported by the provided evidence, and is anything needed to resolve the request missing?”',
+    'A person can assess correctness, relevance and whether the answer is useful. A proposed structural check can test errors or required-field presence; neither alone establishes that a field value or answer is correct.',
+    records.some(r => r.demonstration.level === 'demonstrable' || r.demonstration.level === 'modifiable')
+      ? 'Where the demo supports a local review form, choose saved synthetic examples and write the review question. Keep your reviews separate from illustrative simulated scores.'
+      : 'This demo can explain these evaluation capabilities but does not run that review workflow. The question above is a proposed rubric you could use in a separately configured review.',
+  ];
+  lines.push('No hosted AI judge ran here, and human/AI agreement has not been measured. Hosted access, evaluator configuration and plan availability remain unverified.', sourceLine(records, knowledgeVersion), ...records.map(planLine));
+  return buyerWording(lines.join('\n\n'));
+}
+
 /** Ordinary short answers retain their detail. Broad answers reserve room for sources and availability first. */
 export function composeAnswer(cited: CapabilityRecord[], question: string, providerText: string, knowledgeVersion?: string): string {
+  const traceRecord = cited.find(r => r.id === 'official-traces-and-spans' && r.scope === 'official_product');
+  if (cited.some(r => r.scope === 'official_product') && /\bguarantee\w*\b/i.test(question) && /\b(?:correct\w*|conversion|customer answers?)\b/i.test(question)) {
+    const records=cited.filter(r => r.scope === 'official_product').slice(0,2);
+    return buyerWording(['The cited evidence does not establish that your customer answers will be correct or that conversion will improve.', 'Correctness needs a separate review against the relevant source evidence and requirements; conversion needs its own measured outcome. Green execution alone establishes neither.', 'This demo uses synthetic examples, so its results are not measured outcomes for your customers.', sourceLine(records, knowledgeVersion), ...records.map(planLine)].join('\n\n'));
+  }
+  const setupRecords=cited.filter(r=>['official-evaluations','official-human-review','official-ai-evaluators','official-typescript-sdk','official-traces-and-spans'].includes(r.id)).slice(0,2);
+  if(setupRecords.length && /\bsetup\b/i.test(question) && /\b(?:evidence|prove|ran)\b/i.test(question)){
+    return buyerWording(['A proposed setup would start by recording the run’s inputs, outputs and steps, then defining a review question against that captured evidence. A separately configured evaluator would need the applicable hosted access and settings; those have not been verified here.', 'To establish that it ran, inspect the actual evaluator execution record and its saved result, linked to the intended input/run and configuration. A proposed rubric, synthetic score or successful trace capture alone does not prove evaluator execution.', 'This demo has not run a hosted AI evaluator. Keep the proposed setup separate from evidence of a completed evaluation.', sourceLine(setupRecords,knowledgeVersion), ...setupRecords.map(planLine)].join('\n\n'));
+  }
+  if (traceRecord && /\b(?:simple english|beginner|plain english)\b/i.test(question) && /\btrace\b/i.test(question) && /\bspan\b/i.test(question)) {
+    return buyerWording(['A trace is the record of one whole run. A span is the record of one step inside that run.', 'For a suggested research-assistant example, one trace could cover answering a question. A span could cover looking up source passages, and another could cover the model call. The spans show the recorded inputs, outputs, timing and errors for those steps; what is visible depends on what you instrument.', 'This is a suggested example, not a claim that your real assistant has been connected. This demo uses synthetic data.', sourceLine([traceRecord], knowledgeVersion), planLine(traceRecord)].join('\n\n'));
+  }
   const fit = codeReviewFit(cited, question, knowledgeVersion);
   if (fit && fit.length <= MAX_ANSWER_CHARS) return fit;
+  const evaluationAdvice = evaluationAdviceFit(cited, question, knowledgeVersion);
+  if (evaluationAdvice && evaluationAdvice.length <= MAX_ANSWER_CHARS) return evaluationAdvice;
   const detailed = detailedAnswer(cited, question, providerText, knowledgeVersion);
   if (detailed.length <= MAX_ANSWER_CHARS) return detailed;
   const wanted = new Set(topicTokens(question).filter(t => t.length >= 3 && !QUESTION_FILLER.has(t)));

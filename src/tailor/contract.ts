@@ -1,4 +1,4 @@
-import type { AttemptSettlement, InputAccounting } from './accounting.ts';
+import type { AttemptSettlement, InputAccounting, ProviderMetadata } from './accounting.ts';
 import type { PolicyRequest, PolicyResponse } from './policy.ts';
 import type { EvidenceObserver } from './evidence.ts';
 // Product-agnostic Tailor contract: chat shapes, turn envelope, core limits, the model-provider and telemetry seams.
@@ -165,6 +165,7 @@ export interface ProviderUsage {
 }
 export interface ProviderResponse<TAction = unknown> {
   action: TAction;
+  providerMetadata?: ProviderMetadata;
   inputAccounting?: InputAccounting;
   reservationRef?: string;
   settlement?: AttemptSettlement;
@@ -189,6 +190,7 @@ export interface ExplanationRequest {
 }
 export interface ExplanationResponse<TExplanation = unknown> {
   explanation: TExplanation;
+  providerMetadata?: ProviderMetadata;
   inputAccounting?: InputAccounting;
   reservationRef?: string;
   settlement?: AttemptSettlement;
