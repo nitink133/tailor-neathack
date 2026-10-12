@@ -1,0 +1,32 @@
+Continue the existing Tailor implementation thread. Implement the live Anthropic provider using claude-sonnet-5-5 as the baseline runtime model, with adaptive thinking and output_config.effort set to medium. Verify these settings against current official Anthropic documentation before coding. Fable 5.1 remains the coding orchestrator only; do not use it in Tailor’s runtime.
+Read AGENTS.md, the project-local Entire skill, NIT-269 and docs/nit-269-handoff.md. Work on the latest existing implementation branch, preserving completed work. Don’t restart the architecture or create duplicate worktrees.
+MODEL RESPONSIBILITIES
+Use Sonnet 5.5 medium for:
+- Interpreting the buyer’s request and choosing supported actions.
+- Producing a structured synthetic-scenario proposal or a necessary clarification question with three choices plus optional free text.
+- Explaining the actual saved trace/span evidence after tool execution.
+Keep knowledge retrieval, permissions, schema validation, timing/relationship checks, persistence, version checks and readback in deterministic code. Aim for one planning call and one evidence-grounded explanation call for a normal successful turn; don’t add a model call for every step.
+Keep model and effort configurable. Do not introduce automatic Haiku/Opus/Fable routing, expensive fallbacks or high-effort escalation in this first live baseline.
+ANTHROPIC INTEGRATION
+Use the official server-side SDK/API and current structured-output/tool-use guidance. Sonnet 5.5 does not accept thinking disabled; don’t copy older enabled/budget_tokens settings. If using tools, verify supported tool_choice settings; prefer auto with strict schemas or a structured proposal executed by our server.
+Validate model output independently. Check source IDs against retrieved knowledge, reject unsupported actions and treat buyer text as untrusted input. Handle refusals, truncated responses, malformed output, authentication failures, rate limits and timeouts explicitly.
+Retain mock mode for offline tests. Live mode must never silently fall back to mock output. Explanations must reflect saved evidence rather than merely repeat the proposed scenario.
+SECURE SETUP AND SPENDING
+I have an Anthropic project named tailor-neathack and report $200 in promotional API credits. This balance is not permission to spend $200.
+Prepare a git-ignored local environment file and placeholder-only .env.example. Tell me exactly where to enter my API key myself. Never ask me to paste it in chat, display it, commit it, put it into shell history or export it through telemetry. Don’t create credentials or change account permissions/billing.
+Before any live model call, ask me to confirm a numeric USD test cap. Implement bounded input/output tokens, tool iterations and retries, plus a conservative local spend guard. Track provider-reported usage including thinking and cached input where available. Explain that local estimates may differ from final billing. No paid calls until I confirm the cap and enter the key.
+Use invented buyer data only for initial tests. Don’t send private files, real customer data or raw environment contents to Anthropic.
+NEATLOGS AND ENTIRE
+Preserve the required runtime instrumentation around retrieval, model calls, tools, validation, save and readback. Redact secrets and raw buyer/model content by default; record safe correlation IDs, latency and actual usage.
+Keep fictional buyer-demo records separate from real Tailor runtime telemetry. Use the local captured exporter until the correct Tailor Neatlogs destination and safe payload are confirmed and I approve external ingestion. Don’t claim hosted logging works without inspecting a received trace.
+Preserve Entire development recording through the project skill. Report the existing checkpoint-capture gap honestly; don’t fabricate trailers or rewrite history to hide it.
+TEST AND HAND OFF
+First run offline provider-contract/error tests, typecheck, build and existing regression tests.
+Once I enter the key and approve the test cap, run a small live smoke test followed by:
+1. Create a travel-booking example with an API timeout and successful retry.
+2. Change the retry to fail too.
+3. Verify saved traces/spans, grounded explanation and reload consistency.
+4. Exercise clarification and an unsupported request.
+Report the actual model/effort, provider usage, estimated cost and tests passed/failed/not run. Keep live-model and hosted-Neatlogs verification separate.
+Give me the exact startup command, localhost URL, key-entry location and a short manual test checklist so I can verify the flow myself. Commit and push only code, tests and redacted documentation to the existing feature branch. Don’t merge into main or deploy.
+Start implementation now. Pause only for required key entry, testing-budget approval or a material scope/safety blocker.
