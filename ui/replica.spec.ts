@@ -10,7 +10,7 @@ mkdirSync(ed,{recursive:true});mkdirSync('.local',{recursive:true});
 const BUILD='I\'m building a travel-booking agent. Show me a booking API timeout followed by a successful retry.';
 const EDIT='Make the retry fail too.';
 type Pg=import('@playwright/test').Page;
-async function enter(page:Pg){await page.goto('/entry');await page.getByLabel('Ask anything').fill(BUILD);await page.getByRole('button',{name:'Send message'}).click();await expect(page.locator('[data-count]')).toBeVisible();await expect(page.locator('.chat-panel [data-status=applied]').first()).toBeVisible();}
+async function enter(page:Pg){await page.goto('/entry');await page.getByLabel('Ask anything').fill(BUILD);await page.getByRole('button',{name:'Send message'}).click();await expect(page.locator('.contextual-guide-target')).toHaveCount(1);await expect(page.locator('.chat-panel [data-status=applied]').first()).toBeVisible();const s=await session(page);await page.goto(`/demo/${s.id}/traces`);await expect(page.locator('[data-count]')).toBeVisible();}
 async function session(page:Pg):Promise<DemoSession>{return await (await page.request.get('/api/session')).json();}
 const countText=(n:number)=>`1 – ${n} of ${n}`;
 const errSpans=(t:DemoSession['dataset']['traces'][number])=>t.spans.filter(x=>x.status==='ERROR');
@@ -29,6 +29,8 @@ test('every generated scenario agrees across API, trace tree, timeline, navigati
   await page.getByRole('link',{name:'Explore the demo ↗'}).first().click();
   await expect(page.getByRole('heading',{name:'See your agent in action'})).toBeVisible();
   await page.getByLabel('Ask anything').fill(BUILD);await page.getByRole('button',{name:'Send message'}).click();
+  await expect(page.locator('.contextual-guide-target')).toHaveCount(1);
+  const created=await session(page); await page.goto(`/demo/${created.id}/traces`);
   await expect(page.locator('[data-count]')).toBeVisible();
   // The list repaints when the turn's applied status arrives; wait for that, then measure in one poll so a mid-repaint read (0/0 = NaN) retries.
   await expect(page.locator('.chat-panel [data-status=applied]').first()).toBeVisible();
@@ -146,7 +148,7 @@ test('entry makes the synthetic scope clear and keeps suggestions editable',asyn
   expect(creates).toBe(0);expect(await page.evaluate(()=>sessionStorage.getItem('creation-operation'))).toBeNull();
   const editedPrompt=`${prompt!} Use synthetic data.`;
   await composer.fill(editedPrompt);await expect(composer).toHaveValue(editedPrompt);
-  await page.getByRole('button',{name:'Send message'}).click();await expect(page).toHaveURL(/\/demo\/[^/]+\/traces$/);
+  await page.getByRole('button',{name:'Send message'}).click();await expect(page.locator('.contextual-guide-target')).toHaveCount(1);
   expect(creates).toBe(1);expect(ownerCalls).toEqual(['bootstrap','create']);await expect(page.locator('.chat-panel')).toContainText('Powered by Tailor');
   await expect(page.locator('.chat-panel [data-status=applied]').first()).toBeVisible();
   await expect(page.locator('.chat-examples')).toContainText('Explain this trace');
@@ -159,7 +161,8 @@ test('entry makes the synthetic scope clear and keeps suggestions editable',asyn
 
 test('clarification offers exactly three choices and accepts an editable free-text answer',async({page})=>{
   await page.goto('/entry');await page.getByLabel('Ask anything').fill('Show me something failing.');
-  await page.getByRole('button',{name:'Send message'}).click();await expect(page.locator('[data-count]')).toBeVisible();
+  await page.getByRole('button',{name:'Send message'}).click();await expect(page.locator('.personalised-preparation')).toContainText('A little more context');
+  await expect(page.locator('tr[data-trace]')).toHaveCount(0);
   const choices=page.locator('.chat-choices button[data-choice]');await expect(choices).toHaveCount(3);
   await expect(page.locator('.chat-choices + small')).toContainText('type your own answer');
   await page.getByLabel('Ask anything').fill('I’m building a travel-booking agent. Show a booking API timeout followed by a successful retry.');
@@ -202,7 +205,8 @@ test('buyer conversation: clarify, build, edit, explain, answer; a failed send r
   await expect(page.locator('.tailor-attribution')).toHaveText('Powered by Tailor');
   await page.getByLabel('Ask anything').fill('Show me something failing.');
   await page.getByRole('button',{name:'Send message'}).click();
-  await expect(page.locator('[data-count]')).toBeVisible();
+  await expect(page.locator('.personalised-preparation')).toContainText('A little more context');
+  await expect(page.locator('tr[data-trace]')).toHaveCount(0);
   await expect(page.locator('.chat-panel')).toContainText('Mock-backed');
   const choices=page.locator('.chat-choices button');await expect(choices).toHaveCount(3);
   await page.reload();await expect(page.locator('.chat-choices button')).toHaveCount(3);
@@ -210,6 +214,8 @@ test('buyer conversation: clarify, build, edit, explain, answer; a failed send r
   await expect(page.locator('.chat-panel [data-status=applied]').last()).toBeVisible();
   await expect(page.locator('.demo-notice')).toContainText('Synthetic demo · Powered by Tailor');
   const s:DemoSession=await session(page);expect(s.dataset.traces.length).toBeGreaterThanOrEqual(1);
+  await expect(page.locator('.contextual-guide-target')).toHaveCount(1);
+  await page.goto(`/demo/${s.id}/traces`);
   const traceUrl=page.url();
   await page.locator('tbody tr a').first().click();
   await expect(page.locator('.chat-panel')).toBeVisible();

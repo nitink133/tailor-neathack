@@ -33,9 +33,12 @@ test('Personalised agent journey: entry, proposal, error grounding, follow-up, r
   await expect(chatPanel.locator('[data-status=applied]').first()).toBeVisible({ timeout: 15000 });
 
   // Powered by Tailor and Mock label visible
-  await expect(chatPanel.locator('.playground-attribution')).toBeVisible();
+  await expect(chatPanel.locator('.contextual-powered')).toBeVisible();
   // The side panel must not pretend the mock is a live model.
   await expect(chatPanel.locator('[data-exec-chip]')).toHaveText('Mock-backed');
+
+  await expect(page.locator('.contextual-guide-target')).toHaveCount(1);
+  await page.goto(`/demo/${sessionId}/traces`);
 
   // Trace list shows the personalised label (e.g. 'Timeout, retry succeeds'), NOT 'Order lookup'
   const traceTable = page.locator('tbody tr');
@@ -372,12 +375,15 @@ test('a pending question does not present the stock sample as the buyer’s Acti
   await page.getByRole('button', { name: 'Send message' }).click();
   await expect(page.locator('.chat-choices button')).toHaveCount(3, { timeout: 15000 });
   await expect(page.locator('.active-tag').filter({ hasText: 'Active' })).toHaveCount(0);
-  await expect(page.locator('.active-tag').first()).toHaveText('Sample');
-  await expect(page.locator('.demo-notice')).toContainText('sample data, not your agent yet');
+  await expect(page.locator('tr[data-trace]')).toHaveCount(0);
+  await expect(page.locator('.personalised-preparation')).toContainText('A little more context');
+  await expect(page.locator('.demo-notice')).toHaveCount(0);
   await expect(page.locator('.chat-examples button').first()).not.toHaveText('Make the retry fail too');
   await page.screenshot({ path: `${evidenceDir}/owner-e-sample-behind-question.png` });
   await page.locator('.chat-choices button').first().click();
   await expect(page.locator('.chat-panel [data-status=applied]').last()).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.contextual-guide-target')).toHaveCount(1);
+  const saved=await sessionOf(page); await page.goto(`/demo/${saved.id}/traces`);
   await expect(page.locator('.active-tag').filter({ hasText: 'Active' })).toHaveCount(1);
   await expect(page.locator('.active-tag').filter({ hasText: 'Sample' })).toHaveCount(0);
 });
@@ -415,7 +421,7 @@ test('material workflow switches wait for confirmation; keep, adapt and separate
   const adapted=await sessionOf(page);expect(adapted.id).toBe(original.id);expect(adapted.version).toBeGreaterThan(original.version);
   await askSwitch('Switch to a travel-booking agent. Show a booking API timeout followed by a successful retry.');
   await page.locator('.chat-choices button[data-choice="start_separate"]').click();
-  await expect(page).not.toHaveURL(originalUrl);
+  await expect(page).toHaveURL(new RegExp(`/demo/(?!${original.id}/)[^/]+/traces(?:/[^/?]+)?$`));
   const separateId=/\/demo\/([^/]+)\/traces/.exec(page.url())![1]!;expect(separateId).not.toBe(original.id);
   const owner=await page.request.get('/api/browser-session').then(r=>r.json());
   expect(owner.demos.map((d:{id:string})=>d.id)).toContain(original.id);expect(owner.demos.map((d:{id:string})=>d.id)).toContain(separateId);
@@ -424,7 +430,7 @@ test('material workflow switches wait for confirmation; keep, adapt and separate
   await page.getByRole('button',{name:'Expand sidebar'}).click();
   await page.locator('details.demo-picker summary').click();
   await page.locator(`[data-select-demo="${original.id}"]`).click();
-  await expect(page).toHaveURL(originalUrl);await expect(page.locator('[data-count]')).toBeVisible();
+  await expect(page).toHaveURL(`/demo/${original.id}/traces`);await expect(page.locator('[data-count]')).toBeVisible();
   await expect(page.locator('.chat-panel')).toContainText('Keep current demo');
 });
 

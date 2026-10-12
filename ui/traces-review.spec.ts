@@ -1,9 +1,10 @@
 import {test,expect} from '@playwright/test';
 const prompt='I am building a travel-booking agent. Show a booking API timeout followed by a successful retry.';
-async function enter(page:import('@playwright/test').Page){await page.goto('/entry');await page.getByLabel('Ask anything').fill(prompt);await page.getByRole('button',{name:'Send message'}).click();await expect(page.locator('.chat-panel [data-status=applied]').first()).toBeVisible();}
+async function enter(page:import('@playwright/test').Page){await page.goto('/entry');await page.getByLabel('Ask anything').fill(prompt);await page.getByRole('button',{name:'Send message'}).click();await expect(page.locator('.contextual-guide-target')).toHaveCount(1);await expect(page.locator('.chat-panel [data-status=applied]').first()).toBeVisible();}
+async function showList(page:import('@playwright/test').Page){const s=await page.request.get('/api/session').then(r=>r.json());await page.goto(`/demo/${s.id}/traces`);await expect(page.locator('[data-count]')).toBeVisible();}
 
 test('filters and date control fit the available workspace; filter editors are usable',async({page})=>{
- await enter(page);
+ await enter(page); await showList(page);
  for(const [width,height]of[[980,729],[1440,900],[390,844]]){
   await page.setViewportSize({width,height});
   const work=page.locator('.trace-workspace');await expect(work).toBeVisible();
@@ -41,6 +42,7 @@ test('answer guidance opens its exact saved step with annotation details intact'
  const state=await(await page.request.get('/api/session')).json();
  const g=state.conversation.flatMap((m:any)=>m.guidance??[]).find((g:any)=>g.targetId==='trace.slowest-span');
  expect(g).toBeTruthy();
+ await showList(page);
  await expect(page.locator('tbody tr .trace-row-description')).toHaveCount(state.dataset.traces.length);
  await page.getByRole('button',{name:/Inspect the slowest step/}).click();
  await expect(page.locator('.selected-span')).toHaveAttribute('data-span-id',g.binding.spanId);
@@ -50,7 +52,7 @@ test('answer guidance opens its exact saved step with annotation details intact'
 });
 
 test('field help still works with keyboard alongside contextual guidance',async({page})=>{
- await enter(page);
+ await enter(page); await showList(page);
  const help=page.getByRole('button',{name:'About Status',exact:true});await help.focus();
  await expect(page.getByRole('tooltip').filter({hasText:/processed/i})).toBeVisible();
  await page.keyboard.press('Escape');await expect(page.getByRole('tooltip').filter({hasText:/processed/i})).toBeHidden();
@@ -73,7 +75,7 @@ test('suggested step reopens collapsed ancestors without preventing explicit col
 
 test('field help fallback closes on Escape',async({page})=>{
  await page.addInitScript(()=>{Object.defineProperty(HTMLElement.prototype,'showPopover',{value:undefined,configurable:true});Object.defineProperty(HTMLElement.prototype,'hidePopover',{value:undefined,configurable:true});});
- await enter(page);
+ await enter(page); await showList(page);
  // Simulate both missing native hiding and an unrecognized native pseudo-class.
  const css=await(await page.request.get('/style.css')).text();
  await page.locator('link[href="/style.css"]').evaluate(el=>el.remove());
@@ -88,7 +90,7 @@ test('field help fallback closes on Escape',async({page})=>{
 test.describe('touch field help',()=>{
  test.use({hasTouch:true,viewport:{width:390,height:844}});
  test('tap opens header explanation',async({page})=>{
-  await enter(page);
+  await enter(page); await showList(page);
   await page.getByRole('button',{name:'Collapse conversation'}).tap();
   await page.getByRole('button',{name:'About Status',exact:true}).tap();
   await expect(page.getByRole('tooltip').filter({hasText:/processed/i})).toBeVisible();
