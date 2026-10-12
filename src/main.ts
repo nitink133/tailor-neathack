@@ -55,7 +55,7 @@ const stopSweeper = startSweeper(store, clock);
 server.listen(config.port, '127.0.0.1', () => {
   const address = server.address() as { port: number };
   const live = spend ? ` · effort=${provider.effort ?? 'n/a'} · cap=$${(spend.summary() as { capUsd: number }).capUsd} (estimates; billing is authoritative) · spend ledger=${ledgerPath}` : '';
-  console.log(`Tailor local demo: http://127.0.0.1:${address.port} · provider=${provider.name} (${provider.mode}) · model=${provider.model ?? 'none'}${live} · telemetry=${telemetry.mode} · knowledge=${knowledge.version} · prompts=${PROMPT_VERSION}`);
+  console.log(`Tailor local demo: http://127.0.0.1:${address.port} · build=${codeVersion} · provider=${provider.name} (${provider.mode}) · model=${provider.model ?? 'none'}${live} · telemetry=${telemetry.mode} · knowledge=${knowledge.version} · prompts=${PROMPT_VERSION}`);
 });
 
 let closing = false;
