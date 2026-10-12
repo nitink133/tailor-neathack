@@ -70,14 +70,14 @@ test('provider failures retain safe settlement/usage attributes and guard outcom
       await handle.step('guard', { policyVersion: 'policy-1', policyOutcome: 'deny_instruction_override', policyReason: 'instruction_override', preventedDispatch: true, guardModel: 'guard-model-1' }, async () => null);
       await assert.rejects(handle.step('model', {}, async () => {
         handle.recordUsage({ inputTokens: 7, outputTokens: 9, cacheReadInputTokens: 2, cacheCreationInputTokens: 1 }, 'claude-sonnet-5-5');
-        handle.annotate({ reservationRef: '8c82c2af-2c59-4fef-baa9-2aaad219c002', settlement: 'settled_reported', costUsd: 0.001, reservationUsd: 0.2, latencyMs: 15, systemBytes: 4, schemaBytes: 10, framingTokens: 600, estimationVersion: 'utf8-conservative-v1' });
+        handle.annotate({ reservationRef: '8c82c2af-2c59-4fef-baa9-2aaad219c002', settlement: 'settled_reported', pricingVersion: 'tailor-rates-2026-10-12.1', costUsd: 0.001, reservationUsd: 0.2, latencyMs: 15, systemBytes: 4, schemaBytes: 10, framingTokens: 600, estimationVersion: 'utf8-conservative-v1' });
         throw new Error('private buyer response');
       }));
     });
     const spans = telemetry.captured(); const model = spans.find(s => s.name === 'model')!;
     assert.equal(model.attributes['tailor.usage.input_tokens'], 7); assert.equal(model.attributes['tailor.settlement'], 'settled_reported');
     assert.match(String(model.attributes['tailor.reservation_ref']), /^z[0-9a-f]{16}$/);
-    assert.equal(model.attributes['tailor.system_bytes'], 4);
+    assert.equal(model.attributes['tailor.system_bytes'], 4); assert.equal(model.attributes['tailor.pricing_version'], 'tailor-rates-2026-10-12.1');
     assert.equal(spans.find(s => s.name === 'guard')!.attributes['tailor.prevented_dispatch'], true);
     assert.deepEqual(telemetry.diagnostics().recentTurns[0]!.completeness?.failed, ['model:1:end']);
     assert.equal(JSON.stringify(spans).includes('private buyer response'), false);
