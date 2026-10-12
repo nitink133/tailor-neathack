@@ -78,14 +78,16 @@ function pendingCorrectionQuestion(session: SessionSnapshot, text: string): Clar
     && JSON.stringify(pending.choices) === JSON.stringify(ALIGNMENT_QUESTION.choices);
   if (!unappliedSwitch && !alignmentQuestion) return null;
   const domain = session.story.domain.replace(/\s+/g, ' ').slice(0, 100);
+  const summary = session.story.summary.replace(/\s+/g, ' ').trim();
+  const savedSummary = `Summary of the saved synthetic scenario: ${JSON.stringify(summary.slice(0, 320))}${summary.length > 320 ? ' (excerpt)' : ''}.`;
   if (unappliedSwitch) return {
     // This intervening turn expires the persisted confirmation's conversation binding.
     // Do not copy its reference or offer buttons that appear able to apply the old candidate.
-    question: `Your requested workflow change has not been applied. The saved example is still “${domain}”, version ${session.version}. The earlier switch confirmation is no longer current. You can explain the saved workflow or describe the change again to request a fresh confirmation.`,
+    question: `Your requested workflow change has not been applied. The saved example is still “${domain}”, version ${session.version}. ${savedSummary} The earlier switch confirmation is no longer current. You can inspect its saved steps or describe the change again to request a fresh confirmation.`,
     choices: [{ id: 'c1', label: 'Explain the saved workflow' }, { id: 'c2', label: 'Help me restate the workflow change' }, { id: 'c3', label: 'Explain the demo-switch choices' }], allowFreeText: true,
   };
   return {
-    question: `Your requested workflow change has not been applied. The saved example is still “${domain}”, version ${session.version}. Would you like to explain that saved workflow or retry the change?`,
+    question: `Your requested workflow change has not been applied. The saved example is still “${domain}”, version ${session.version}. ${savedSummary} Would you like to inspect its saved steps or retry the change?`,
     choices: [{ id: 'c1', label: 'Explain the saved workflow' }, { id: 'c2', label: 'Retry my requested workflow change' }, { id: 'c3', label: 'Explain what prevented the change' }], allowFreeText: true,
   };
 }

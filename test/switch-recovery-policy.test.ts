@@ -22,6 +22,7 @@ test('intervening explanation acknowledges unapplied material switch without rep
   const q = response.messages[0]!.clarification!;
   assert.match(q.question, /change has not been applied/);
   assert.match(q.question, /travel-booking agent.*version 2/);
+  assert.ok(q.question.includes(JSON.stringify(saved.story!.summary)), 'same response explains the actual saved scenario');
   assert.match(q.question, /describe the change again to request a fresh confirmation/);
   assert.equal(q.referenceId, undefined);
   assert.notEqual(q.kind, 'demo_switch');
