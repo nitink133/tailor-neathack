@@ -32,3 +32,13 @@ Engineering tabs are interactive. Page examples are explanatory; live buyer expl
 `npm test` runs isolated server and proxy contract tests with a fake upstream. `tests/browser-review.mjs` uses the demo repository's Playwright package (or `PLAYWRIGHT_PACKAGE` override) to verify all pages and the CTA handoff in a private browser context. It blocks non-read requests so automated website review makes no paid model calls or telemetry ingestion. Screenshots and review output live under `tests/evidence` when run. Testing real buyer questions uses the existing demo's configured provider and budget.
 
 Design source: https://app.paper.design/file/01M4J3ZRFTDES668P3Y5WR4FEX/p-A-0
+
+## Agent animation
+
+The How it works page includes a 24-second explanatory animation from the approved [motion storyboard](https://app.paper.design/file/01M4J3ZRFTDES668P3Y5WR4FEX/p-B-0). It starts paused. Play/pause and replay control one moving SVG request packet; previous/next and eight directly selectable steps support live narration. Arrow keys and Home/End work within the playback controls. Background tabs pause playback. Reduced motion uses static step changes and never starts a timer.
+
+This is a fictional illustration, not live execution status. Context pruning leaves session state intact. Sonnet 5.5 is the current model, with guard low and planner/explain medium effort. Validation, save and independent readback occur in order before the verified answer. The final scene is a labelled time jump: End demo or server-clock expiry clears demo conversation/data, while hosted runtime telemetry retains its separate lifecycle. No hosted retention duration is claimed. The module makes no API requests or model calls.
+
+For a marketing-only preview without a demo connection, use `PORT=4368 TAILOR_DEMO_ORIGIN=http://127.0.0.1:1 node server.mjs`, then open `/how-it-works#motion-title`. Existing demo CTAs report unavailable on this isolated preview; the animation itself is independent of the backend.
+
+Run `TAILOR_TEST_URL=http://127.0.0.1:4368 npm run test:motion` against the preview. Set `PLAYWRIGHT_PACKAGE` to an installed Playwright module if the existing review environment is unavailable. The browser review verifies movement across frames, frozen geometry on pause, resume/replay, ordered readback, narration/keyboard controls, one-shot completion, reduced motion, other-page isolation, and no overflow at 1440/980/390/320px. Generated screenshots and JSON evidence are ignored under `tests/evidence/motion/`.

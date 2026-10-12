@@ -1,0 +1,57 @@
+.agent-motion {padding-block:16px 64px}
+.motion-heading {display:flex;justify-content:space-between;align-items:end;gap:24px;padding-bottom:28px}
+.motion-heading>div {display:flex;flex-direction:column;gap:16px}
+.how-it-works .motion-heading h2 {font-size:40px;line-height:48px;letter-spacing:-.03em}
+.motion-disclaimer {color:#606875;font-size:15px;line-height:23px}
+.motion-stage {background:#f1f4fd;padding:32px;overflow:hidden}
+.motion-caption {display:grid;grid-template-columns:90px 1fr;gap:10px 24px;min-height:92px}
+.motion-caption>span {color:#2449c9;font-size:15px;line-height:32px}
+.how-it-works .motion-caption h3 {font-size:28px;line-height:34px;letter-spacing:-.02em}
+.motion-caption p {grid-column:2;color:#606875;font-size:20px;line-height:28px}
+.motion-canvas {display:block;width:100%;height:auto;overflow:visible}
+.motion-canvas text {font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;font-size:16px;fill:#606875}
+.motion-track {stroke:#bdc8e4;stroke-width:1;stroke-dasharray:3 7;fill:none}
+.motion-landmarks text {font-size:19px}
+.scope-gate path,.tool-station path {stroke:#2449c9;stroke-width:2;fill:none}
+.context-sheets rect {fill:white}
+.old-context rect {fill:none;stroke:#7b87a6;stroke-dasharray:4 5}.old-context text {font-size:15px}
+.model-station text:first-child {font-size:22px;fill:#20221f}
+.verification circle {fill:white;stroke:#2449c9;stroke-width:2}
+.readback-check {fill:none;stroke:#2449c9;stroke-width:3;opacity:0}.scope-check {opacity:0}
+.demo-station rect {fill:white;stroke:#a7b5d9}.demo-station path {fill:none;stroke:#a7b5d9;stroke-width:3}
+.packet-back {fill:#aabaef}.packet-mid {fill:#6985e0}.packet-front {fill:#2449c9}.packet-fold {fill:#173388}
+.motion-canvas .packet-label {fill:white;font-size:14px;letter-spacing:.05em}
+.motion-guidance {opacity:0}.motion-guidance rect {fill:#2449c9}.motion-guidance text {fill:white;font-size:20px}
+.motion-stage:not([data-step="0"]):not([data-step="7"]) .scope-check {opacity:1}
+.motion-stage[data-verified="true"]:not([data-step="7"]) .readback-check {opacity:1}
+.motion-stage[data-step="6"] .motion-guidance {opacity:1}
+.motion-stage[data-step="7"] .session-tray {background:transparent;border-style:dashed}
+.motion-detail {color:#2449c9;font-size:17px;line-height:25px;padding-block:10px 20px;min-height:55px}
+.session-tray {display:flex;align-items:center;gap:24px;padding:18px 22px;background:white;border:1px solid #bdc8e4;min-height:92px}
+.session-tray>span:first-child {color:#2449c9;font-size:13px;letter-spacing:.06em;flex-shrink:0}
+.session-content,.session-ended {flex:1}.session-content p,.session-ended {font-size:16px;line-height:24px}
+.session-content[hidden],.session-ended[hidden] {display:none}.session-tray>span:last-child {color:#606875;font-size:15px}
+.telemetry-rail {display:flex;gap:16px;align-items:center;border-top:1px solid #98a4c0;padding-top:20px;margin-top:24px;color:#606875;font-size:14px;line-height:22px}
+.telemetry-dot {width:7px;height:7px;border-radius:50%;background:#2449c9;flex-shrink:0}
+.telemetry-rail>span:nth-child(2) {color:#20221f}.telemetry-rail p {flex:1}.telemetry-rail>span:last-child {white-space:nowrap}
+.motion-controls {display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding-block:24px}
+.motion-controls button {border:1px solid #2449c9;background:white;color:#2449c9;padding:12px 20px;min-height:48px;cursor:pointer}
+.motion-controls [data-motion-play] {background:#2449c9;color:white;min-width:100px}
+.motion-controls button:hover {background:#e5eafb}.motion-controls [data-motion-play]:hover {background:#173388}
+.motion-controls button:disabled {color:#606875;border-color:#bdc8e4;cursor:default;background:white}
+.motion-controls>span {color:#606875;font-size:15px;padding-left:10px}
+.motion-step-list {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0 24px;list-style:none;padding:0;margin:0}
+.motion-step-list button {display:flex;gap:12px;align-items:baseline;width:100%;text-align:left;font-size:16px;line-height:23px;padding:14px 0;border:0;border-top:1px solid #dde2eb;background:white;cursor:pointer;color:#606875}
+.motion-step-list button span {font-size:13px;flex-shrink:0}.motion-step-list button[aria-current] {color:#2449c9;border-top:2px solid #2449c9;padding-top:13px}
+.motion-access-note {font-size:15px;line-height:24px;color:#606875;padding-top:22px;max-width:880px}
+.motion-sr-only {position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+@media(max-width:720px) {
+ .motion-heading {align-items:start;flex-direction:column;gap:16px}.how-it-works .motion-heading h2 {font-size:32px;line-height:39px}
+ .motion-disclaimer br {display:none}.motion-stage {padding:22px 18px}.motion-caption {grid-template-columns:1fr;min-height:155px;gap:6px}.motion-caption p {grid-column:1;font-size:18px;line-height:26px}
+ .motion-canvas {width:780px;max-width:none;height:237px;margin-left:calc(50% - 390px)}
+ /* Pan the active station into view; captions stay readable HTML at full size. */
+ .motion-stage[data-step="0"] .motion-canvas {transform:translateX(292px)}.motion-stage[data-step="1"] .motion-canvas {transform:translateX(187px)}.motion-stage[data-step="2"] .motion-canvas {transform:translateX(83px)}.motion-stage[data-step="3"] .motion-canvas {transform:translateX(-22px)}.motion-stage[data-step="4"] .motion-canvas {transform:translateX(-119px)}.motion-stage[data-step="5"] .motion-canvas {transform:translateX(-217px)}.motion-stage[data-step="6"] .motion-canvas,.motion-stage[data-step="7"] .motion-canvas {transform:translateX(-292px)}
+ .motion-detail {font-size:16px;min-height:72px}.session-tray {flex-wrap:wrap;gap:8px 12px;padding:16px;min-height:142px}.session-content,.session-ended {flex-basis:100%;order:2}.session-tray>span:last-child {margin-left:auto}
+ .telemetry-rail {flex-wrap:wrap;gap:8px 12px;min-height:96px}.telemetry-rail p {flex-basis:100%;order:2}.telemetry-rail>span:last-child {font-size:12px}
+ .motion-controls {gap:10px}.motion-controls button {padding:12px 14px}.motion-controls>span {flex-basis:100%;padding:0}.motion-step-list {grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px}.motion-step-list button {font-size:15px}
+}

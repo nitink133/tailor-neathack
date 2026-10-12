@@ -22,6 +22,9 @@ test('demo handoff preserves same-origin authority, body, cookie and query; stat
     for(const path of ['/style.css','/app.js','/assets/portrait.webp','/demo/id/traces/trace-id']) {await raw(origin+path);assert.equal(seen.at(-1).path,path);}
     const previous=seen.length;
     const art=await raw(origin+'/assets/landing.png');assert.equal(art.status,200);assert.equal(art.headers['content-type'],'image/png');assert.equal(seen.length,previous);
+    for(const [path,type] of [['/marketing/motion.js','text/javascript; charset=utf-8'],['/marketing/motion.css','text/css; charset=utf-8']]) {
+      const asset=await raw(origin+path);assert.equal(asset.status,200);assert.equal(asset.headers['content-type'],type);assert.equal(seen.length,previous,'animation assets must not reach the demo upstream');
+    }
     assert.equal((await raw(origin+'/api/test',{headers:{Host:'evil.example'}})).status,403);
     assert.equal((await raw(origin+'/api/test',{headers:{Origin:'http://evil.example'}})).status,403);
     assert.equal(seen.length,previous);

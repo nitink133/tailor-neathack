@@ -1,0 +1,60 @@
+import assert from 'node:assert/strict';
+import {mkdir, writeFile} from 'node:fs/promises';
+const {chromium}=await import(process.env.PLAYWRIGHT_PACKAGE || '/tmp/tailor-live-feature-review/node_modules/playwright-core/index.mjs');
+const base=process.env.TAILOR_TEST_URL || 'http://127.0.0.1:4368';
+const output=new URL('./evidence/motion/',import.meta.url);
+await mkdir(output,{recursive:true});
+const browser=await chromium.launch({headless:true});
+const results=[];
+try {
+  for(const width of [1440,980,390,320]) {
+    const context=await browser.newContext({viewport:{width,height:1000}});
+    const page=await context.newPage(); const errors=[], requests=[];
+    page.on('pageerror',e=>errors.push(e.message));
+    page.on('response',r=>{if(r.status()>=400)errors.push(`${r.status()} ${r.url()}`);});
+    await page.route('**/*',route=>{const r=route.request();requests.push({url:r.url(),method:r.method()});if(!r.url().startsWith(base+'/')||!['GET','HEAD'].includes(r.method())||new URL(r.url()).pathname.startsWith('/api/'))return route.abort();return route.continue();});
+    await page.clock.install();
+    await page.goto(base+'/how-it-works',{waitUntil:'networkidle'});
+    const scene=page.locator('[data-agent-motion]');
+    const packet=page.locator('[data-packet]');
+    const play=page.locator('[data-motion-play]');
+    assert.equal(await scene.getAttribute('data-playing'),'false','starts paused');
+    await play.click();await page.clock.runFor(3400);
+    const a=await packet.getAttribute('transform');await page.clock.runFor(180);const b=await packet.getAttribute('transform');
+    assert.notEqual(a,b,'packet must move across frames');
+    await play.click();const paused=await packet.getAttribute('transform');await page.clock.runFor(700);assert.equal(await packet.getAttribute('transform'),paused,'pause freezes geometry');
+    assert.equal(await scene.getAttribute('data-playing'),'false');
+    await play.click();await page.clock.runFor(300);assert.notEqual(await packet.getAttribute('transform'),paused,'resume continues');
+    await page.locator('[data-motion-replay]').click();assert.equal(await scene.getAttribute('data-step'),'0','replay returns to first step');
+    await page.clock.runFor(15100);assert.equal(await scene.getAttribute('data-step'),'5');
+    assert.equal(await page.locator('.motion-stage').getAttribute('data-verified'),'false','cannot verify before readback');
+    await page.clock.runFor(1900);assert.equal(await page.locator('.motion-stage').getAttribute('data-verified'),'true');
+    await page.locator('[data-motion-step="6"]').click();
+    assert.equal(await scene.getAttribute('data-playing'),'false','step click pauses narration');
+    assert(await page.locator('[data-demo-version]').innerText().then(s=>s.includes('v4')));
+    await scene.screenshot({path:new URL(`${width}-answer.png`,output).pathname});
+    await page.locator('[data-motion-next]').focus();await page.keyboard.press('ArrowRight');assert.equal(await scene.getAttribute('data-step'),'7');
+    assert.equal(await page.locator('.session-content').isVisible(),false);
+    assert.equal(await page.locator('.telemetry-rail').isVisible(),true,'telemetry remains visible after demo end');
+    assert((await page.locator('[data-motion-detail]').innerText()).includes('closing a tab is not End demo'));
+    assert.equal(await page.locator('[data-motion-next]').isDisabled(),true);
+    await scene.screenshot({path:new URL(`${width}-end.png`,output).pathname});
+    await page.locator('[data-motion-replay]').focus();await page.keyboard.press('Home');assert.equal(await scene.getAttribute('data-step'),'0');
+    await page.keyboard.press('End');assert.equal(await scene.getAttribute('data-step'),'7');
+    await page.locator('[data-motion-replay]').click();await page.clock.runFor(24100);assert.equal(await scene.getAttribute('data-playing'),'false','one-shot animation stops');assert.equal(await page.locator('[data-motion-playback]').innerText(),'Complete');
+    const layout=await page.evaluate(()=>({width:document.documentElement.scrollWidth,viewport:innerWidth}));assert(layout.width<=width+1,`${width}: horizontal overflow`);
+    assert.equal(errors.length,0,JSON.stringify(errors));
+    assert(requests.every(r=>r.method==='GET' && !r.url.includes('/api/')),'no API or mutation requests');
+    results.push({width,playback:'pass',pauseResume:'pass',replay:'pass',verificationOrder:'pass',keyboard:'pass',endRetention:'pass',layout,requests:requests.length});
+    await context.close();
+  }
+  const reduced=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'});const page=await reduced.newPage();await page.clock.install();await page.goto(base+'/how-it-works');
+  const packet=page.locator('[data-packet]');const still=await packet.getAttribute('transform');await page.clock.runFor(4000);assert.equal(await packet.getAttribute('transform'),still,'reduced motion has no idle motion');
+  await page.getByRole('button',{name:'Advance animation one step'}).click();assert.equal(await page.locator('[data-agent-motion]').getAttribute('data-step'),'1');const next=await packet.getAttribute('transform');await page.clock.runFor(4000);assert.equal(await packet.getAttribute('transform'),next,'reduced motion stays static after step');
+  await page.locator('[data-motion-replay]').click();assert.equal(await page.locator('[data-agent-motion]').getAttribute('data-playing'),'false');assert.equal(await page.locator('[data-agent-motion]').getAttribute('data-step'),'0');
+  await page.locator('[data-agent-motion]').screenshot({path:new URL('390-reduced-motion.png',output).pathname});results.push({reducedMotion:'pass'});await reduced.close();
+  // Other marketing pages do not acquire the animation or its controls.
+  const other=await browser.newPage();for(const path of ['/','/manifesto']){await other.goto(base+path);assert.equal(await other.locator('[data-agent-motion]').count(),0);assert.equal(await other.locator('h1').count(),1);}await other.close();
+  await writeFile(new URL('results.json',output),JSON.stringify({base,results},null,2));
+  console.log(JSON.stringify({status:'passed',base,results,evidence:output.pathname},null,2));
+} finally {await browser.close();}

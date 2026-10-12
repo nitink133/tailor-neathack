@@ -10,7 +10,7 @@ export function createWebsiteServer({demoOrigin = process.env.TAILOR_DEMO_ORIGIN
   if (!/^\/(?!\/)[a-zA-Z0-9/_?=&.%+-]*$/.test(demoEntryPath) || ['/', '/try-demo', '/manifesto', '/how-it-works'].includes(demoEntryPath)) throw new Error('Demo entry must be a local demo route.');
   const files = new Map([
     ['/','index.html'], ['/manifesto','index.html'], ['/how-it-works','index.html'],
-    ...['app.js','base.css','landing.js','landing.css','pages.js','pages.css'].map(name => ['/marketing/'+name,name]),
+    ...['app.js','base.css','landing.js','landing.css','pages.js','pages.css','motion.js','motion.css'].map(name => ['/marketing/'+name,name]),
     ...['landing.png','manifesto.png','how-it-works.png'].map(name => ['/assets/'+name,'assets/'+name])
   ]);
   return createServer(async (req,res) => {

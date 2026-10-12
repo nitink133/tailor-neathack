@@ -1,3 +1,4 @@
+import {renderMotion, attachMotion} from './motion.js';
 const demoLink = (label, className = '') => `<a class="${className}" href="/try-demo" data-demo-link>${label}<span aria-hidden="true">→</span></a>`;
 
 export function renderManifesto() {
@@ -41,6 +42,7 @@ function renderEngineeringTabs() {
 export function renderHowItWorks() {
   return `<main class="how-it-works" id="main-content">
     <section class="how-intro container" aria-labelledby="how-title"><div><p class="eyebrow">Inside Tailor</p><h1 id="how-title">One conversation.<br>A demo that moves with it.</h1><p class="lead">Ask about your workflow. Explore it in the product.<br class="desktop-break"> Then follow the question that matters next.</p><p class="example-note">The Neatlogs example · Fictional demo data</p></div><img class="how-art" src="/assets/how-it-works.png" width="500" height="400" alt=""></section>
+    ${renderMotion()}
     <section class="walkthrough container" aria-label="From a buyer question to an interactive demo">
       <article class="workflow-row"><div class="workflow-copy"><p class="eyebrow">01 / Start with your work</p><h2>Tell Tailor what matters.</h2><p>A buyer describes their workflow.<br class="desktop-break"> Tailor uses that context to shape the demo.</p></div><div class="example-surface"><p class="eyebrow">Buyer question</p><blockquote>“We handle delivery support.<br class="desktop-break"> Can I see that workflow?”</blockquote><div class="example-pair"><p><span>Buyer’s words</span>Delivery support</p><p><span>Tailor’s working interpretation</span>A delivery-support example</p></div></div></article>
       <article class="workflow-row"><div class="workflow-copy"><p class="eyebrow">02 / See it in the product</p><h2>Explore an example<br class="desktop-break"> that fits the question.</h2><p>Tailor adapts fictional demo data through<br class="desktop-break"> supported tools, then guides the buyer<br class="desktop-break"> to relevant product views.</p></div><div class="example-surface"><p class="eyebrow">Demo response / Illustrative</p><p class="example-statement">A fictional delivery-support<br class="desktop-break"> workflow, ready to explore.</p><ol class="demo-flow" aria-label="Demo workflow"><li>Adapt</li><li>Verify</li><li>Explore</li></ol><p class="example-caption">The explanation follows the saved result.<br class="desktop-break"> Guidance points to a supported view in that demo.</p></div></article>
@@ -52,6 +54,7 @@ export function renderHowItWorks() {
 }
 
 export function attachPageInteractions(root = document) {
+  attachMotion(root);
   root.querySelectorAll('.how-it-works [role="tablist"]').forEach(list => {
     if (list.dataset.bound) return;
     list.dataset.bound = 'true';
