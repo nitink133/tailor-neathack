@@ -1,7 +1,7 @@
 // Deterministic, evidence-grounded explanations. Every number, name and ID here comes from a saved/read-back
 // trace, never from the model. The model's narrative (if any) is appended AFTER the evidence.
 
-import type { Evidence, Span, Trace } from './contracts.ts';
+import type { Evidence, Json, Span, Trace } from './contracts.ts';
 import type { ReadbackEvidence } from './agent-contract.ts';
 import { clip, cleanNarrative } from '../../tailor/text.ts';
 import { buildCorpus, hasPricingClaim, isUngroundedClaim, shadowOf, splitSentences } from './claims.ts';
@@ -171,6 +171,29 @@ function namesGrounded(sentence: string, allowed: Allowed): boolean {
   return true;
 }
 
+/** Bounded fixture checks over inspected payloads; labels and an all-OK status alone never establish quality. */
+export function qualityDefectNarrative(trace: { output: Json; spans: readonly Pick<Span, 'kind' | 'status' | 'error' | 'output'>[] }): string {
+  const record = (value: Json): Record<string, Json> | null => value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  if (!trace.spans.length || trace.spans.some(span => span.status !== 'OK' || span.error !== null)) return '';
+  const output = record(trace.output);
+  if (!output) return '';
+  const sources = trace.spans.map(span => ({ kind: span.kind, value: record(span.output) })).filter(source => source.value !== null);
+  if ((output.dueDate === undefined || output.dueDate === null || output.dueDate === '')
+    && sources.some(source => source.kind === 'LLM' && typeof source.value!.dueDate === 'string' && source.value!.dueDate.trim())) {
+    return 'The output omits the due date present in the source, despite completing without an execution error.';
+  }
+  if (output.resolved === false && output.answer === 'Thanks for your patience. We appreciate you!'
+    && sources.some(source => source.kind === 'TOOL' && typeof source.value!.nextStep === 'string' && source.value!.nextStep.trim()
+      && !(output.answer as string).toLowerCase().includes((source.value!.nextStep as string).toLowerCase()))) {
+    return 'The output records the request as unresolved and omits the next step supplied by the lookup, despite completing without an execution error.';
+  }
+  if (output.answer === 'Offline sync is supported automatically.'
+    && sources.some(source => source.kind === 'RETRIEVAL' && source.value!.text === 'The Widget SDK sends updates while connected. Offline behavior is not documented.')) {
+    return 'The answer claims offline sync is supported, but the retrieved source says offline behavior is not documented.';
+  }
+  return '';
+}
+
 /** Model prose is admitted only as a supported fact form; other prose falls back to code-owned readback wording. */
 function semanticsGrounded(sentence: string, trace: Trace | null, readback: ReadbackEvidence | null): boolean {
   const text = sentence.trim();
@@ -249,8 +272,11 @@ export function groundNarrative(text: string | undefined, trace: Trace | null, r
   const spanNames = new Set(trace?.spans.map(s => s.name.toLowerCase()) ?? []);
   const exemptClause = (clause: string) => { const m = EVIDENCE_STATEMENT.exec(clause); return !!m && spanNames.has(m[1]!.toLowerCase()); };
   const kept: string[] = [];
+  const quality = trace ? qualityDefectNarrative(trace) : '';
   for (const sentence of splitSentences(cleaned)) {
     const shadow = shadowOf(sentence);
+    // Only the exact code-owned defect description can bypass generic product-capability filtering.
+    if (quality && flat(shadow) === flat(shadowOf(quality))) { kept.push(quality); continue; }
     if (isUngroundedClaim(shadow, { corpus: domain, exemptClause })) continue;
     if (MUTATION.test(shadow) && REAL_TARGET.test(shadow)) continue;
     if ((shadow.match(IDENTIFIER) ?? []).some(tok => !isKnownIdentifier(tok))) continue;
@@ -268,6 +294,8 @@ export function groundNarrative(text: string | undefined, trace: Trace | null, r
  */
 export function safeNarrative(trace: Trace | null, readback: ReadbackEvidence | null): string {
   if (trace) {
+    const quality = qualityDefectNarrative(trace);
+    if (quality) return quality;
     const errors = errorSpans(trace);
     if (errors.length === 0) return 'No step in the saved trace is marked ERROR.';
     const names = errors.map(s => s.name).join(', ');
@@ -313,7 +341,7 @@ export function describeTrace(trace: Trace): string {
   ordered.forEach((s, i) => {
     lines.push(`${i + 1}. ${s.name} — ${s.kind}, ${s.status}, starts +${ms(s.startMs)}, takes ${ms(s.durationMs)}`);
   });
-  if (errors.length === 0) lines.push('No step failed in this run.');
+  if (errors.length === 0) lines.push(qualityDefectNarrative(trace) || 'No step failed in this run.');
   else {
     lines.push(`${plural(errors.length, 'step')} failed:`);
     for (const s of errors) lines.push(`• ${s.name} at +${ms(s.startMs)} after ${ms(s.durationMs)}: ${clip(s.error ?? 'no error text', 200)}`);
