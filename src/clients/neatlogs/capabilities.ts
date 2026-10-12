@@ -27,7 +27,7 @@ export function publicCapabilities(): PublicCapabilities {
   const records = index.all() as readonly CapabilityMapRecord[];
   return { version:index.version, verifiedOn:VERIFIED_ON, starters:structuredClone([...CAPABILITY_STARTERS]), capabilities:records.map(r => ({
     id:r.id,title:r.title,scope:r.scope,support:r.cloneSupport.state,surfaces:[...r.cloneSupport.uiSurfaces],
-    limitations:[...r.productLimitations,...r.limitations],hostedAvailability:r.hostedAvailability.state,
+    limitations:[...new Set([...r.productLimitations,...r.limitations])],hostedAvailability:r.hostedAvailability.state,
   })) };
 }
 /** Compact product remit for entry classification BEFORE retrieval; external input is never interpolated here. */

@@ -696,7 +696,9 @@
       "latency",
       "duration"
     ],
-    "productLimitations": [],
+    "productLimitations": [
+      "Visible trace/span details depend on application instrumentation capturing those fields."
+    ],
     "cloneSupport": {
       "state": "executable",
       "tools": [
@@ -777,7 +779,9 @@
       "span",
       "step"
     ],
-    "productLimitations": [],
+    "productLimitations": [
+      "Timing analysis depends on complete and correctly ended spans."
+    ],
     "cloneSupport": {
       "state": "executable",
       "tools": [
@@ -1023,7 +1027,9 @@
       "failure",
       "ingestion"
     ],
-    "productLimitations": [],
+    "productLimitations": [
+      "Slack delivery requires the official integration to be connected."
+    ],
     "cloneSupport": {
       "state": "explain_only",
       "tools": [],
@@ -1360,7 +1366,10 @@
       "flush",
       "shutdown"
     ],
-    "productLimitations": [],
+    "productLimitations": [
+      "TypeScript instrumentation uses explicit integrations; the documented SDK has no auto-instrumentation option.",
+      "Applications must flush or shut down appropriately for their process lifecycle."
+    ],
     "cloneSupport": {
       "state": "explain_only",
       "tools": [],
@@ -1440,7 +1449,10 @@
       "typescript",
       "span"
     ],
-    "productLimitations": [],
+    "productLimitations": [
+      "The application owner must choose and test masking/redaction configuration.",
+      "SDK telemetry masking does not imply managed prompt payloads are transformed."
+    ],
     "cloneSupport": {
       "state": "explain_only",
       "tools": [],
