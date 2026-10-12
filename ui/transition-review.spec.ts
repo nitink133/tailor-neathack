@@ -73,7 +73,7 @@ test('leaving during preparation does not redirect or send a hidden first turn',
  const completion=page.waitForResponse(r=>r.url().endsWith('/api/browser-session/demos'));
  release();await (await completion).finished();await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve())));
  await expect.poll(()=>creates).toBe(1);
- await expect(page.getByRole('heading',{level:1})).toContainText('See where your agent workflow can fail');
+ await expect(page.getByRole('heading',{level:1})).toContainText('Your agent is already running.');
  expect(turns).toBe(0);
 });
 
@@ -90,7 +90,7 @@ test('unsent first prompt is durable before the post-create ownership read',asyn
  await page.getByRole('link',{name:'← Back to landing'}).click();await expect(page).toHaveURL(/\/$/);
  const completion=page.waitForResponse(r=>r.url().endsWith('/api/browser-session')&&r.request().method()==='GET');
  release();await (await completion).finished();await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve())));
- await expect(page.getByRole('heading',{level:1})).toContainText('See where your agent workflow can fail');
+ await expect(page.getByRole('heading',{level:1})).toContainText('Your agent is already running.');
  expect(await page.evaluate(()=>JSON.parse(sessionStorage.getItem('tailor-pending-turn')??'null'))).toEqual(pending);
 });
 

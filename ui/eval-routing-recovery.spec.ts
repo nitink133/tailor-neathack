@@ -13,8 +13,8 @@ async function start(page: Page) {
 for (const area of ['evals', 'alerts'] as const) test(`${area} guidance survives rerender, repeats safely, dismisses with focus and clears on navigation`, async ({ page }) => {
   const s = await start(page);
   const prompt = area === 'evals' ? 'How do Neatlogs evals fit this agent and how can I know they work?' : 'How does Neatlogs route alerts to the right people?';
-  const label = area === 'evals' ? 'Explore evals for this agent' : 'Preview alert routing';
-  const target = area === 'evals' ? '.eval-create' : '.routing-create';
+  const label = area === 'evals' ? 'Configure the local review' : 'Preview alert routing';
+  const target = area === 'evals' ? '.eval-reviewer-selection' : '.routing-create';
   await send(page, prompt);
   const card = page.getByRole('button', { name: new RegExp(label) }).last();
   await expect(card).toBeVisible(); await card.click();
@@ -36,7 +36,7 @@ for (const area of ['evals', 'alerts'] as const) test(`${area} guidance survives
   await expect(page.locator('.contextual-guide-note')).toContainText('Showing in your playground');
   await page.setViewportSize({ width: 390, height: 844 }); await card.click();
   await expect(page.locator(`${target}.contextual-guide-target`)).toHaveCount(1);
-  const heading=await page.getByRole('heading', {name:area==='evals'?'New evaluation':'What should trigger this alert?',exact:true}).boundingBox();
+  const heading=await (area==='evals'?page.locator(target+'.contextual-guide-target'):page.getByRole('heading',{name:'What should trigger this alert?',exact:true})).boundingBox();
   const workspace=await page.locator('.workspace').boundingBox();
   expect(heading!.y).toBeGreaterThanOrEqual(workspace!.y);
   expect(heading!.y+heading!.height).toBeLessThanOrEqual(workspace!.y+workspace!.height);

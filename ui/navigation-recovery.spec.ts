@@ -35,7 +35,7 @@ test('leaving while a turn is in flight preserves landing and allows saved-demo 
   release(); await (await completed).finished();
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
   await expect.poll(async () => (await page.request.get(`/api/sessions/${s.id}`).then(r => r.json())).version).toBe(3);
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('See where your agent workflow can fail');
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Your agent is already running.');
   await expect(page).toHaveURL(/\/$/);
   await page.goto('/entry'); await page.locator('#resume').click();
   await expect(page.locator('.demo-notice')).toContainText('v3');

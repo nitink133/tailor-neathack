@@ -66,7 +66,7 @@ test('buyer creates and reviews real local checks, keeps results across navigati
 test('buyer questions guide to adapter-owned eval and alert areas without changing traces', async ({ page }) => {
   const s = await build(page, 'Show a customer support agent with a polite answer that does not resolve the request.');
   for (const [prompt, label, path, target] of [
-    ['How do Neatlogs evals fit this agent and how can I know they work?', 'Explore evals for this agent', 'evals', '.eval-create'],
+    ['How do Neatlogs evals fit this agent and how can I know they work?', 'Configure the local review', 'evals', '.eval-reviewer-selection'],
     ['How does Neatlogs route alerts to the right people?', 'Preview alert routing', 'alerts', '.routing-create'],
   ]) {
     await page.getByLabel('Ask anything').fill(prompt);
