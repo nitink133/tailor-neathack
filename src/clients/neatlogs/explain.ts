@@ -198,8 +198,8 @@ export function qualityDefectNarrative(trace: { output: Json; spans: readonly Pi
     return 'In this synthetic trace, the saved source-grounding check reports an unsupported claim despite its OK execution status; compare the retrieved passages with the final answer rather than treating green execution as proof of correctness.';
   }
   if ((output.dueDate === undefined || output.dueDate === null || output.dueDate === '')
-    && sources.some(source => source.kind === 'TOOL' && typeof source.value!.text === 'string'
-      && /\b(?:payment due|due date)\s*:\s*\d{4}-\d{2}-\d{2}\b/i.test(source.value!.text))) {
+    && sources.some(source => source.kind === 'TOOL' && [source.value!.text, source.value!.textExcerpt].some(text => typeof text === 'string'
+      && /\b(?:payment due|due date)\s*:\s*\d{4}-\d{2}-\d{2}\b/i.test(text)))) {
     return 'The saved document text records a payment-due date while the final output omits dueDate; an error-free run and a field-presence check do not establish that an extracted value agrees with the source.';
   }
   if (output.nextStepIncluded === false && checks.some(check => check.passed === false
@@ -348,7 +348,7 @@ export function citedSpanIds(trace: Trace): string[] {
       const value = span.output;
       return span.kind === 'RETRIEVAL'
         || span.kind === 'LLM' && typeof value.dueDate === 'string' && !!value.dueDate.trim()
-        || span.kind === 'TOOL' && (typeof value.nextStep === 'string' || typeof value.text === 'string' && /\b(?:payment due|due date)\s*:\s*\d{4}-\d{2}-\d{2}\b/i.test(value.text) || value.repairBookingAvailable === true)
+        || span.kind === 'TOOL' && (typeof value.nextStep === 'string' || [value.text, value.textExcerpt].some(text => typeof text === 'string' && /\b(?:payment due|due date)\s*:\s*\d{4}-\d{2}-\d{2}\b/i.test(text)) || value.repairBookingAvailable === true)
         || span.kind === 'GUARDRAIL' && (value.claimFoundInSources === false || value.passed === false && Array.isArray(value.missing));
     });
     return [...new Set([...(root ? [root.id] : []), ...observations.map(span => span.id)])];
