@@ -141,6 +141,10 @@ export function appServer(store: Store, options: AppServerOptions) {
       if (isGone(e)) { tt.evidence?.interrupt('expired'); throw e; }
       result = unfinishedTurnResult(store.read(id).version, before, execution());
     }
+    // A sweep/recovery may have settled this durable run while the worker was awaiting a provider or tool.
+    // Its response is final: late completion must neither append another reply nor replace idempotent replay.
+    const settled = store.findRun(id, request.clientTurnId, hash);
+    if (settled?.state === 'settled') return settled.response!;
     const status = BUYER_STATUS[result.outcome];
     const story = responseDemoId === id && result.story && storyProblems(result.story).length === 0 ? result.story : undefined;
     const target = separateText ? store.appendTurns(responseDemoId, [{ role: 'buyer', text: separateText, status }, ...result.messages]).session : undefined;

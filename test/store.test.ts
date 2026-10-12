@@ -311,3 +311,25 @@ test('deletion is physical (L2-13): End demo and sweep leave no content in the d
     assert.equal(onDisk(t.path, marker), 0, 'swept content is gone from the db file and WAL');
   } finally { t.cleanup(); }
 });
+
+test('recovered turns cannot publish late or change the response replayed after restart', () => {
+  const t = tempStore();
+  try {
+    const session = t.store.create('Delayed save', undefined, op());
+    const clientTurnId = 'recovered-turn-01';
+    t.store.beginTurn(session.id, { clientTurnId, requestHash: 'same-request', text: 'Show travel booking', turnId: 'delayed', execution: { mode: 'mock', provider: 'stub', model: null } });
+    const recovered = t.store.recoverRun(session.id, clientTurnId);
+    assert.equal(recovered.outcome, 'provider_unavailable');
+    const before = t.store.read(session.id);
+    const late = t.store.publish(session.id, travelProposalV1, { clientTurnId });
+    assert.equal(late.state, 'save_failed');
+    assert.deepEqual(t.store.read(session.id), before);
+    assert.deepEqual(t.store.recoverRun(session.id, clientTurnId), recovered);
+    t.store.close();
+    const reopened = new Store(t.path, { clock: t.clock });
+    try {
+      assert.equal(reopened.read(session.id).version, 1);
+      assert.deepEqual(reopened.recoverRun(session.id, clientTurnId), recovered);
+    } finally { reopened.close(); }
+  } finally { t.cleanup(); }
+});
