@@ -1,0 +1,63 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4Q4HCHGRM6B28WFJAT6HHXZ",
+  "session_id": "01a12e25-d25c-7e40-a6b7-ccd1c95c084f",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-12T04:04:47.655028Z",
+  "branch": "codex/tailor-20261012-review-fixes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/tailor-traces-review.md",
+    "docs/tailor-traces-review/traces-after-1440.png",
+    "docs/tailor-traces-review/traces-after-390.png",
+    "docs/tailor-traces-review/traces-after-980.png",
+    "docs/tailor-traces-review/traces-after-dark.png",
+    "docs/tailor-traces-review/traces-before-1440.png",
+    "docs/tailor-traces-review/traces-before-390.png",
+    "docs/tailor-traces-review/traces-before-980.png",
+    "public/style.css",
+    "src/clients/neatlogs/client.ts",
+    "src/clients/neatlogs/trace-guide.ts",
+    "src/infrastructure/server.ts",
+    "test/trace-guide.test.ts",
+    "ui/traces-review.spec.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.1-sol",
+  "turn_id": "17249d7992c5",
+  "checkpoint_transcript_start": 874,
+  "transcript_lines_at_start": 874,
+  "compact_transcript_start": 109,
+  "token_usage": {
+    "input_tokens": 129926,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 11808128,
+    "output_tokens": 12377,
+    "api_call_count": 57,
+    "subagent_tokens_complete": false
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-12T04:04:47.395581Z",
+    "agent_lines": 931,
+    "agent_removed": 99,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 931,
+    "total_lines_changed": 1030,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
