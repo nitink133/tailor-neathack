@@ -1,3 +1,4 @@
+import type { EvidenceObserver } from './evidence.ts';
 // Product-agnostic Tailor contract: chat shapes, turn envelope, core limits, the model-provider and telemetry seams.
 // Types and constants only (no Node imports): the browser build reaches this file through the client's contract.
 // Nothing here knows what a product stores; product shapes come in through the ProductAdapter (./adapter.ts).
@@ -213,8 +214,10 @@ export interface KnowledgeIndex<TRecord = unknown> {
 // Telemetry seam (real Tailor runtime observability, never product demo data).
 // ---------------------------------------------------------------------------
 /** `tool` is telemetry-only (tool selection/execution); it never appears in the buyer-visible TurnStep list. */
-export type TelemetryStep = TurnStep['name'] | 'turn' | 'tool';
+export type TelemetryStep = TurnStep['name'] | 'turn' | 'tool' | 'guard' | 'context';
 export interface TurnTelemetry {
+  /** Independent expected-operation accounting; does not infer completeness from emitted records. */
+  readonly evidence?: EvidenceObserver;
   /** Correlation IDs are hashed/opaque; no cookie, no raw buyer text, no full payloads by default. */
   readonly turnId: string;
   readonly correlationId: string;
@@ -236,6 +239,10 @@ export interface TurnTelemetry {
 
 export interface TelemetryVocabulary {
   adapterIds?: readonly string[];
+  codeVersions?: readonly string[];
+  adapterVersions?: readonly string[];
+  policyVersions?: readonly string[];
+  modelIds?: readonly string[];
   toolNames?: readonly string[];
   recordIds?: readonly string[];
   promptVersions?: readonly string[];
