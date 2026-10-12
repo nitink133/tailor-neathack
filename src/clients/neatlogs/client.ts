@@ -789,7 +789,18 @@ function routingDraft(s:DemoSession):Record<string,string|string[]> {
   return draft;
 }
 function routingPage(s:DemoSession){
-  if(isRoutingPreview() && nativeRoutingModule){root.innerHTML=shell(s,nativeRoutingModule.renderRoutingPanel({session:s,draft:routingDraft(s),step:routingStep,detail:routingDetail,list:routingList,busy:routingBusy,open:nativeRoutingOpen}));if(nativeRoutingOpen)root.querySelector<HTMLElement>('.workspace')!.scrollTop=0;restoreGuidanceHighlight();return;}
+  if(isRoutingPreview() && nativeRoutingModule){
+    root.innerHTML=shell(s,nativeRoutingModule.renderRoutingPanel({session:s,draft:routingDraft(s),step:routingStep,detail:routingDetail,list:routingList,busy:routingBusy,open:nativeRoutingOpen}));
+    for(const anchor of root.querySelectorAll<HTMLAnchorElement>('.routing-page a[data-nav]')){
+      const url=new URL(anchor.href), previewBase=routingBase(s.id);
+      if(url.origin===location.origin && (url.pathname===previewBase || url.pathname.startsWith(previewBase+'/'))){
+        url.searchParams.set('preview','routing-fidelity');anchor.href=url.pathname+url.search;
+      }
+    }
+    if(nativeRoutingOpen)root.querySelector<HTMLElement>('.workspace')!.scrollTop=0;
+    restoreGuidanceHighlight();return;
+  }
+
   const d=routingDraft(s),steps=['Type','Condition','Details','Response','Confirm'];
   const selected=(key:string,value:string)=>d[key]===value?'selected':'';
   let panel='';
