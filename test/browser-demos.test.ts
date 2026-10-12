@@ -244,29 +244,42 @@ test('bootstrap precedes first creation so a lost creation response retries with
   } finally { await h.close(); }
 });
 
-test('material edit-mode domain replacement asks before publication, including forged Story identity', async () => {
-  for (const forged of [false, true]) {
-    const h = await harness();
-    try {
-      const created = await established(h); const id = created.data.id; const before = h.store.read(id);
-      const proposal = { ...qualityWorkflowProposal('extraction', before.version), mode: 'edit' as const,
-        removeTraceKeys: before.dataset.traces.map(t => t.scenario),
-      };
-      if (forged) proposal.story.domain = before.story!.domain;
-      const core = createAgentService();
-      h.agent.script = input => core.handleTurn({ ...input, knowledge: loadKnowledge(), provider: { name: 'tailor-mock', mode: 'mock', model: null,
-        async complete() { return { action: { type: 'propose', proposal, explanation: 'Created a fictional extraction example.' }, usage: null, latencyMs: 0 }; },
-      } });
-      const asked = await h.call(`/api/sessions/${id}/turns`, 'POST', turn('Show an invoice extraction workflow that omits the due date'), created.cookie);
-      assert.equal(asked.data.outcome, 'clarification'); assert.equal(asked.data.clarification.kind, 'demo_switch');
-      assert.deepEqual(h.store.read(id).dataset, before.dataset); assert.deepEqual(h.store.read(id).story, before.story);
-      assert.equal(h.store.publish(id, proposal).state, 'rejected', 'the direct publication seam enforces the same normalized-state decision');
+for (const forged of [false, true]) test(forged
+  ? 'forged workflow Story is clarified before saving any switch candidate'
+  : 'valid material edit-mode domain replacement confirms before publication', async () => {
+  const h = await harness();
+  try {
+    const created = await established(h); const id = created.data.id; const before = h.store.read(id);
+    const candidateCount = () => (h.store.db.prepare('SELECT COUNT(*) n FROM demo_switches WHERE demo_id=?').get(id) as {n:number}).n;
+    const initialCandidates = candidateCount();
+    const proposal = { ...qualityWorkflowProposal('extraction', before.version), mode: 'edit' as const,
+      removeTraceKeys: before.dataset.traces.map(t => t.scenario),
+    };
+    if (forged) proposal.story.domain = before.story!.domain;
+    const core = createAgentService();
+    h.agent.script = input => core.handleTurn({ ...input, knowledge: loadKnowledge(), provider: { name: 'tailor-mock', mode: 'mock', model: null,
+      async complete() { return { action: { type: 'propose', proposal, explanation: 'Created a fictional extraction example.' }, usage: null, latencyMs: 0 }; },
+    } });
+    const asked = await h.call(`/api/sessions/${id}/turns`, 'POST', turn('Show an invoice extraction workflow that omits the due date'), created.cookie);
+    assert.equal(asked.data.outcome, 'clarification');
+    assert.equal(asked.data.clarification.choices.length, 3);
+    assert.equal(h.store.read(id).version, before.version);
+    assert.deepEqual(h.store.read(id).dataset, before.dataset); assert.deepEqual(h.store.read(id).story, before.story);
+    assert.equal(h.store.publish(id, proposal).state, 'rejected', 'the direct publication seam independently rejects normalized replacement without confirmation');
+    if (forged) {
+      assert.notEqual(asked.data.clarification.kind, 'demo_switch');
+      assert.equal(asked.data.clarification.referenceId, undefined);
+      assert.equal(candidateCount(), initialCandidates, 'output alignment veto runs before the candidate persistence gate');
+      assert.equal(h.store.browserSession(asked.data.sessionId).demos.length, 1);
+    } else {
+      assert.equal(asked.data.clarification.kind, 'demo_switch');
+      assert.equal(candidateCount(), initialCandidates + 1);
       const choice = await h.call(`/api/sessions/${id}/turns`, 'POST', { ...turn('Start separate demo'), choiceId: 'start_separate', confirmationRef: asked.data.clarification.referenceId }, created.cookie);
       assert.equal(choice.data.outcome, 'committed'); assert.notEqual(choice.data.demoId, id);
       assert.deepEqual(h.store.read(id).dataset, before.dataset);
       assert.match(h.store.read(choice.data.demoId).dataset.traces[0]!.name, /extraction/i);
-    } finally { await h.close(); }
-  }
+    }
+  } finally { await h.close(); }
 });
 
 test('small same-workflow edits remain direct and do not ask a material switch question', () => {
