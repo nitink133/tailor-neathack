@@ -5,11 +5,11 @@ import type { ProviderRequest } from '../src/agent-contract.ts';
 import { ANTHROPIC_FIXED_PARTS, createAnthropicProvider } from '../src/clients/neatlogs/anthropic-provider.ts';
 import { CONTEXT_RESERVE, contextBudget, fitContext, type AgentContext } from '../src/clients/neatlogs/context.ts';
 import { parseUserMessage, SYSTEM_PROMPT } from '../src/clients/neatlogs/prompts.ts';
-import { REQUEST_FRAMING_TOKENS, mapSdkError, maxOutputTokensFor, toAnthropicMessages, type MessagesClientLike } from '../src/tailor/anthropic-transport.ts';
+import { REQUEST_FRAMING_TOKENS, mapSdkError, maxOutputTokensFor, toAnthropicMessages, type MessagesClientLike, type AnthropicMessageParams } from '../src/tailor/anthropic-transport.ts';
 import { CORE_LIMITS } from '../src/tailor/contract.ts';
 import { reconcileTurnResult } from '../src/tailor/lifecycle.ts';
 import { ProviderError } from '../src/tailor/provider-error.ts';
-import { createSpendGuard, WORST_CHARS_PER_TOKEN } from '../src/tailor/spend.ts';
+import { createSpendGuard, DEFAULT_RATES, WORST_CHARS_PER_TOKEN } from '../src/tailor/spend.ts';
 import { countingProvider, harness, type CountingProvider } from './helpers/agent.ts';
 
 const TRAVEL = 'I’m building a travel-booking agent. Show me a booking API timeout followed by a successful retry.';
@@ -101,37 +101,59 @@ test('R1-F3: readback_uncertain and expired replace agent-authored text with cod
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
-// R1-F2: input estimate = ceil(conversation chars / 3) + fixed per-kind overhead computed at provider creation.
+// R1-F2: UTF-8 input-byte ceiling plus fixed wire/schema/framing overhead, using an offline client.
 // ---------------------------------------------------------------------------------------------------------------------
 function reservingProvider() {
   const guard = createSpendGuard({ capUsd: 100 });
   const reserved: number[] = [];
   const spend = { ...guard, reserve: (usd: number, meta: Parameters<typeof guard.reserve>[1]) => { reserved.push(usd); return guard.reserve(usd, meta); } };
-  const client: MessagesClientLike = { messages: { create: async () => { throw new Anthropic.BadRequestError(400, {}, 'nope', new Headers()); } } };
-  return { provider: createAnthropicProvider({ apiKey: 'sk-ant-placeholder-not-a-key', spend, client }), reserved, guard };
+  const sent: AnthropicMessageParams[] = [];
+  const client: MessagesClientLike = { messages: { create: async params => { sent.push(params); throw new Anthropic.BadRequestError(400, {}, 'nope', new Headers()); } } };
+  return { provider: createAnthropicProvider({ apiKey: 'sk-ant-placeholder-not-a-key', spend, client }), reserved, guard, sent };
 }
 
-test('R1-F2: the plan reservation is conversation chars / 3 plus the fixed wire-notes + schema + framing overhead', async () => {
-  const { provider, reserved, guard } = reservingProvider();
-  const user = 'x'.repeat(30_000);
-  const request: ProviderRequest = { messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: user }], responseSchema: 'agent_action', maxOutputTokens: 99_999 };
+const utf8Bytes = (text: string) => Buffer.byteLength(text, 'utf8');
+const estimatedUsd = (inputTokens: number, outputTokens: number) =>
+  (inputTokens * DEFAULT_RATES.inputPerMTok + outputTokens * DEFAULT_RATES.outputPerMTok) / 1e6;
+
+test('R1-F2: plan reservation covers UTF-8 conversation bytes plus wire/schema/framing overhead', async () => {
+  const { provider, reserved, guard, sent } = reservingProvider();
+  const user = 'क😀'.repeat(5_000);
+  const request: ProviderRequest = { messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'tool', content: 'Fictional result: café.' }, { role: 'user', content: user }], responseSchema: 'agent_action', maxOutputTokens: 99_999 };
   await assert.rejects(provider.complete(request));
   const fixed = ANTHROPIC_FIXED_PARTS.plan;
-  const overhead = Math.ceil((fixed.extraSystem.length + 2 + JSON.stringify(fixed.schema).length) / WORST_CHARS_PER_TOKEN) + REQUEST_FRAMING_TOKENS;
-  const conv = toAnthropicMessages(request.messages).chars;
+  const overhead = Math.ceil((utf8Bytes(fixed.extraSystem + '\n\n') + utf8Bytes(JSON.stringify(fixed.schema))) / WORST_CHARS_PER_TOKEN) + REQUEST_FRAMING_TOKENS;
+  const mapped = toAnthropicMessages(request.messages);
+  const conversationBytes = utf8Bytes(mapped.system) + mapped.messages.reduce((n, m) => n + utf8Bytes(m.content), 0);
   const maxTokens = maxOutputTokensFor('medium')!;
+  assert.ok(conversationBytes > mapped.chars, 'dense Unicode requires more UTF-8 bytes than JavaScript characters');
   assert.equal(reserved.length, 1);
-  assert.equal(reserved[0], guard.worstCaseUsd(conv, maxTokens, 'claude-sonnet-5-5', overhead));
-  assert.equal(reserved[0], ((Math.ceil(conv / 3) + overhead) * 2 + maxTokens * 10) / 1e6);
+  assert.equal(sent.length, 1);
+  assert.equal(reserved[0], guard.worstCaseUsd(conversationBytes, maxTokens, 'claude-sonnet-5-5', overhead));
+  assert.equal(reserved[0], estimatedUsd(Math.ceil(conversationBytes / WORST_CHARS_PER_TOKEN) + overhead, maxTokens));
+  const wire = sent[0]!;
+  const inputBytes = utf8Bytes(wire.system) + wire.messages.reduce((n, m) => n + utf8Bytes(m.content), 0) + utf8Bytes(JSON.stringify(wire.output_config.format.schema));
+  assert.ok(reserved[0]! >= estimatedUsd(Math.ceil(inputBytes / WORST_CHARS_PER_TOKEN) + REQUEST_FRAMING_TOKENS, maxTokens), 'reservation covers independently observed text, schema and framing');
 });
 
-test('R1-F2: medium worst case at the 60k-char input limit is $0.12435', () => {
+test('R1-F2: input-limit reservation uses a UTF-8 byte ceiling bounded by serialized wire bytes plus framing', () => {
   const guard = createSpendGuard({ capUsd: 100 });
   const fixed = ANTHROPIC_FIXED_PARTS.plan;
-  const wire = fixed.extraSystem.length + 2;
-  const overhead = Math.ceil((wire + JSON.stringify(fixed.schema).length) / 3) + REQUEST_FRAMING_TOKENS;
-  const usd = guard.worstCaseUsd(CORE_LIMITS.maxInputCharsPerCall - wire, maxOutputTokensFor('medium')!, 'claude-sonnet-5-5', overhead);
-  assert.equal(Math.round(usd * 1e5) / 1e5, 0.12435);
+  const wireNotesChars = fixed.extraSystem.length + 2;
+  const messages = [{ role: 'system' as const, content: SYSTEM_PROMPT }, { role: 'user' as const, content: 'क'.repeat(CORE_LIMITS.maxInputCharsPerCall - SYSTEM_PROMPT.length - wireNotesChars) }];
+  const mapped = toAnthropicMessages(messages, fixed.extraSystem);
+  assert.equal(mapped.chars, CORE_LIMITS.maxInputCharsPerCall, 'fixture fills the exact JavaScript-character limit');
+  const schemaBytes = utf8Bytes(JSON.stringify(fixed.schema));
+  const base = toAnthropicMessages(messages);
+  const conversationBytes = utf8Bytes(base.system) + base.messages.reduce((n, m) => n + utf8Bytes(m.content), 0);
+  const overhead = Math.ceil((utf8Bytes(fixed.extraSystem + '\n\n') + schemaBytes) / WORST_CHARS_PER_TOKEN) + REQUEST_FRAMING_TOKENS;
+  const maxTokens = maxOutputTokensFor('medium')!;
+  const usd = guard.worstCaseUsd(conversationBytes, maxTokens, 'claude-sonnet-5-5', overhead);
+  const inputBytes = utf8Bytes(mapped.system) + mapped.messages.reduce((n, m) => n + utf8Bytes(m.content), 0) + schemaBytes;
+  const serializedBytes = utf8Bytes(JSON.stringify({ system: mapped.system, messages: mapped.messages, output_config: { format: { type: 'json_schema', schema: fixed.schema } } }));
+  assert.ok(serializedBytes >= inputBytes, 'serialized UTF-8 includes the input sections and their JSON framing');
+  assert.ok(usd >= estimatedUsd(Math.ceil(inputBytes / WORST_CHARS_PER_TOKEN) + REQUEST_FRAMING_TOKENS, maxTokens));
+  assert.ok(usd <= estimatedUsd(Math.ceil(serializedBytes / WORST_CHARS_PER_TOKEN) + REQUEST_FRAMING_TOKENS, maxTokens), 'serialized bytes plus API framing give an independent reservation upper bound');
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
