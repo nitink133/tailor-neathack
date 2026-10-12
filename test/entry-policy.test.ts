@@ -88,8 +88,36 @@ test('policy codec uses bounded schema and the same spend accounting without ena
   const result = await provider.classifyPolicy!(policyRequest(entryInput(session(), 'Compose a picnic invitation.', null)));
   assert.equal(result.decision.outcome, 'redirect_off_topic'); assert.equal(params.length, 1);
   assert.equal(params[0]!.max_tokens, 1024); assert.equal(params[0]!.thinking.type, 'adaptive');
+  assert.equal(params[0]!.output_config.effort, 'low');
   assert.equal('cache_control' in params[0]!, false); assert.equal(spend.summary().calls, 1);
   assert.equal(result.settlement, 'settled_reported'); assert.ok(result.inputAccounting?.schema.bytes);
+});
+
+test('configured guard model keeps its own identity while sharing the capped spend ledger', async () => {
+  const models: string[] = [];
+  // Explicit test rates and non-routable fixture model tokens; no production model recommendation or API call.
+  const spend = createSpendGuard({ capUsd: 1, rates: { inputPerMTok: 2, outputPerMTok: 10 } });
+  const provider = createAnthropicProvider({ apiKey: 'placeholder-not-a-key', model: 'planner-fixture', guardModel: 'guard-fixture', spend,
+    client: { messages: { async create(params) {
+      models.push(params.model); assert.equal(params.output_config.effort, 'low');
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: '{"outcome":"clarify","reason":"ambiguous"}' }], usage: { input_tokens: 25, output_tokens: 5 } };
+    } } },
+  });
+  const response = await provider.classifyPolicy!(policyRequest(entryInput(session(), 'Hello', null)));
+  assert.equal(provider.model, 'planner-fixture'); assert.equal(provider.classifierModel, 'guard-fixture'); assert.equal(response.guardModel, 'guard-fixture');
+  assert.deepEqual(models, ['guard-fixture']); assert.equal(spend.summary().byKind.guard?.calls, 1);
+  assert.throws(() => createAnthropicProvider({ apiKey: 'placeholder-not-a-key', guardModel: 'unpriced-fixture', spend: createSpendGuard({ capUsd: 1 }) }), /No spend rates/);
+});
+
+test('a slow guard client ignoring cancellation fails closed and preserves unknown billed usage', async () => {
+  const spend = createSpendGuard({ capUsd: 1 }), tools = stubTools(); let wireCalls = 0;
+  const provider = createAnthropicProvider({ apiKey: 'placeholder-not-a-key', spend, timeoutMs: 5,
+    client: { messages: { async create() { wireCalls++; return await new Promise<never>(() => {}); } } },
+  });
+  const result = await createAgentService().handleTurn({ session: session(), request: { text: 'My inventory agent has an API timeout.', clientTurnId: 'slow-policy' },
+    tools, knowledge: fakeKnowledge(), telemetry: recordingTelemetry(), provider, clock: fixedClock });
+  assert.equal(result.outcome, 'clarification'); assert.equal(wireCalls, 1); assert.equal(tools.publishCount(), 0); assert.equal(tools.state.version, 1);
+  assert.equal(spend.summary().unreconciledCalls, 1); assert.equal(spend.summary().byKind.plan?.calls ?? 0, 0);
 });
 
 test('executable Tailor quality suite checks actual saved state, independent reads, failures, isolation and redaction', async () => {
