@@ -422,6 +422,7 @@ test('material workflow switches wait for confirmation; keep, adapt and separate
   const old=await page.request.get(`/api/sessions/${original.id}`).then(r=>r.json());
   expect(old.dataset.traces.map((t:{id:string})=>t.id)).toEqual(adapted.dataset.traces.map(t=>t.id));
   await page.getByRole('button',{name:'Expand sidebar'}).click();
+  await page.locator('details.demo-picker summary').click();
   await page.locator(`[data-select-demo="${original.id}"]`).click();
   await expect(page).toHaveURL(originalUrl);await expect(page.locator('[data-count]')).toBeVisible();
   await expect(page.locator('.chat-panel')).toContainText('Keep current demo');
