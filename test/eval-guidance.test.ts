@@ -98,13 +98,12 @@ test('eval guidance survives the structured answer pipeline without another plan
     const guard = 'outcome' in properties;
     calls.push(guard ? 'guard' : 'plan');
     if (!guard) {
-      const schema = properties.guidance as { items: { enum: string[] } };
-      assert.ok(schema.items.enum.includes('evals.overview'), 'structured output permits the adapter-owned eval target');
-      assert.ok(schema.items.enum.includes('alerts.overview'), 'structured output permits the adapter-owned alert target');
+      const schema = properties.guidance as { type: string[] };
+      assert.deepEqual(schema.type, ['string', 'null'], 'compact wire uses an encoded target list; the adapter validates names');
     }
     return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(guard
       ? { outcome: 'allow_product_question', reason: 'product_question' }
-      : { type: 'answer', text: 'Trace detail shows the saved steps; use them to choose useful eval checks.', knowledgeIds: ['trace-detail'], guidance: ['evals.overview', 'alerts.overview'], clarification: null, proposal: null, explanation: null, traceId: null, spanIds: null, capabilityId: null, reason: null }) }],
+      : { type: 'answer', text: 'Trace detail shows the saved steps; use them to choose useful eval checks.', knowledgeIds: ['trace-detail'], guidance: JSON.stringify(['evals.overview', 'alerts.overview']), evaluation: null, clarification: null, proposal: null, explanation: null, traceId: null, spanIds: null, capabilityId: null, reason: null }) }],
       usage: { input_tokens: 50, output_tokens: 30 } };
   } } };
   const provider = createAnthropicProvider({ apiKey: 'offline-placeholder', spend: createSpendGuard({ capUsd: 100 }), client });
