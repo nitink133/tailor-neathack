@@ -1,6 +1,6 @@
 // Browser-safe accounting shapes. Byte counts are exact; token counts are estimates, distinct from provider usage.
 export const INPUT_ESTIMATION_VERSION = 'utf8-conservative-v1';
-export const PRICING_VERSION = 'tailor-rates-2026-10-12.1';
+export const PRICING_VERSION = 'tailor-rates-2026-10-12.2';
 export type AttemptSettlement = 'not_sent' | 'released' | 'settled_reported' | 'settled_unreconciled' | 'pending';
 /** Allowlisted provider counters in their original field names. Missing is unavailable, never zero.
  * This is diagnostic evidence only; spend settlement still uses the independently validated ProviderUsage. */
