@@ -35,6 +35,8 @@ function provider(actions: AgentAction[], explanation?: EvidenceExplanation): Mo
   let i = 0;
   return {
     name: 'tailor-mock', model: null, mode: 'mock',
+    // Independent allowed scope fixture: these cases exercise downstream prose grounding, not topic detection.
+    async classifyPolicy() { return { decision: { outcome: 'allow_demo_action' as const, reason: 'demo_action' as const }, usage: null, latencyMs: 0, costUsd: 0 }; },
     async complete(): Promise<ProviderResponse> { return { action: actions[Math.min(i++, actions.length - 1)]!, usage: null, latencyMs: 0 }; },
     ...(explanation ? { async explain() { return { explanation, usage: null, latencyMs: 0 }; } } : {}),
   };
@@ -125,7 +127,7 @@ test('R2-01: unsupported and refuse drop the positive claim and invented numbers
 });
 
 test('R2-01: numbers the buyer stated may be repeated on paths without read-back evidence', async () => {
-  const { result } = await run([{ type: 'refuse', text: 'It retried 3 times, and I can’t change that from here.', reason: 'off_topic' }], { text: 'My agent retried 3 times. Delete my production data.' });
+  const { result } = await run([{ type: 'refuse', text: 'It retried 3 times, and I can’t change that from here.', reason: 'off_topic' }], { text: 'My agent retried 3 times. Explain this fictional run.' });
   assert.match(allText(result), /It retried 3 times/);
 });
 

@@ -11,6 +11,7 @@ import { loadKnowledge } from '../src/clients/neatlogs/knowledge.ts';
 import { createSpendGuard } from '../src/tailor/spend.ts';
 import { sentencePassesAnswerFilter } from '../src/clients/neatlogs/answer.ts';
 import { groundNarrative } from '../src/clients/neatlogs/explain.ts';
+import { requestBoundary } from '../src/clients/neatlogs/request-boundaries.ts';
 import { countingProvider, FAKE_RECORDS, fakeKnowledge, harness, recordingTelemetry, scriptedProvider, stubTools, validateProposal } from './helpers/agent.ts';
 
 const errorSpans = (h: ReturnType<typeof harness>) => h.tools.state.dataset.traces.find(t => t.scenario === h.tools.state.dataset.activeScenario)!.spans.filter(s => s.status === 'ERROR');
@@ -149,7 +150,7 @@ test('choiceId also resolves when the backend has not appended the buyer turn to
   await h2.say(nonProposalRequests.ambiguous.text);
   const unknown = await h2.say('Show me something failing.', { choiceId: 'c9' });
   assert.equal(unknown.outcome, 'clarification', 'unknown choiceId falls back to the typed text');
-  assert.ok(h2.provider.calls.at(-1)!.messages[1]!.content.endsWith('Show me something failing.'));
+  assert.equal(h2.provider.calls.length, 0, 'ambiguous entry is clarified before planning');
 });
 
 test('knowledge question is answered from records with plan availability stated as unknown', async () => {
@@ -196,8 +197,8 @@ test('injection, arbitrary code, cross-session and real-product mutation are ref
     const spy = harness({ provider, tools: h.tools });
     const result = await spy.say(nonProposalRequests[key].text);
     assert.equal(result.outcome, 'refused', key);
-    assert.equal(seen[0]!.type, 'refuse');
-    assert.equal((seen[0] as Extract<AgentAction, { type: 'refuse' }>).reason, reason, key);
+    assert.equal(seen.length, 0, 'the blocking entry guard prevents planning');
+    assert.equal(requestBoundary(nonProposalRequests[key].text)?.reason, reason, key);
     assert.equal(spy.tools.calls.length, 0, `${key}: no tool call`);
     assert.equal(spy.tools.state.version, 1, `${key}: state untouched`);
     assert.equal(result.messages[0]!.status, 'note');
@@ -397,7 +398,7 @@ test('telemetry: steps are recorded without raw buyer text; mock reports no usag
   const secret = 'I’m building a refunds agent. Show a payment API timeout, then a successful retry. SECRET-MARKER';
   await h.say(secret, { telemetry });
   assert.ok(telemetry.steps.includes('load_context') && telemetry.steps.includes('retrieve_knowledge') && telemetry.steps.includes('model'));
-  assert.deepEqual(telemetry.usage, [{ usage: null, model: null }]);
+  assert.deepEqual(telemetry.usage, [{ usage: null, model: null }, { usage: null, model: null }], 'guard and planner report usage unavailable separately');
   assert.doesNotMatch(JSON.stringify([telemetry.steps, telemetry.events]), /SECRET-MARKER/);
 });
 
@@ -666,7 +667,8 @@ test('FINDING 3: explicit session IDs, paths and "session id = token" are refuse
     const h = harness({ provider });
     const result = await h.say(text);
     assert.equal(result.outcome, 'refused', text);
-    assert.equal((seen[0] as Extract<AgentAction, { type: 'refuse' }>).reason, 'cross_session', text);
+    assert.equal(seen.length, 0, 'the entry boundary prevents planning');
+    assert.equal(requestBoundary(text)?.reason, 'cross_session', text);
     assert.equal(h.tools.calls.length, 0, `${text}: no tool call`);
     assert.equal(h.tools.state.version, 1, `${text}: version unchanged`);
     assert.match(result.messages[0]!.text, /Nothing was changed/);

@@ -6,7 +6,7 @@ import { POLICY_VERSION, POLICY_LIMITS, decodePolicyDecision, type PolicyInput, 
 import type { ScenarioProposal, SessionSnapshot, TurnRequest } from './agent-contract.ts';
 import { capabilityRemitSummary } from './capabilities.ts';
 import { isProviderError } from '../../tailor/provider-error.ts';
-import { requestBoundary } from './request-boundaries.ts';
+import { isInstructionOverride, requestBoundary } from './request-boundaries.ts';
 
 export const PRODUCT_REMIT = 'Answer questions about Neatlogs and how it helps a buyer understand agent executions. Build, edit, compare and explain fictional product demos. Never do unrelated general assistant work, execute code, access another buyer, or mutate a real account.';
 // Compact code-owned policy; retrieval of the full capability records happens only AFTER the guard allows dispatch.
@@ -63,8 +63,8 @@ export function policyPreflight(decision: PolicyDecision, accounting?: PolicyRes
   switch (decision.outcome) {
     case 'allow_product_question': case 'allow_demo_action': return { kind: 'continue', ...metadata };
     case 'clarify': return { kind: 'ask', clarification: RELEVANCE_QUESTION, reason: 'needs_context', ...metadata };
-    case 'redirect_off_topic': return { kind: 'refuse', reason: 'off_topic', text: 'I can help with Neatlogs product questions and fictional agent workflow examples. Please describe the workflow or product question you want to explore.', ...metadata };
-    case 'deny_instruction_override': return { kind: 'refuse', reason: 'injection', text: 'I can discuss or simulate an attack as fictional data, but I can’t follow instructions to override this demo’s rules or expose private information.', ...metadata };
+    case 'redirect_off_topic': return { kind: 'refuse', reason: 'off_topic', text: 'I can help with Neatlogs product questions and fictional agent workflow examples. Please describe the workflow or product question you want to explore. Nothing was changed.', ...metadata };
+    case 'deny_instruction_override': return { kind: 'refuse', reason: 'injection', text: 'I can discuss or simulate an attack as fictional data, but I can’t follow instructions to override this demo’s rules or expose private information. Nothing was changed.', ...metadata };
   }
 }
 
@@ -76,7 +76,7 @@ export async function entryPreflight(input: { session: SessionSnapshot; request:
   const state = entryInput(input.session, input.buyerText, input.choice);
   if (!input.buyerText.trim()) return policyPreflight({ outcome: 'clarify', reason: 'ambiguous' });
   const veto = requestBoundary(input.buyerText);
-  if (veto) return { kind: 'refuse', ...veto };
+  if (veto) return veto.reason === 'injection' ? policyPreflight({ outcome: 'deny_instruction_override', reason: 'instruction_override' }) : { kind: 'refuse', ...veto, text: `${veto.text} Nothing was changed.` };
   const project = (result: AdapterPreflightResult): AdapterPreflightResult => result.kind === 'ask' && result.policy?.reason === 'ambiguous' && /\b(?:fail\w*|workflow|agent)\b/i.test(input.buyerText)
     ? { ...result, clarification: FAILURE_QUESTION } : result;
   if (!input.provider.classifyPolicy) {
@@ -94,6 +94,7 @@ export async function entryPreflight(input: { session: SessionSnapshot; request:
     const unavailable = { outcome: 'clarify', reason: 'guard_unavailable' } as const;
     const failure: PolicyResponse = {
       decision: unavailable, usage: isProviderError(error) ? error.usage : null,
+      guardModel: input.provider.classifierModel ?? input.provider.model,
       latencyMs: isProviderError(error) ? error.latencyMs ?? Math.round(performance.now() - started) : Math.round(performance.now() - started),
       ...(isProviderError(error) ? {
         errorKind: error.kind, ...(error.requestId ? { requestId: error.requestId } : {}),
@@ -126,13 +127,12 @@ export function inputFromPolicyRequest(request: PolicyRequest): PolicyInput | nu
 
 const decision = (outcome: PolicyDecision['outcome'], reason: PolicyDecision['reason']): PolicyDecision => ({ outcome, reason });
 const normalize = (text: string) => text.normalize('NFKC').replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/[’‘]/g, "'").toLowerCase();
-const OVERRIDE = /\b(?:ignore|disregard|forget|override)\b[^.!?\n]{0,80}\b(?:instructions?|rules?|policy|system|developer)\b|\byou are now\b|\b(?:reveal|expose|print|leak|show)\b[^.!?\n]{0,45}\b(?:api key|secrets?|credentials?|system prompt|cookies?)\b|(?:^|\n)\s*(?:system|developer)\s*:|<\/?(?:system|developer)>|\[\s*(?:system|developer)\s*\]|(?:नियम|निर्देश)[^.!?]{0,30}(?:भूल|अनदेखा)|\b(?:rules|instructions)\s+(?:bhool|ignore)\b/i;
 const WORKFLOW = /\b(?:agents?|workflows?|bots?|assistants?|pipelines?|copilots?|chatbots?|agentic)\b|एजेंट|वर्कफ़्लो|कार्यप्रवाह/i;
 const PRODUCT = /\bneatlogs\b|नीटलॉग्स/i;
-const PRODUCT_TOPICS = /\b(?:traces?|spans?|detections?|observability|telemetry|evals?|evaluations?|replay|integrations?|sdks?|pricing|retention|alerts?|plan availability|capabilities|product)\b|ट्रेस|कीमत|मूल्यांकन/i;
+const PRODUCT_TOPICS = /\b(?:traces?|spans?|detections?|observability|telemetry|evals?|evaluations?|replay|integrations?|sdks?|pricing|prices?|costs?|plans?|retention|alerts?|capabilities|product)\b|ट्रेस|कीमत|मूल्यांकन/i;
 const QUESTION = /\?|^(?:what|how|why|does|do|can|could|will|is|are|which|tell me about|explain|kya|kaise)\b|\b(?:how|why|explain how|tell me about|kaise)\b|कैसे|क्या/i;
 const DEMO_ACTION = /\b(?:show|simulate|model|demonstrate|build|create|generate|change|edit|add|remove|drop|compare|explain|illustrate|switch|start over|make|let)\b|दिखा|बनाओ/i;
-const DEMO_SUBJECT = /\b(?:api|tool|guardrail|retriev\w*|execution|scenario|demo|steps?|attempts?)\b/i;
+const DEMO_SUBJECT = /\b(?:api|tool|guardrail|retriev\w*|execution|scenario|demo|sessions?|steps?|attempts?)\b/i;
 const FAILURE = /\b(?:fail\w*|errors?|timeouts?|timed? out|retry|retries|latency|slow|garbage|malformed|guardrail|payout|double.book|blocked|successful|success|recover\w*)\b/i;
 const FOLLOWUP = /^(?:make|add|change|remove|drop|keep|explain|compare|show|let|have|acquire|try|now|what|why|walk|summarize|summarise)\b/i;
 const UNRELATED_ACTION = /\b(?:write|compose|draft|calculate|solve|translate|summarize|summarise|research|find|book|buy|order|teach|implement|debug|fix|execute|run)\b/i;
@@ -142,7 +142,7 @@ export function classifyOfflinePolicy(input: PolicyInput): PolicyDecision {
   const full = normalize(input.latestText).trim();
   // Attack examples are quoted data. Their surrounding instruction still controls this classification.
   const unquoted = full.replace(/```[\s\S]*?```|"[^"\n]*"|'[^'\n]*'|“[^”]*”|«[^»]*»/g, ' [quoted data] ');
-  if (OVERRIDE.test(unquoted)) return decision('deny_instruction_override', 'instruction_override');
+  if (isInstructionOverride(full)) return decision('deny_instruction_override', 'instruction_override');
   if (!full || /^(?:hi|hello|hey|thanks|thank you|namaste|नमस्ते)[.! ]*$/.test(full)) return decision('clarify', 'ambiguous');
   const product = PRODUCT.test(unquoted);
   const topic = PRODUCT_TOPICS.test(unquoted);
@@ -155,6 +155,7 @@ export function classifyOfflinePolicy(input: PolicyInput): PolicyDecision {
   if (product && unrelated && !topic && !workflow && !/\b(?:how|does|help|use|benefit)\b/.test(unquoted)) return decision('redirect_off_topic', 'off_topic');
   if (mixed && (topic || workflow)) return decision('clarify', 'ambiguous');
   if (input.session.hasPublishedState && /\b(?:walk me through|what happened|what went wrong|why did it)\b/.test(unquoted)) return decision('allow_demo_action', 'demo_action');
+  if (/\b(?:can|could|would|will)\s+you\s+(?:show|simulate|make|create|build|add|change)\b/.test(unquoted) && (workflow || topic || DEMO_SUBJECT.test(unquoted))) return decision('allow_demo_action', 'demo_action');
   if ((product || topic) && question && !/^(?:run|execute|create|build|simulate|make|add|replay)\b/.test(unquoted)) return decision('allow_product_question', 'product_question');
   if (input.session.resolvedChoice && input.session.pendingClarification) return decision('allow_demo_action', 'demo_action');
   if (input.session.hasPublishedState && FOLLOWUP.test(unquoted) && (topic || FAILURE.test(unquoted) || /\b(?:it|this|that|current|example|step|attempt|third|second|lock|invite)\b/.test(unquoted))) return decision('allow_demo_action', 'demo_action');
@@ -169,11 +170,15 @@ export function proposalAlignment(proposal: ScenarioProposal, text: string): Pre
   const t = normalize(text);
   const domainMatch = /\b(?:building|developing|shipping|testing|running|making)\s+(?:(?:a|an|the|my|our)\s+)?([a-z][a-z -]{1,65}?)\s+(?:agent|bot|assistant|workflow|pipeline|copilot)\b/.exec(t)
     ?? /\b(?:my|our)\s+([a-z][a-z -]{1,45}?)\s+(?:agent|bot|assistant|workflow|pipeline|copilot)\b/.exec(t);
-  if (!domainMatch) return { kind: 'continue' };
-  const ignored = new Set(['a', 'an', 'the', 'my', 'our', 'new', 'simple', 'fictional', 'synthetic', 'own']);
-  const required = domainMatch[1]!.split(/[^a-z]+/).filter(w => w.length > 2 && !ignored.has(w));
+  // A buyer may identify the workflow with a short headline rather than an agent-shaped sentence.
+  const headline = /^([a-z][a-z -]{1,80})\s*:/.exec(t)?.[1];
+  const identity = domainMatch?.[1] ?? headline;
+  const ignored = new Set(['a', 'an', 'the', 'my', 'our', 'new', 'simple', 'fictional', 'synthetic', 'own', 'request', 'please', 'show', 'example', 'workflow', 'agent', 'bot']);
+  const required = identity?.split(/[^a-z]+/).filter(w => w.length > 2 && !ignored.has(w)) ?? [];
+  const namedTools = [...text.matchAll(/\b([A-Z][A-Z0-9_-]{1,15})\s+(?:API|tool|service|returns)\b/g)].map(m => m[1]!.toLowerCase()).filter(w => w !== 'api');
   const actual = normalize(`${proposal.story.domain} ${proposal.story.summary}`);
-  if (required.length && !required.every(w => actual.includes(w))) {
+  const steps = normalize(JSON.stringify(proposal.traces.map(trace => trace.spans)));
+  if ((required.length && !required.every(w => actual.includes(w))) || namedTools.some(w => !steps.includes(w))) {
     return { kind: 'ask', reason: 'needs_context', clarification: {
       question: 'The proposed example did not match the workflow you described. Which part should I focus on?',
       choices: [{ id: 'c1', label: 'Use the workflow I described' }, { id: 'c2', label: 'Focus on its failing tool call' }, { id: 'c3', label: 'Explain Neatlogs before building an example' }], allowFreeText: true,

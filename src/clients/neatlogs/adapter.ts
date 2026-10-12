@@ -73,6 +73,8 @@ function decodeAction(raw: AgentAction): ReturnType<ProductAdapter<NeatlogsTypes
 export const NEATLOGS_ADAPTER_VERSION = 'neatlogs-adapter-2026-10-12.2';
 export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
   id: 'neatlogs',
+  version: NEATLOGS_ADAPTER_VERSION,
+  contractVersion: '2026-10-11.1',
   productNames: PRODUCT_NAMES,
   systemPrompt: SYSTEM_PROMPT,
   promptVersion: PROMPT_VERSION,

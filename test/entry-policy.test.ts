@@ -73,8 +73,9 @@ test('live missing classifier clarifies; invalid or failed classifier cannot fal
 });
 
 test('input classification does not make a valid but unrelated proposal satisfy independent buyer requirements', () => {
-  const wrong = proposalAlignment(travelProposalV1, 'I am developing an insurance claims triage bot. The OCR tool returns garbage and a guardrail blocks the payout.');
-  assert.equal(wrong.kind, 'ask');
+  for (const text of ['I am developing an insurance claims triage bot. The OCR tool returns garbage and a guardrail blocks the payout.', 'Insurance claims triage: OCR returns garbage; guardrail blocks payout.']) {
+    assert.equal(proposalAlignment(travelProposalV1, text).kind, 'ask');
+  }
 });
 
 test('policy codec uses bounded schema and the same spend accounting without enabling prompt caching', async () => {

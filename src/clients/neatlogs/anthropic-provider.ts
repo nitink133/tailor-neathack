@@ -246,6 +246,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
   return {
     name: transport.name,
     model: transport.model,
+    classifierModel: guardTransport.model,
     mode: transport.mode,
     effort: transport.effort,
     async classifyPolicy(request: PolicyRequest, signal?: AbortSignal): Promise<PolicyResponse> {

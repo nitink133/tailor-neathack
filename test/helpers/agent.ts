@@ -208,12 +208,15 @@ function snapshot(state: StubTools['state'], conversation: ChatTurn[]): SessionS
 export interface CountingProvider extends ModelProvider { calls: ProviderRequest[]; }
 export function countingProvider(inner: ModelProvider = createMockProvider()): CountingProvider {
   const calls: ProviderRequest[] = [];
-  return { name: inner.name, model: inner.model, mode: inner.mode, calls, async complete(request, signal) { calls.push(request); return inner.complete(request, signal); } };
+  return { ...inner, calls, async complete(request, signal) { calls.push(request); return inner.complete(request, signal); } };
 }
-export function scriptedProvider(next: (request: ProviderRequest, call: number) => AgentAction | Error, label = 'scripted'): CountingProvider {
+export function scriptedProvider(next: (request: ProviderRequest, call: number) => AgentAction | Error, label = 'scripted', fixturePolicy: import('../../src/tailor/policy.ts').PolicyDecision = { outcome: 'allow_demo_action', reason: 'demo_action' }): CountingProvider {
   const calls: ProviderRequest[] = [];
   return {
     name: label, model: null, mode: 'mock', calls,
+    // Explicit independent classifier fixture for unit tests of downstream planning/validation.
+    // Production providers never inherit this fixture, and code-owned entry/session vetoes still run.
+    async classifyPolicy() { return { decision: fixturePolicy, usage: null, latencyMs: 0, costUsd: 0 }; },
     async complete(request): Promise<ProviderResponse> {
       calls.push(request);
       const out = next(request, calls.length);

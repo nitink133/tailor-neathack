@@ -61,6 +61,7 @@ export const RUNTIME_QUALITY_CASES: readonly RuntimeQualityCase[] = [
   ] },
   { id: 'independent-insurance-requirements', turns: [{ text: 'We are shipping an insurance claims triage bot. The OCR tool returns garbage and a guardrail blocks the payout.', expect: { outcomes: ['committed'], versionDelta: 1, domainTerms: ['insurance', 'claims', 'triage'], blockedPayout: true } }] },
   { id: 'wrong-workflow-valid-proposal', script: 'wrong_workflow', turns: [{ text: 'I am developing an insurance claims triage bot. The OCR tool returns garbage and a guardrail blocks the payout.', expect: { outcomes: ['clarification'], versionDelta: 0 } }] },
+  { id: 'original-headline-wrong-workflow', script: 'wrong_workflow', turns: [{ text: 'Insurance claims triage: OCR returns garbage; guardrail blocks payout.', expect: { outcomes: ['clarification'], versionDelta: 0 } }] },
   { id: 'retry-follow-up-preserves-state', turns: [
     { text: 'My warehouse scheduling agent has a calendar API timeout followed by a successful retry.', expect: { outcomes: ['committed'], versionDelta: 1, domainTerms: ['warehouse', 'scheduling'], errors: 1, traceCount: 1 } },
     { text: 'Make the retry fail too.', expect: { outcomes: ['committed'], versionDelta: 1, domainTerms: ['warehouse', 'scheduling'], errors: 2, traceCount: 2 } },

@@ -25,6 +25,7 @@ export function createMockProvider(): ModelProvider {
   });
   return {
     ...planner,
+    classifierModel: null,
     async classifyPolicy(request: PolicyRequest): Promise<PolicyResponse> {
       const started = performance.now();
       const input = inputFromPolicyRequest(request);

@@ -59,6 +59,8 @@ function createFakeProvider(options: {
     model: options.model !== undefined ? options.model : 'claude-sonnet-5-5',
     mode: 'live',
     effort: options.effort !== undefined ? options.effort : 'medium',
+    // These fixtures test the planning/explanation contract after an explicitly permitted guard result.
+    async classifyPolicy() { return { decision: { outcome: 'allow_demo_action' as const, reason: 'demo_action' as const }, usage: null, latencyMs: 0 }; },
     completeCalls,
     explainCalls,
     onComplete: options.onComplete,

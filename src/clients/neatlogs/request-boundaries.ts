@@ -1,4 +1,8 @@
 import type { RefusalReason } from '../../tailor/adapter.ts';
+export function isInstructionOverride(text: string): boolean {
+  const unquoted = text.normalize('NFKC').replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/```[\s\S]*?```|"[^"\n]*"|'[^'\n]*'|“[^”]*”|«[^»]*»/g, ' [quoted data] ');
+  return /\b(?:ignore|disregard|forget|override)\b[^.!?\n]{0,80}\b(?:instructions?|rules?|policy|system|developer)\b|\byou are now\b|\b(?:reveal|expose|print|leak|show)\b[^.!?\n]{0,45}\b(?:api key|secrets?|credentials?|system prompt|cookies?)\b|(?:^|\n)\s*(?:system|developer)\s*:|<\/?(?:system|developer)>|\[\s*(?:system|developer)\s*\]|(?:नियम|निर्देश)[^.!?]{0,30}(?:भूल|अनदेखा)|\b(?:rules|instructions)\s+(?:bhool|ignore)\b/i.test(unquoted);
+}
 const CODE_STRONG = /child_process|require\s*\(|rm\s+-rf|<\s*script|\beval\s*\(|\bexec\s*\(|os\.system|subprocess|__import__|curl[^|]*\|\s*(?:ba)?sh|process\.env/i;
 const CODE_REQUEST = /\b(?:run|execute|insert|inject|embed)\b[^.]{0,40}\b(?:code|script|shell|command|javascript|python|bash|payload)\b/i;
 const CROSS_SESSION = /\b(?:other|another|previous|earlier|different|last)\s+(?:buyer|user|session|customer|visitor|person|demo)s?\b|\beveryone'?s\b|\b(?:all|every) (?:sessions?|buyers?|users?)\b|\bsomeone else'?s\b|\bwho was here before\b/i;
@@ -22,6 +26,7 @@ const MUTATION_TARGET = /\b(?:real|actual|production|live)\b[^.]{0,30}\b(?:neatl
 
 
 export function requestBoundary(text: string): { reason: RefusalReason; text: string } | null {
+  if (isInstructionOverride(text)) return { reason: 'injection', text: 'I can discuss a quoted attack as fictional data, but I can’t follow instructions to override this demo’s rules or expose private information.' };
   const raw = text.normalize('NFKC').replace(/[’‘]/g, "'");
   // Examples quoted for explanation are data. Subject descriptions about a coding agent grant no code execution.
   const t = raw.replace(/```[\s\S]*?```|"[^"\n]*"|“[^”]*”/g, ' [quoted data] ');
