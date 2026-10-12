@@ -15,7 +15,7 @@ const LEAK = 'In this demo Neatlogs can page Opsgenie.';
 const FULLWIDTH_RETRY = 'It retried ３ times.';
 const STATUS_WORDS = 'The API returned status five hundred three.';
 const FULLWIDTH_SPANS = 'Trace detail shows each step as ９ spans.';
-const GROUNDED = 'The attempt took 1500 ms.';
+const GROUNDED = 'create_reservation_attempt_1 failed after 1500 ms.';
 
 /** Anything R2 showed reaching a buyer: the positive Opsgenie claim, full-width digits, or the invented counts/status. */
 function leaksIn(text: string): string[] {
@@ -86,10 +86,10 @@ test('R2-01: explain tool narrative drops the claim, the spelled-out status and 
   assert.ok(text.includes(GROUNDED), text);
 });
 
-test('R2-01: "It can detect X" rule — kept only for a trace-evidence verb about a real step name', async () => {
+test('R2-01: "It can detect X" rule — a real step name does not establish an unsourced detection claim', async () => {
   const traceId = await seededTraceId();
   const cases: [string, boolean][] = [
-    ['It detects create_reservation_attempt_1.', true],
+    ['It detects create_reservation_attempt_1.', false],
     ['It can detect payment fraud.', false],
     ['It detects ghost_retry_step.', false],
     ['Neatlogs detects create_reservation_attempt_1.', false],

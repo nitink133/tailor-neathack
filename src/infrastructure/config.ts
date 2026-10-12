@@ -60,13 +60,15 @@ export function readConfig(env: NodeJS.ProcessEnv, fail: (message: string) => ne
       fail('TAILOR_LIVE_CAP_USD must be a number in (0, 50] (USD) that you have explicitly approved. Live calls refuse to start without it.');
     }
     const model = (env.TAILOR_MODEL ?? 'claude-sonnet-5-5').trim();
+    const guardModel = (env.TAILOR_GUARD_MODEL ?? model).trim();
+    if (!hasRatesFor(guardModel)) fail('TAILOR_GUARD_MODEL has no configured token rates; the guard cannot reserve its cost.');
     const effort = (env.TAILOR_EFFORT ?? 'medium').trim() as Effort;
     if (!EFFORTS.includes(effort)) fail(`TAILOR_EFFORT must be one of ${EFFORTS.join(', ')} (got ${effort}).`);
     if (maxOutputTokensFor(effort) === null) fail(`TAILOR_EFFORT=${effort} needs more output tokens than this build allows per call. Use low, medium or high.`);
     if (!hasRatesFor(model)) fail(`TAILOR_MODEL=${model} has no configured token rates, so spend cannot be estimated against the cap. Use a model with known rates.`);
     try { spend = createSpendGuard({ capUsd, ledgerPath }); }
     catch (e) { fail(`Spend ledger at ${ledgerPath} could not be loaded (${(e as Error).message}). Live calls refuse to start.`); }
-    providerConfig = { kind: 'anthropic', apiKey, model, effort, spend };
+    providerConfig = { kind: 'anthropic', apiKey, model, guardModel, effort, spend };
   }
 
   return {

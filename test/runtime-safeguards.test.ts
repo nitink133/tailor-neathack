@@ -12,7 +12,7 @@ import { ProviderError } from '../src/tailor/provider-error.ts';
 
 test('successful readback rejects false status and unsupported causes without discarding true measured facts', () => {
   const trace = fixtures('regression').traces.find(t => t.scenario === 'recovered')!;
-  for (const claim of ['The retry failed and the request never completed.', 'The root span failed.', 'The timeout was caused by a corrupted database.', 'The database corruption triggered the timeout.']) assert.equal(groundNarrative(claim, trace, null), '', claim);
+  for (const claim of ['The retry failed and the request never completed.', 'The root span failed.', 'The timeout was caused by a corrupted database.', 'The database corruption triggered the timeout.', 'The retry did not succeed.', 'No step failed.', 'The failed step succeeded without any errors.', 'The timeout stems from a broken database.']) assert.equal(groundNarrative(claim, trace, null), '', claim);
   assert.equal(groundNarrative('The retry recovered.', trace, null), 'The retry recovered.');
   assert.equal(groundNarrative('The root took 43 ms.', trace, null), 'The root took 43 ms.');
 });

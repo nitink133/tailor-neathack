@@ -171,32 +171,53 @@ function namesGrounded(sentence: string, allowed: Allowed): boolean {
   return true;
 }
 
-/** Status and cause claims need saved support as well as valid names and measures. */
+/** Model prose is admitted only as a supported fact form; other prose falls back to code-owned readback wording. */
 function semanticsGrounded(sentence: string, trace: Trace | null, readback: ReadbackEvidence | null): boolean {
-  const text = sentence.toLowerCase();
-  // A causal explanation cannot be inferred from timing or status. Keep only an explicitly recorded causal statement.
-  if (/\b(?:because|caused? by|due to|thanks to|triggered|led to|resulted in|root cause|corrupt(?:ed|ion)?)\b/.test(text)) {
-    const causes = [trace?.outcome ?? '', ...(trace?.spans.map(s => s.error ?? '') ?? []), ...(readback?.traces.map(t => t.outcome) ?? [])];
-    if (!causes.some(c => flat(c).includes(flat(sentence)))) return false;
-  }
-  if (!trace && !readback) return !/\b(?:failed|succeeded|recovered|completed|never completed|successful)\b/.test(text);
-  const entry = trace ?? readback?.traces.find(t => t.key === readback.activeScenario) ?? readback?.traces[0];
-  const failed = /\b(?:failed|fails|failure|unsuccessful|never completed|did not complete|didn.t complete)\b/.test(text);
-  const succeeded = /\b(?:succeeded|successful|recovered|completed successfully)\b/.test(text);
+  const text = sentence.trim();
+  const entries = readback?.traces ?? [];
+  const entry = trace ?? entries.find(t => t.key === readback?.activeScenario) ?? entries[0];
+  if (!entry) return false;
   const spans = trace?.spans ?? [];
   const root = spans.find(s => s.parentId === null);
-  if (/\broot\s+(?:span|step)\b/.test(text) && root && ((failed && root.status !== 'ERROR') || (succeeded && root.status === 'ERROR'))) return false;
-  for (const s of spans) {
-    if (text.includes(s.name.toLowerCase()) && ((failed && s.status !== 'ERROR') || (succeeded && s.status === 'ERROR'))) return false;
-  }
-  if (/\b(?:retry|second attempt|last attempt)\b/.test(text)) {
-    const retries = spans.filter(s => /retry|attempt[_ -]?(?:[2-9]|\d{2,})\b/i.test(s.name));
-    const last = retries.at(-1);
-    if (last && ((failed && last.status !== 'ERROR') || (succeeded && last.status === 'ERROR'))) return false;
-  }
-  if (/\b(?:request|workflow|run|trace)\s+(?:never completed|did not complete|failed|fails|was unsuccessful)\b/.test(text) && entry?.outcomeKind === 'success') return false;
-  if (/\b(?:request|workflow|run|trace)\s+(?:succeeded|was successful|completed successfully|recovered)\b/.test(text) && entry?.outcomeKind !== 'success') return false;
-  return true;
+  const errors = spans.filter(s => s.status === 'ERROR');
+  const count = trace ? spans.length : (entry as ReadbackEvidence['traces'][number]).spanCount;
+  const errorCount = trace ? errors.length : (entry as ReadbackEvidence['traces'][number]).errorSpanIds.length;
+  const duration = trace ? root?.durationMs : (entry as ReadbackEvidence['traces'][number]).rootDurationMs;
+  const time = (n: string, unit: string) => Number(n.replace(/,/g, '')) * (/^(?:s|sec|seconds?)$/i.test(unit) ? 1000 : 1);
+  const same = (a: number | undefined, b: number) => a !== undefined && Math.abs(a - b) <= 0.5;
+  const target = (name: string) => {
+    const key = name.replace(/^(?:the|a)\s+/i, '').replace(/\s+(?:step|span)$/, '').trim().toLowerCase();
+    if (key === 'root') return root;
+    if (key === 'retry' || key === 'second attempt' || key === 'last attempt') return spans.filter(s => /retry|attempt[_ -]?(?:[2-9]|\d{2,})\b/i.test(s.name)).at(-1);
+    return spans.find(s => s.name.toLowerCase() === key || s.id.toLowerCase() === key);
+  };
+  // An explicit quotation of recorded error text is a fact about the saved error, not an inferred cause.
+  let m = /^(?:the )?error says (.+?)[.!]?$/i.exec(text);
+  if (m) return errors.some(s => flat(s.error ?? '').includes(flat(m![1]!)));
+  m = /^the gateway returned HTTP (\d+)\.$/i.exec(text);
+  if (m) return errors.some(s => flat(s.error ?? '').includes(flat(`gateway returned HTTP ${m![1]}`)));
+  if (flat(text) === flat(safeNarrative(trace, readback))) return true;
+  m = /^(?:the )?(?:run|trace) has ([\d,]+) (?:steps|spans) and ([\d,]+) failed\.$/i.exec(text);
+  if (m) return Number(m[1]!.replace(/,/g, '')) === count && Number(m[2]!.replace(/,/g, '')) === errorCount;
+  m = /^(?:the )?(?:run|trace) has ([\d,]+) (?:steps|spans)\.$/i.exec(text);
+  if (m) return Number(m[1]!.replace(/,/g, '')) === count;
+  m = /^(?:the )?(.+?) was tried (\d+) times\.$/i.exec(text);
+  if (m) { const stem = m[1]!.trim().toLowerCase().replace(/\s+/g, '_'); const attempts = spans.filter(s => s.name.toLowerCase().startsWith(stem + '_attempt_')); return attempts.length > 0 && attempts.length === Number(m[2]); }
+  m = /^step (\d+) is where it breaks\.$/i.exec(text);
+  if (m) return spans[Number(m[1]) - 1]?.status === 'ERROR';
+  m = /^(?:this is saved as|this was|saved as) version (\d+)\.$/i.exec(text);
+  if (m) return Number(m[1]) === readback?.version;
+  m = /^(?:the )?(?:run|trace|root) took ([\d,.]+) (ms|milliseconds?|s|sec|seconds?)\.$/i.exec(text);
+  if (m) return same(duration, time(m[1]!, m[2]!));
+  m = /^it took ([\d,.]+) (ms|milliseconds?|s|sec|seconds?) to fail\.$/i.exec(text);
+  if (m) return errors.some(e => same(e.durationMs, time(m![1]!, m![2]!)));
+  m = /^(.+?) was ([\d.]+)% of the run\.$/i.exec(text);
+  if (m) { const t = target(m[1]!); return !!t && !!duration && Math.abs(t.durationMs / duration * 100 - Number(m[2])) <= 0.5; }
+  m = /^(?:the )?(.+?) (failed|succeeded|recovered|is marked ERROR|is marked OK)(?: after ([\d,.]+) (ms|milliseconds?|s|sec|seconds?))?\.$/i.exec(text);
+  if (m) { const t = target(m[1]!); return !!t && t.status === (/failed|ERROR/i.test(m[2]!) ? 'ERROR' : 'OK') && (!m[3] || same(t.durationMs, time(m[3], m[4]!))); }
+  m = /^the [“"'](.+?)[”"'] run ended as (.+?)\.$/i.exec(text);
+  if (m) return flat(m[1]!) === flat(entry.label) && flat(m[2]!) === flat(entry.outcome);
+  return false;
 }
 
 /**

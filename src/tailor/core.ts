@@ -243,12 +243,12 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
     try {
       telemetry.declare?.({
         adapterIds: [adapter.id], toolNames: [...permitted.keys(), ...Object.keys(input.tools).filter(k => typeof (input.tools as Record<string, unknown>)[k] === 'function')], knowledgeVersions: [knowledge.version],
-        policyVersions: [POLICY_VERSION], modelIds: provider.model ? [provider.model] : [],
+        adapterVersions: adapter.version ? [adapter.version] : [], contractVersions: adapter.contractVersion ? [adapter.contractVersion] : [], policyVersions: [POLICY_VERSION], modelIds: [provider.model, provider.classifierModel].filter((m): m is string => typeof m === 'string'),
         ...(adapter.promptVersion ? { promptVersions: [adapter.promptVersion] } : {}),
         ...(adapter.recordId ? { recordIds: knowledge.all().map(r => adapter.recordId!(r)) } : {}),
       });
     } catch { /* telemetry never changes a turn */ }
-    annotate({ adapterId: adapter.id, knowledgeVersion: knowledge.version, ...(adapter.promptVersion ? { promptVersion: adapter.promptVersion } : {}) });
+    annotate({ adapterId: adapter.id, ...(adapter.version ? { adapterVersion: adapter.version } : {}), ...(adapter.contractVersion ? { contractVersion: adapter.contractVersion } : {}), knowledgeVersion: knowledge.version, ...(adapter.promptVersion ? { promptVersion: adapter.promptVersion } : {}) });
 
     const finish = (outcome: TurnOutcome, message: Message, extra: Partial<Result> = {}): Result =>
       ({ outcome, messages: [{ ...message, text: wording(message.text) }], steps, execution, ...extra });
@@ -277,7 +277,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
       };
     }
     /** Outcome of one provider attempt, recorded on that attempt's telemetry step. The mock is free: its cost is known (0). */
-    function attemptSettled(prov: ModelProvider<T['action'], T['explanation']>, r: { usage: unknown; latencyMs: number; requestId?: string; stopReason?: string; costUsd?: number; reservationUsd?: number; reservationRef?: string; settlement?: string; pricingVersion?: string; inputAccounting?: InputAccounting }, result: 'ok' | 'invalid'): void {
+    function attemptSettled(prov: ModelProvider<T['action'], T['explanation']>, r: { usage: unknown; latencyMs: number; requestId?: string; stopReason?: string; costUsd?: number; reservationUsd?: number; reservationRef?: string; settlement?: string; pricingVersion?: string; inputAccounting?: InputAccounting }, result: 'ok' | 'invalid' | 'error'): void {
       const cost = r.costUsd ?? (prov.mode === 'mock' ? 0 : undefined);
       annotate({
         attemptResult: result, latencyMs: r.latencyMs, costKnown: cost !== undefined,
@@ -313,9 +313,9 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
       Object.assign(ctx, { evidence: telemetry.evidence });
       // The blocking policy stage finishes before retrieval, context or planner dispatch.
       if (adapter.preflight) {
-        const gate = await observe('guard', { policyVersion: POLICY_VERSION, guardStage: 'intent', ...(provider.model ? { guardModel: provider.model } : {}) }, async () => {
+        const gate = await observe('guard', { policyVersion: POLICY_VERSION, guardStage: 'intent', ...(provider.classifierModel ?? provider.model ? { guardModel: provider.classifierModel ?? provider.model! } : {}), ...(provider.mode === 'live' ? { effort: 'low' } : {}) }, async () => {
           const g = await callWithTimeout(signal => Promise.resolve(adapter.preflight!({ session, request, buyerText: resolved.effectiveText, choice: resolved.choice, provider, signal })), Math.min(POLICY_LIMITS.timeoutMs + 100, callBudgetMs()));
-          if (g.accounting) { guardCalls++; telemetry.recordUsage(g.accounting.usage, provider.model); attemptSettled(provider, g.accounting, 'ok'); }
+          if (g.accounting) { guardCalls++; const model = g.accounting.guardModel ?? provider.classifierModel ?? provider.model; telemetry.recordUsage(g.accounting.usage, model); attemptSettled({ ...provider, model }, g.accounting, g.accounting.errorKind ? 'error' : 'ok'); if (g.accounting.errorKind) annotate({ providerErrorKind: g.accounting.errorKind }); }
           annotate({ ...(g.policy ? { policyOutcome: g.policy.outcome, policyReason: g.policy.reason } : {}), guardOutcome: g.kind === 'continue' ? 'allow' : g.kind === 'ask' ? 'clarify' : 'reject', preventedDispatch: g.kind !== 'continue' });
           return g;
         });

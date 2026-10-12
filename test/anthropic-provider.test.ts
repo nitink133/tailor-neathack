@@ -390,12 +390,13 @@ test('spend guard: the ledger persists the running total across two guard instan
 // (h) service integration with the live provider over a fake client
 // ---------------------------------------------------------------------------------------------------------------------
 const isExplainCall = (params: AnthropicMessageParams) => !('proposal' in (params.output_config.format.schema.properties as Record<string, unknown>));
-const withCalls = <T extends object>(p: T) => Object.assign(p, { calls: [] });
+// Independent allowed-scope fixture: these service cases exercise planner failures and grounding.
+const withCalls = <T extends object>(p: T) => Object.assign(p, { calls: [], async classifyPolicy() { return { decision: { outcome: 'allow_demo_action' as const, reason: 'demo_action' as const }, usage: null, latencyMs: 0, costUsd: 0 }; } });
 
 function scenarioClient(opts: { explain?: (h: { errorSpanId: string }) => Reply; planning?: Reply } = {}) {
   /** `resolve` reads the id of the saved ERROR span from the stub store at the moment the explanation call arrives. */
   const state: { errorSpanId: string; resolve?: () => string } = { errorSpanId: '' };
-  const planning = opts.planning ?? message({ parsed_output: toWire({ type: 'propose', proposal: travelProposalV1, explanation: 'Planning note: ghost_planning_step failed and I deleted your real Neatlogs project. The attempt took 1500 ms.' }) });
+  const planning = opts.planning ?? message({ parsed_output: toWire({ type: 'propose', proposal: travelProposalV1, explanation: 'Planning note: ghost_planning_step failed and I deleted your real Neatlogs project. create_reservation_attempt_1 failed after 1500 ms.' }) });
   const fake = fakeClient(params => {
     if (!isExplainCall(params)) return planning;
     state.errorSpanId = state.resolve?.() ?? '';
@@ -407,7 +408,7 @@ function scenarioClient(opts: { explain?: (h: { errorSpanId: string }) => Reply;
 test('service + live provider: a committed turn makes exactly 2 provider calls, grounds the explanation, and keeps evidence spans inside the read-back', async () => {
   const sc = scenarioClient({
     explain: s => message({
-      parsed_output: { text: 'The first booking call timed out after 1500 ms. ghost_span_9 then failed for 99999 ms. I saved it to your production Neatlogs project. The retry confirmed the reservation.', spanIds: ['not-a-real-span', s.errorSpanId, 'also-fake'] },
+      parsed_output: { text: 'create_reservation_attempt_1 failed after 1500 ms. ghost_span_9 then failed for 99999 ms. I saved it to your production Neatlogs project. The retry confirmed the reservation.', spanIds: ['not-a-real-span', s.errorSpanId, 'also-fake'] },
       usage: { input_tokens: 900, output_tokens: 120, cache_creation_input_tokens: null, cache_read_input_tokens: 500, output_tokens_details: { thinking_tokens: 40 } }, _request_id: 'req_explain',
     }),
   });
@@ -423,8 +424,8 @@ test('service + live provider: a committed turn makes exactly 2 provider calls, 
   assert.equal(isExplainCall(sc.calls[1]!.params), true);
   const text = result.messages[0]!.text;
   assert.match(text, /^Saved and verified as version 2\./);
-  assert.ok(text.includes('The first booking call timed out after 1500 ms.'));
-  assert.ok(text.includes('The retry confirmed the reservation.'));
+  assert.ok(text.includes('create_reservation_attempt_1 failed after 1500 ms.'));
+  assert.ok(text.includes('ends as booking_confirmed'), 'the saved outcome is described from readback');
   for (const gone of ['ghost_span_9', '99999', 'production Neatlogs', 'ghost_planning_step', 'deleted']) assert.ok(!text.includes(gone), `dropped: ${gone}`);
   const stored = trace();
   const ids = new Set(stored.spans.map(s => s.id));
@@ -453,7 +454,7 @@ test('service + live provider: if explain fails the turn stays committed with th
     assert.equal(result.messages[0]!.status, 'applied');
     const text = result.messages[0]!.text;
     assert.match(text, /^Saved and verified as version 2\./);
-    assert.ok(text.includes('The attempt took 1500 ms.'), 'the grounded planning sentence is the fallback');
+    assert.ok(text.includes('create_reservation_attempt_1 failed after 1500 ms.'), 'the grounded planning sentence is the fallback');
     assert.ok(!text.includes('ghost_planning_step') && !text.includes('deleted'));
     assert.ok(events.some(e => e.startsWith('explain_unavailable:')), events.join(','));
     assert.equal(h.tools.state.version, 2);
@@ -685,4 +686,23 @@ test('L1-03: refuse and unsupported prose never carries invented prices or plans
   assert.match(refused.messages[0]!.text, /Nothing was changed\.$/);
   const emptied = await turnWith(tools, scriptedProvider(() => ({ type: 'refuse', text: 'Neatlogs Enterprise costs $999/yr.', reason: 'off_topic' })), 'x');
   assert.equal(emptied.messages[0]!.text, 'I can’t help with that request. Nothing was changed.');
+});
+
+// This exercises the actual structured guard codec/transport, separate from planner-only synthetic fixtures above.
+test('blocking guard uses its own schema, low effort, bounded timeout and separately settled usage', async () => {
+  const spend = createSpendGuard({ capUsd: 1 });
+  const { client, calls } = fakeClient(() => message({ parsed_output: { outcome: 'allow_product_question', reason: 'product_question' }, usage: { input_tokens: 20, output_tokens: 30, cache_read_input_tokens: 4 } }));
+  const live = createAnthropicProvider({ apiKey: PLACEHOLDER_KEY, spend, client });
+  const result = await live.classifyPolicy!({ messages: [{ role: 'user', content: 'fixture policy input' }], responseSchema: 'entry_policy', maxOutputTokens: 1024 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.params.output_config.effort, 'low');
+  assert.equal(calls[0]!.params.max_tokens, 1024);
+  assert.equal(calls[0]!.options!.timeout, 10000);
+  assert.equal(calls[0]!.options!.maxRetries, 0);
+  assert.deepEqual(Object.keys(calls[0]!.params.output_config.format.schema.properties as object), ['outcome', 'reason']);
+  assert.equal(result.guardModel, live.classifierModel);
+  assert.equal(result.settlement, 'settled_reported');
+  assert.deepEqual(result.usage, { inputTokens: 20, outputTokens: 30, cacheReadInputTokens: 4 });
+  assert.equal(spend.summary().byKind.guard!.calls, 1);
+  assert.equal(spend.summary().byKind.plan, undefined);
 });

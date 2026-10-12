@@ -163,7 +163,9 @@ test('L1-02 / L4-02: a hung live call is ONE attempt, kind timeout, ends before 
     const { client, attempts } = sdk((_n, init) => new Promise<Response>((_, reject) => {
       init.signal?.addEventListener('abort', () => { aborted++; reject(Object.assign(new Error('aborted'), { name: 'AbortError' })); });
     }));
-    const provider = createAnthropicProvider({ apiKey: PLACEHOLDER_KEY, spend, client });
+    const live = createAnthropicProvider({ apiKey: PLACEHOLDER_KEY, spend, client });
+    // Independent allowed-scope fixture so this case isolates the real SDK planner timeout.
+    const provider = { ...live, async classifyPolicy() { return { decision: { outcome: 'allow_demo_action' as const, reason: 'demo_action' as const }, usage: null, latencyMs: 0, costUsd: 0 }; } };
     const telemetry = recordingTelemetry();
     const started = Date.now();
     let result: AgentTurnResult | undefined;
