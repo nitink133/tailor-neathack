@@ -119,6 +119,13 @@ export interface SpendLedger {
 
 const emptyBucket = (): SpendBucket => ({ calls: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, spentUsd: 0 });
 
+/** Provider counts are untrusted runtime data, even when the SDK gives them a numeric TypeScript type. */
+export function validProviderUsage(usage: ProviderUsage): boolean {
+  const tokenCount = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+  return tokenCount(usage.inputTokens) && tokenCount(usage.outputTokens)
+    && [usage.cacheReadInputTokens, usage.cacheCreationInputTokens, usage.thinkingTokens].every(value => value === undefined || tokenCount(value));
+}
+
 const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 function readBucket(v: unknown): SpendBucket | null {
   if (typeof v !== 'object' || v === null) return null;
@@ -216,8 +223,12 @@ export function createSpendGuard(options: SpendGuardOptions): SpendGuard {
     b.cacheReadTokens += usage.cacheReadInputTokens ?? 0; b.cacheWriteTokens += usage.cacheCreationInputTokens ?? 0;
   }
   /** Output tokens are inclusive of thinking (provider-reported total); thinking is tracked, never billed twice. */
-  const usageUsd = (usage: ProviderUsage, model: string | null) =>
-    usdOf(ratesFor(model), { input: usage.inputTokens, output: usage.outputTokens, cacheRead: usage.cacheReadInputTokens ?? 0, cacheWrite: usage.cacheCreationInputTokens ?? 0 });
+  const usageUsd = (usage: ProviderUsage, model: string | null) => {
+    if (!validProviderUsage(usage)) throw new Error('Reported token usage is invalid');
+    const usd = usdOf(ratesFor(model), { input: usage.inputTokens, output: usage.outputTokens, cacheRead: usage.cacheReadInputTokens ?? 0, cacheWrite: usage.cacheCreationInputTokens ?? 0 });
+    if (!Number.isFinite(usd) || usd < 0) throw new Error('Reported usage could not be priced');
+    return usd;
+  };
 
   function refuseIfOver(estimatedMaxUsd: number): void {
     if (degraded) throw new ProviderError('spend_cap', 'The spend ledger could not be written, so further model calls are refused');
