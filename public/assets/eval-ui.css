@@ -95,3 +95,7 @@
 .ne-evals.ne-editor .ne-future{color:lab(66.128 -.0000298023 .0000119209)}
 .ne-evals.ne-editor .ne-complete .ne-step-number,.ne-evals.ne-editor .ne-current .ne-step-number{background:lab(7.78201 -.0000149012 0);border:0;color:lab(98.26 0 0)}
 .ne-evals.ne-editor .ne-step-number svg{width:14px;height:14px}
+
+.ne-evals .ne-model-chevron{position:absolute;right:9px;top:10px;width:16px;height:16px;opacity:.6;pointer-events:none}
+.ne-evals .ne-model-chevron svg{width:16px;height:16px}
+.ne-evals .ne-model .ne-model-select select{background-image:none}
