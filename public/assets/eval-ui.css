@@ -15,3 +15,54 @@
 
 .ne-evals.ne-ai-overview{height:calc(100vh - 18px);display:flex;flex-direction:column}.ne-evals.ne-ai-overview .ne-header{border-bottom:1px solid var(--ne-line);flex:none}.ne-evals.ne-ai-overview .ne-header input{width:224px;font-size:12px}.ne-evals.ne-ai-overview .ne-empty{flex:1}.ne-evals.ne-ai-overview .ne-empty>.ne-button{margin-top:24px}.ne-evals .ne-complete .ne-step-number{background:#171717;border-color:#171717;color:white}
 @media(max-width:700px){.ne-evals.ne-editor .ne-editor-layout{min-height:calc(100dvh - 80px)}.ne-evals.ne-editor .ne-step-main{min-height:calc(100dvh - 172px)}.ne-evals.ne-ai-overview .ne-header{height:auto;min-height:58px;flex-wrap:wrap;gap:8px;padding:12px}.ne-evals.ne-ai-overview .ne-header-actions{width:100%}.ne-evals.ne-ai-overview .ne-header input{width:100%;min-width:0}}
+/* Measured against the official DOM at 1910×859 (2026-10-12).
+   Conditions anchors relative to content top: title24, duration102,
+   duration control148, rule210, add-rule260, preview328, sampling426. */
+.ne-evals{line-height:20px}
+.ne-evals .ne-step-nav{display:flex;flex-direction:column;gap:2px}
+.ne-evals .ne-step{height:40px;font-size:13px;line-height:20px}
+.ne-evals .ne-substep{height:32px;font-size:13px;line-height:16px}
+.ne-evals .ne-step-content{padding-top:0}
+.ne-evals .ne-eyebrow{line-height:16px;margin-bottom:8px}
+.ne-evals .ne-description{font-size:13px;line-height:24px;margin:8px 0 32px}
+.ne-evals.ne-step-conditions .ne-description{margin-bottom:16px}
+.ne-evals .ne-conditions{margin-top:0}
+.ne-evals .ne-field{gap:2px;font-size:13px;line-height:20px;font-weight:500}
+.ne-evals .ne-field small{font-size:12px;line-height:16px;font-weight:400}
+.ne-evals .ne-duration-select{position:relative;display:block;margin-top:6px}
+.ne-evals .ne-duration-select>svg{position:absolute;top:10px;left:8px;width:16px;height:16px;pointer-events:none}
+.ne-evals .ne-duration select{width:100%;margin:0;height:36px;min-height:36px;padding:0 30px 0 28px;font-size:12px;line-height:16px;border-color:#d5d5d5}
+.ne-evals select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9' stroke='%235f5f63' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center;background-size:14px;padding-right:28px}
+.ne-evals .ne-rule{grid-template-columns:64px 1fr 49.28px 1fr;margin:26px 0 18px}
+.ne-evals .ne-rule select,.ne-evals .ne-rule input{height:32px;min-height:32px;line-height:20px;padding-top:0;padding-bottom:0;font-size:13px}
+.ne-evals .ne-rule select{padding-right:26px}
+.ne-evals .ne-rule input{padding-left:12px;padding-right:12px}
+.ne-evals .ne-rule-actions{display:flex;height:28px}
+.ne-evals .ne-rule-actions>.ne-button{height:28px;padding:0 10px;line-height:16px;font-size:12px;font-weight:500;gap:6px;border-radius:6px 0 0 6px}
+.ne-evals .ne-rule-actions>.ne-button+button{width:28px;padding:0 6px;margin-left:-1px;border-radius:0 6px 6px 0}
+.ne-evals .ne-rule-actions svg{width:14px;height:14px}
+.ne-evals .ne-sample{height:28px;line-height:20px;gap:8px;margin:40px 0 24px;padding:4px 0}
+.ne-evals .ne-sample .ne-button{font-size:13px;line-height:20px}
+.ne-evals .ne-sample-options{display:grid;gap:4px;padding:6px;margin-top:8px}
+.ne-evals .ne-sample-options>label{height:36px;padding:8px 10px;font-size:13px;line-height:20px;gap:10px}
+.ne-evals .ne-sample-options>label:last-child{height:44px}
+.ne-evals .ne-sample-options input[type=radio]{appearance:none;border:1px solid #e6e6e8;border-radius:50%;background:#fff;position:relative}
+.ne-evals .ne-sample-options input[type=radio]:checked{border-color:#222}
+.ne-evals .ne-sample-options input[type=radio]:checked:after{content:'';position:absolute;inset:3px;background:#111;border-radius:50%}
+.ne-evals .ne-number{display:flex!important;width:91px;height:28px;border:1px solid var(--ne-line);border-radius:8px;gap:0!important;overflow:hidden;color:#171719}
+.ne-evals .ne-sample-options .ne-number input[type=number]{appearance:textfield;width:67px;height:26px;min-height:0;border:0;border-radius:0;box-shadow:none;padding:2px 6px;line-height:20px;font-size:13px;background:transparent}
+.ne-evals .ne-number input::-webkit-inner-spin-button,.ne-evals .ne-number input::-webkit-outer-spin-button{appearance:none;margin:0}
+.ne-evals .ne-number-buttons{display:flex;flex-direction:column;width:22px;border-left:1px solid var(--ne-line)}
+.ne-evals .ne-number-buttons .ne-button{height:14px;min-height:0;width:22px;border:0;padding:0 4px;border-radius:0;background:transparent;box-shadow:none;line-height:1}
+.ne-evals .ne-number-buttons .ne-button+button{border-top:1px solid var(--ne-line)}
+.ne-evals .ne-number-buttons svg{width:14px;height:14px}
+@media(max-width:700px){.ne-evals .ne-step-nav{flex-direction:row}.ne-evals .ne-rule{grid-template-columns:1fr 49.28px}.ne-evals .ne-sample{height:auto;min-height:28px}.ne-evals .ne-sample-options>label{padding:8px 6px;gap:6px;font-size:12px}.ne-evals .ne-number{width:74px}.ne-evals .ne-sample-options .ne-number input[type=number]{width:50px}}
+/* Captured native sheets are light even when the surrounding local shell is dark. */
+.native-fidelity-preview .ne-evals.ne-wizard,.native-fidelity-preview .ne-evals.ne-editor{background:#fff;color:#141414;color-scheme:light}
+.ne-evals .ne-rule input:not([type=radio]):not([type=checkbox]){min-height:32px;height:32px}
+/* Official type metrics and colors, kept as measured CSS Lab values. */
+.ne-evals{--ne-line:lab(90.6853 .399232 -1.45452);--ne-muted:lab(31.4132 1.69271 -5.75194);color:lab(2.51107 .242703 -.886115)}
+.ne-evals .ne-step-content h2{letter-spacing:-.6px}
+.ne-evals .ne-eyebrow{color:var(--ne-muted);letter-spacing:.3px}
+.ne-evals .ne-field{color:lab(2.51107 .242703 -.886115)}
+.native-fidelity-preview .ne-evals.ne-wizard,.native-fidelity-preview .ne-evals.ne-editor{color:lab(2.51107 .242703 -.886115)}
