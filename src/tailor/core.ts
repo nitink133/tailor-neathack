@@ -200,8 +200,11 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
   function citedOnly(ids: readonly string[] | undefined, readback: T['readback'] | null, detail: T['detail'] | null, drops: Drops): string[] {
     if (!ids?.length) return [];
     const known = new Set(adapter.grounding.citable(readback, detail));
-    const kept = [...new Set(ids.filter(id => known.has(id)))];
-    drops.n += new Set(ids).size - kept.length;
+    const resolved = [...new Set(ids)].map(id => adapter.grounding.normaliseCitation
+      ? adapter.grounding.normaliseCitation(id, readback, detail) : id);
+    const kept = [...new Set(resolved.filter((id): id is string => id !== null && known.has(id)))];
+    // Two valid aliases may resolve to one saved id; deduplication is not a grounding failure.
+    drops.n += resolved.filter(id => id === null || !known.has(id)).length;
     return kept;
   }
 

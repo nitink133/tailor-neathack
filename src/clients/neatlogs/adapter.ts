@@ -13,7 +13,7 @@ import {
 import type { Evidence, Story, Trace } from './contracts.ts';
 import { buyerWording, composeAnswer } from './answer.ts';
 import { PRODUCT_NAMES } from './claims.ts';
-import { buildContext } from './context.ts';
+import { buildContext, spanKeyOf } from './context.ts';
 import { entryPreflight, proposalAlignment } from './entry-policy.ts';
 import { citedSpanIds, describeCommit, describeTrace, groundNarrative, qualityDefectNarrative, safeNarrative } from './explain.ts';
 import { explanationMessage, EXPLANATION_SYSTEM_PROMPT, PROMPT_VERSION, repairMessage, SYSTEM_PROMPT } from './prompts.ts';
@@ -177,6 +177,14 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
     ground: (text, readback, trace) => groundNarrative(text, trace, readback),
     safeNarrative: (readback, trace) => safeNarrative(trace, readback),
     citable: (_readback, trace) => (trace ? trace.spans.map(s => s.id) : []),
+    normaliseCitation(id, _readback, trace) {
+      if (!trace) return null;
+      if (trace.spans.some(span => span.id === id)) return id;
+      // The planner sees these short keys. Resolve only within the freshly read selected trace;
+      // never strip a foreign id's prefix, search other traces, or guess a span from its name.
+      const matches = trace.spans.filter(span => spanKeyOf(trace, span) === id);
+      return matches.length === 1 ? matches[0]!.id : null;
+    },
   },
   composeAnswer,
   recordTitle: record => record.title,

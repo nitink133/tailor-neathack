@@ -148,6 +148,10 @@ export interface Grounding<T extends AdapterTypes> {
   safeNarrative(readback: T['readback'] | null, detail: T['detail'] | null): string;
   /** Ids the reply may cite. Model citations outside this set are dropped by the core. */
   citable(readback: T['readback'] | null, detail: T['detail'] | null): Iterable<string>;
+  /** Optional code-owned alias resolution against this independently read evidence only.
+   * Return one canonical id or null for an unknown/ambiguous alias. The core still applies citable afterwards.
+   * Never resolve from session history, another record, or a global id index. */
+  normaliseCitation?(id: string, readback: T['readback'] | null, detail: T['detail'] | null): string | null;
 }
 
 export interface ProductAdapter<T extends AdapterTypes = AdapterTypes> {
