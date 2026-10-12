@@ -32,12 +32,12 @@ test('L4-01: six concurrent calls on a $0.10 cap: only the ones whose worst case
   const spend = createSpendGuard({ capUsd: 0.10 });
   const g = gatedClient(() => ok(15_000, 4_000)); // ≈ $0.07 actual each
   const p = createAnthropicProvider({ apiKey: KEY, spend, client: g.client, effort: 'low' });
-  const worst = spend.worstCaseUsd(0, 4000, 'claude-sonnet-5-5');
   const calls = Array.from({ length: 6 }, () => p.complete(planRequest()).then(() => 'ok', (e: unknown) => (e instanceof ProviderError ? e.kind : 'other')));
   await new Promise(r => setImmediate(r));
-  const fits = Math.floor(0.10 / worst);
+  const fits = g.started();
   assert.ok(fits >= 1 && fits < 6, `fits=${fits}`);
-  assert.equal(g.started(), fits, 'only reserved calls reach the client');
+  assert.equal(fits, 1, 'the full byte/schema ceiling cannot admit two $0.07 calls under a $0.10 cap');
+  assert.ok(spend.summary().spentUsd + spend.summary().reservedUsd <= 0.10);
   assert.ok(spend.summary().reservedUsd > 0);
   assert.equal(spend.summary().pendingCalls, fits);
   g.release();
@@ -48,6 +48,7 @@ test('L4-01: six concurrent calls on a $0.10 cap: only the ones whose worst case
   assert.equal(s.pendingCalls, 0, 'reservations are settled');
   assert.equal(s.reservedUsd, 0);
   assert.equal(s.calls, fits);
+  assert.ok(s.spentUsd + s.reservedUsd <= s.capUsd);
   // Settled to the ACTUAL usage, not the reservation.
   assert.ok(Math.abs(s.spentUsd - fits * (15_000 * 2 + 4_000 * 10) / 1e6) < 1e-9, String(s.spentUsd));
 });
@@ -60,11 +61,12 @@ test('reservations are released on an unbilled HTTP error and kept conservativel
   const r1 = createAnthropicProvider({ apiKey: KEY, spend, client: g1.client, effort: 'low' }).complete(planRequest()).catch((e: ProviderError) => e.kind);
   await new Promise(r => setImmediate(r));
   assert.equal(spend.summary().pendingCalls, 1);
+  const reserved = spend.summary().reservedUsd;
   g1.release();
   assert.equal(await r1, 'unknown');
   const s = spend.summary();
   assert.deepEqual([s.pendingCalls, s.unreconciledCalls, s.calls], [0, 1, 1]);
-  assert.ok(Math.abs(s.unreconciledUsd - spend.worstCaseUsd(0, 4000, 'claude-sonnet-5-5')) < 0.01, 'the worst case is kept');
+  assert.ok(Math.abs(s.unreconciledUsd - reserved) < 1e-9, 'the complete reservation is kept');
 
   // Direct API: release() removes a reservation without charging anything.
   const id = spend.reserve(0.01, { kind: 'plan', model: 'claude-sonnet-5-5' });
@@ -162,7 +164,7 @@ test('L4-03: rates are keyed by model id; unknown models fail closed; Sonnet 5.5
   assert.throws(() => createAnthropicProvider({ apiKey: KEY, spend, client, model: 'claude-imaginary-9' }), /rates/);
   // Explicit rates make any model priceable (operator override).
   const custom = createSpendGuard({ capUsd: 10, rates: { inputPerMTok: 1, outputPerMTok: 1 } });
-  assert.equal(custom.worstCaseUsd(3, 1, 'claude-imaginary-9'), 2 / 1e6);
+  assert.equal(custom.worstCaseUsd(3, 1, 'claude-imaginary-9'), 4 / 1e6);
   // Cache reads at the read rate; cache writes at the (conservative) 1-hour write rate because the split is not reported.
   const priced = createSpendGuard({ capUsd: 10 });
   priced.record({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 1_000_000, cacheCreationInputTokens: 1_000_000 }, 'claude-sonnet-5-5', 'plan');

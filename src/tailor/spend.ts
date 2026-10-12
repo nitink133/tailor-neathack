@@ -64,15 +64,15 @@ export interface SpendSummary extends SpendBucket {
   limits: { perCallMaxOutputTokens: number; perTurnMaxCalls: number };
 }
 
-/** Conservative chars-per-token for reservations (never the average 4: JSON and non-English text tokenise denser). */
-export const WORST_CHARS_PER_TOKEN = 3;
+/** Compatibility name: callers pass UTF-8 bytes. Reserve one token per byte, rather than an average chars/token. */
+export const WORST_CHARS_PER_TOKEN = 1;
 
 export interface ReservationMeta { kind: string; model: string | null }
 
 export interface SpendGuard {
   /**
-   * Worst-case USD for one call at `model`'s rates: ceil(prompt chars / 3) input tokens (dense JSON and non-English
-   * text run below 4 chars per token) plus `overheadTokens` (fixed per-call system/schema/framing tokens, computed
+   * Conservative USD reservation at `model`'s rates: prompt UTF-8 bytes as an input token ceiling
+   * plus `overheadTokens` (fixed per-call system/schema/framing tokens, computed
    * once at provider creation) plus the full output allowance.
    */
   worstCaseUsd(promptChars: number, maxOutputTokens: number, model?: string | null, overheadTokens?: number): number;
@@ -113,6 +113,8 @@ export interface SpendLedger {
   unreconciled: { calls: number; usd: number };
   pending: PendingReservation[];
   updatedAt: number;
+  /** Reported usage exceeded a reservation or the cap. Persisted; future calls fail closed after restart. */
+  safetyViolation?: boolean;
 }
 
 const emptyBucket = (): SpendBucket => ({ calls: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, spentUsd: 0 });
@@ -145,6 +147,7 @@ export function createSpendGuard(options: SpendGuardOptions): SpendGuard {
   let unreconciled = { calls: 0, usd: 0 };
   let pending: PendingReservation[] = [];
   let degraded = false;
+  let safetyViolation = false;
 
   /** Custom rates replace the table wholesale (a missing cache rate then falls back to that custom input rate). */
   function ratesFor(model: string | null | undefined): SpendRates {
@@ -184,12 +187,15 @@ export function createSpendGuard(options: SpendGuardOptions): SpendGuard {
       for (const entry of l.pending) { const r = readPending(entry); if (!r) throw new Error(SHAPE_ERROR); p.push(r); }
     }
     total = t; byKind = kinds; unreconciled = u; pending = p;
+    if (l.safetyViolation !== undefined && typeof l.safetyViolation !== 'boolean') throw new Error(SHAPE_ERROR);
+    safetyViolation ||= l.safetyViolation === true || total.spentUsd + pendingUsd() > capUsd + 1e-9;
+    degraded ||= safetyViolation;
   }
 
   function persist(): void {
     if (!ledgerPath) return;
     mkdirSync(dirname(ledgerPath), { recursive: true });
-    const ledger: SpendLedger = { version: 2, total, byKind, unreconciled, pending, updatedAt: clock.now() };
+    const ledger: SpendLedger = { version: 2, total, byKind, unreconciled, pending, updatedAt: clock.now(), ...(safetyViolation ? { safetyViolation: true } : {}) };
     const tmp = `${ledgerPath}.${process.pid}.tmp`;
     writeFileSync(tmp, `${JSON.stringify(ledger, null, 2)}\n`, { mode: 0o600 });
     renameSync(tmp, ledgerPath);
@@ -199,7 +205,7 @@ export function createSpendGuard(options: SpendGuardOptions): SpendGuard {
   function afterCall(mutate: () => void): void {
     try { if (!degraded) load(); } catch { degraded = true; }
     mutate();
-    try { if (!degraded) persist(); } catch { degraded = true; }
+    try { if (!degraded || safetyViolation) persist(); } catch { degraded = true; }
   }
 
   function addTo(b: SpendBucket, usage: ProviderUsage | null, usd: number): void {
@@ -252,6 +258,7 @@ export function createSpendGuard(options: SpendGuardOptions): SpendGuard {
         if (!reported) { unreconciled.calls += 1; unreconciled.usd += usd; }
         addTo(total, reported, usd);
         addTo(byKind[entry.kind] ??= emptyBucket(), reported, usd);
+        if (usd > entry.usd + 1e-9 || total.spentUsd + pendingUsd() > capUsd + 1e-9) { safetyViolation = true; degraded = true; }
       });
     },
     release(reservationId) {

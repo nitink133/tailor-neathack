@@ -83,7 +83,7 @@ export function reconcileTurnResult<E, R extends { version: number }, S>(result:
     if (status === 'applied' && outcome !== 'committed') status = outcome === 'readback_uncertain' ? 'uncertain' : 'failed';
     const turn: TailorMessage<E> = { role: 'tailor', text, status };
     if (status === 'question' && m.clarification) turn.clarification = m.clarification;
-    if (outcome === 'committed' && m.evidence) turn.evidence = m.evidence;
+    if (['committed', 'answered'].includes(outcome) && m.evidence) turn.evidence = m.evidence;
     return [turn];
   }).slice(0, 8);
   return {

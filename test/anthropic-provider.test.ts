@@ -326,8 +326,8 @@ test('spend guard: the cap is enforced BEFORE the call from the worst-case estim
   assert.equal(error.kind, 'spend_cap');
   assert.equal(error.retryable, false);
   assert.equal(calls.length, 0, 'no request is made once the cap would be exceeded');
-  // Worst case for a short prompt and 100 output tokens fits under a $0.01 cap; the same call at 4000 tokens does not.
-  const small = createSpendGuard({ capUsd: 0.01 });
+  // The byte ceiling includes the output schema; a smaller output allowance fits, the full planner allowance does not.
+  const small = createSpendGuard({ capUsd: 0.04 });
   await provider(client, { spend: small }).complete(planRequest({ maxOutputTokens: 100 }));
   assert.equal(calls.length, 1);
   assert.equal((await rejection(provider(client, { spend: small }).complete(planRequest({ maxOutputTokens: 4000 })))).kind, 'spend_cap');
@@ -356,8 +356,8 @@ test('spend guard: summary math, every USD number labelled as an estimate', () =
   const custom = createSpendGuard({ capUsd: 1, rates: { inputPerMTok: 1, outputPerMTok: 1 } });
   custom.record({ inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadInputTokens: 1_000_000 }, null, 'plan');
   assert.equal(custom.summary().spentUsd, 3, 'configurable rates; cache falls back to the input rate');
-  assert.equal(spend.worstCaseUsd(3000, 1000), (1000 * 2 + 1000 * 10) / 1e6, 'R1-F2: chars / 3 input tokens');
-  assert.equal(spend.worstCaseUsd(3000, 1000, 'claude-sonnet-5-5', 500), (1500 * 2 + 1000 * 10) / 1e6, 'plus the fixed per-call overhead');
+  assert.equal(spend.worstCaseUsd(3000, 1000), (3000 * 2 + 1000 * 10) / 1e6, 'one input token per UTF-8 byte');
+  assert.equal(spend.worstCaseUsd(3000, 1000, 'claude-sonnet-5-5', 500), (3500 * 2 + 1000 * 10) / 1e6, 'plus the fixed per-call overhead');
   assert.equal(spend.worstCaseUsd(0, 999_999), (PER_CALL_OUTPUT_TOKEN_CEILING * 10) / 1e6, 'output allowance is capped per call');
 });
 

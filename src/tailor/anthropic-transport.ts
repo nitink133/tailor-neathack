@@ -17,6 +17,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { CORE_LIMITS as LIMITS, type ProviderErrorKind, type ProviderMessage, type ProviderUsage } from './contract.ts';
 import { ProviderError } from './provider-error.ts';
 import { PER_CALL_OUTPUT_TOKEN_CEILING, WORST_CHARS_PER_TOKEN, type SpendGuard } from './spend.ts';
+import { INPUT_ESTIMATION_VERSION, PRICING_VERSION, type InputAccounting, type AttemptSettlement } from './accounting.ts';
 
 export { ProviderError } from './provider-error.ts';
 
@@ -171,7 +172,9 @@ export function toProviderUsage(usage: RawMessageLike['usage'] | undefined | nul
 // ---------------------------------------------------------------------------------------------------------------------
 /** One structured call. `kind` picks the output ceiling: planning (effort-aware) or the shorter explanation. */
 export interface StructuredCall<T> {
-  kind: 'plan' | 'explain';
+  kind: 'plan' | 'explain' | 'guard';
+  /** Optional tighter call deadline for a blocking policy decision. */
+  timeoutMs?: number;
   messages: ProviderMessage[];
   /** Appended to the system prompt (e.g. wire-format notes for the schema). */
   extraSystem?: string;
@@ -191,6 +194,10 @@ export interface StructuredResult<T> {
   costUsd?: number;
   /** Worst-case USD reserved before the call. */
   reservationUsd: number;
+  reservationRef: string;
+  settlement: AttemptSettlement;
+  pricingVersion: string;
+  inputAccounting: InputAccounting;
 }
 export interface AnthropicTransport {
   readonly name: 'anthropic';
@@ -214,19 +221,20 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
   const schemaChars = new WeakMap<object, number>();
   const charsOf = (schema: Record<string, unknown>): number => {
     let n = schemaChars.get(schema);
-    if (n === undefined) { n = JSON.stringify(schema).length; schemaChars.set(schema, n); }
+    if (n === undefined) { n = Buffer.byteLength(JSON.stringify(schema), 'utf8'); schemaChars.set(schema, n); }
     return n;
   };
   // Per-kind fixed overhead (extra system text + schema + framing), computed once at creation.
   const overheadTokens: Partial<Record<StructuredCall<unknown>['kind'], number>> = {};
   for (const [kind, part] of Object.entries(options.fixedParts ?? {}) as [StructuredCall<unknown>['kind'], { extraSystem?: string; schema: Record<string, unknown> }][]) {
-    overheadTokens[kind] = tokensOf((part.extraSystem ? part.extraSystem.length + 2 : 0) + charsOf(part.schema)) + REQUEST_FRAMING_TOKENS;
+    overheadTokens[kind] = tokensOf((part.extraSystem ? Buffer.byteLength(part.extraSystem + '\n\n', 'utf8') : 0) + charsOf(part.schema)) + REQUEST_FRAMING_TOKENS;
   }
-  /** Worst-case input estimate: conversation chars / 3 plus the fixed overhead when the call uses its kind's fixed parts. */
+  /** Conservative text-byte input ceiling plus the separately identified framing allowance. */
   const reservationFor = (args: StructuredCall<unknown>, mappedChars: number, maxTokens: number): number => {
     const fixed = options.fixedParts?.[args.kind];
     if (fixed && fixed.schema === args.schema && (fixed.extraSystem ?? '') === (args.extraSystem ?? '')) {
-      return spend.worstCaseUsd(toAnthropicMessages(args.messages).chars, maxTokens, model, overheadTokens[args.kind]);
+      const base = toAnthropicMessages(args.messages);
+      return spend.worstCaseUsd(Buffer.byteLength(base.system, 'utf8') + base.messages.reduce((n, m) => n + Buffer.byteLength(m.content, 'utf8'), 0), maxTokens, model, overheadTokens[args.kind]);
     }
     // The output schema is billed as input too.
     return spend.worstCaseUsd(mappedChars + charsOf(args.schema), maxTokens, model, REQUEST_FRAMING_TOKENS);
@@ -242,8 +250,15 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
     if (mapped.messages.length === 0 || mapped.messages[0]!.role !== 'user') throw new ProviderError('invalid_request', 'The conversation must start with a user message');
     if (mapped.messages[mapped.messages.length - 1]!.role !== 'user') throw new ProviderError('invalid_request', 'The conversation must end with a user message');
     if (signal?.aborted) throw new ProviderError('timeout', 'The turn deadline passed before the call was made');
-    const maxTokens = Math.max(1, Math.min(args.maxTokens, args.kind === 'explain' ? LIMITS.maxExplanationOutputTokens : planningCeiling!));
-    const worstCase = reservationFor(args as StructuredCall<unknown>, mapped.chars, maxTokens);
+    const maxTokens = Math.max(1, Math.min(args.maxTokens, args.kind === 'guard' ? 1024 : args.kind === 'explain' ? LIMITS.maxExplanationOutputTokens : planningCeiling!));
+    const systemBytes = Buffer.byteLength(mapped.system, 'utf8');
+    const conversationBytes = mapped.messages.reduce((n, m) => n + Buffer.byteLength(m.content, 'utf8'), 0);
+    const schemaBytes = charsOf(args.schema);
+    const inputAccounting: InputAccounting = { estimationVersion: INPUT_ESTIMATION_VERSION,
+      system: { bytes: systemBytes, estimatedTokens: tokensOf(systemBytes) }, conversation: { bytes: conversationBytes, estimatedTokens: tokensOf(conversationBytes) },
+      schema: { bytes: schemaBytes, estimatedTokens: tokensOf(schemaBytes) }, framing: { estimatedTokens: REQUEST_FRAMING_TOKENS },
+      estimatedInputTokens: tokensOf(systemBytes + conversationBytes + schemaBytes) + REQUEST_FRAMING_TOKENS, totalInputBytes: systemBytes + conversationBytes + schemaBytes };
+    const worstCase = reservationFor(args as StructuredCall<unknown>, systemBytes + conversationBytes, maxTokens);
     let reservation: string;
     try { reservation = spend.reserve(worstCase, { kind: args.kind, model }); }
     catch (error) { throw error instanceof ProviderError ? error : new ProviderError('spend_cap', 'The spend ledger could not be read, so the call was not made'); }
@@ -261,21 +276,26 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
     let onAbort: (() => void) | undefined;
     const aborted = new Promise<never>((_, reject) => { onAbort = () => reject(timedOut()); controller.signal.addEventListener('abort', onAbort, { once: true }); });
     aborted.catch(() => {});
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const callTimeoutMs = Math.min(timeoutMs, args.timeoutMs ?? (args.kind === 'guard' ? 10_000 : timeoutMs));
+    const timer = setTimeout(() => controller.abort(), callTimeoutMs);
     const forward = () => controller.abort();
     signal?.addEventListener('abort', forward, { once: true });
     const started = performance.now();
     let message: RawMessageLike;
     try {
       // Racing the abort keeps the bound even for a client that ignores the signal.
-      message = await Promise.race([client.messages.create(params, { signal: controller.signal, timeout: timeoutMs, maxRetries: 0 }), aborted]);
+      message = await Promise.race([client.messages.create(params, { signal: controller.signal, timeout: callTimeoutMs, maxRetries: 0 }), aborted]);
     } catch (error) {
       const mappedError = controller.signal.aborted ? timedOut() : mapSdkError(error);
       mappedError.reservationUsd = worstCase;
+      mappedError.reservationRef = reservation;
+      mappedError.latencyMs = Math.max(0, Math.round(performance.now() - started));
+      mappedError.inputAccounting = inputAccounting;
+      mappedError.pricingVersion = PRICING_VERSION;
       // The API answered with an HTTP error: not billed. Anything else (timeout, dropped connection, unknown) may
       // have been billed: keep the worst case, marked unreconciled.
-      if (!controller.signal.aborted && error instanceof Anthropic.APIError && typeof error.status === 'number') { spend.release(reservation); mappedError.costUsd = 0; }
-      else spend.settle(reservation, null);
+      if (!controller.signal.aborted && error instanceof Anthropic.APIError && typeof error.status === 'number') { spend.release(reservation); mappedError.costUsd = 0; mappedError.settlement = 'released'; }
+      else { spend.settle(reservation, null); mappedError.settlement = 'settled_unreconciled'; }
       throw mappedError;
     } finally {
       clearTimeout(timer);
@@ -293,6 +313,12 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
     const failure = (kind: ProviderErrorKind, text: string) => {
       const error = new ProviderError(kind, text, { requestId, ...(stopReason ? { stopReason } : {}) });
       error.reservationUsd = worstCase;
+      error.reservationRef = reservation;
+      error.usage = usage;
+      error.latencyMs = latencyMs;
+      error.settlement = usage ? 'settled_reported' : 'settled_unreconciled';
+      error.inputAccounting = inputAccounting;
+      error.pricingVersion = PRICING_VERSION;
       if (costUsd !== undefined) error.costUsd = costUsd;
       return error;
     };
@@ -313,7 +339,9 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
     try { parsed = JSON.parse(text); } catch { throw failure('malformed', 'The response was not valid structured JSON'); }
     const value = args.extract(parsed);
     if (value === null) throw failure('malformed', 'The structured response failed validation');
-    return { value, usage, latencyMs, stopReason: message.stop_reason, reservationUsd: worstCase, ...(costUsd !== undefined ? { costUsd } : {}), ...(requestId ? { requestId } : {}) };
+    return { value, usage, latencyMs, stopReason: message.stop_reason, reservationUsd: worstCase, reservationRef: reservation,
+      settlement: usage ? 'settled_reported' : 'settled_unreconciled', pricingVersion: PRICING_VERSION, inputAccounting,
+      ...(costUsd !== undefined ? { costUsd } : {}), ...(requestId ? { requestId } : {}) };
   }
 
   return { name: 'anthropic', model, mode: 'live', effort, call };

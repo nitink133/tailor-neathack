@@ -1,7 +1,8 @@
 // The one error type live providers throw. The message is operator-safe: it never contains buyer text, prompts,
 // model output or credentials. The service maps `kind` to telemetry and a short step detail; buyer copy stays generic.
 
-import type { ProviderErrorKind } from './contract.ts';
+import type { ProviderErrorKind, ProviderUsage } from './contract.ts';
+import type { InputAccounting, AttemptSettlement } from './accounting.ts';
 
 /**
  * Whether retrying the same call can plausibly succeed within the same turn. Individual errors may override (e.g. a 500).
@@ -23,6 +24,12 @@ export class ProviderError extends Error {
   costUsd?: number;
   /** Worst-case USD reserved for the failed call; kept against the cap when `costUsd` is unknown. */
   reservationUsd?: number;
+  usage: ProviderUsage | null = null;
+  latencyMs?: number;
+  reservationRef?: string;
+  settlement?: AttemptSettlement;
+  pricingVersion?: string;
+  inputAccounting?: InputAccounting;
 
   constructor(kind: ProviderErrorKind, message: string, extra: { retryable?: boolean; requestId?: string | null; status?: number; stopReason?: string | null } = {}) {
     super(message);

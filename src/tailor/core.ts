@@ -10,7 +10,7 @@
 import {
   CORE_LIMITS as LIMITS,
   type ChatStatus, type Clarification, type ExecutionLabel, type KnowledgeIndex, type ModelProvider, type ProviderMessage,
-  type TailorMessage, type TurnOutcome, type TurnResult, type TurnStep, type TurnTelemetry, type Clock, type ValidationIssue,
+  type TailorMessage, type TurnOutcome, type TurnResult, type TurnStep, type TurnTelemetry, type TelemetryStep, type Clock, type ValidationIssue,
 } from './contract.ts';
 import type { AdapterCopy, AdapterTypes, CoreAction, MutatingTool, MutationResult, ProductAdapter, ReadTool, ToolContext } from './adapter.ts';
 import { buildCorpus, createClaimRules, splitSentences, type Corpus } from './claims.ts';
@@ -19,6 +19,8 @@ import { userMessage } from './prompts.ts';
 import { clip, cleanNarrative, oneLine } from './text.ts';
 import { isProviderError, ProviderError } from './provider-error.ts';
 import { PER_CALL_OUTPUT_TOKEN_CEILING } from './spend.ts';
+import { POLICY_VERSION, POLICY_LIMITS } from './policy.ts';
+import { PRICING_VERSION, type InputAccounting } from './accounting.ts';
 
 /**
  * Turn-loop limits that extend CORE_LIMITS.
@@ -68,6 +70,7 @@ export interface CoreTurnInput<T extends AdapterTypes> {
   provider: ModelProvider<T['action'], T['explanation']>;
   /** Optional stronger provider for one bounded escalation; absent until approved. */
   escalationProvider?: ModelProvider<T['action'], T['explanation']>;
+  signal?: AbortSignal;
 }
 export type CoreTurnResult<T extends AdapterTypes> = TurnResult<T['evidence'], T['readback'], T['story']>;
 
@@ -76,12 +79,12 @@ export interface TailorCore<T extends AdapterTypes> {
 }
 
 /** Wraps every function on the ports object so each call is charged against the tool-call budget. */
-function budgetPorts<P extends object>(ports: P, spend: () => void): P {
+function budgetPorts<P extends object>(ports: P, spend: () => void, dispatch: (name: string, args: unknown[], fn: () => unknown) => unknown): P {
   return new Proxy(ports, {
     get(target, key, receiver) {
       const value = Reflect.get(target, key, receiver);
       if (typeof value !== 'function') return value;
-      return (...args: unknown[]) => { spend(); return (value as (...a: unknown[]) => unknown).apply(target, args); };
+      return (...args: unknown[]) => { spend(); return dispatch(String(key), args, () => (value as (...a: unknown[]) => unknown).apply(target, args)); };
     },
   });
 }
@@ -94,9 +97,12 @@ const ABORT_SETTLE_MS = 50;
  * the backstop then waits up to ABORT_SETTLE_MS for that settlement before rejecting, so a provider that honours the
  * signal finishes its accounting before the turn moves on.
  */
-async function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+async function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number, parent?: AbortSignal): Promise<T> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  if (parent?.aborted) throw new ProviderError('timeout', 'The request was cancelled', { retryable: false });
+  const forward = () => controller.abort();
+  parent?.addEventListener('abort', forward, { once: true });
   const running = run(controller.signal);
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
@@ -108,7 +114,7 @@ async function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: numb
     }, Math.max(0, ms));
   });
   try { return await Promise.race([running, timeout]); }
-  finally { if (timer) clearTimeout(timer); }
+  finally { if (timer) clearTimeout(timer); parent?.removeEventListener('abort', forward); }
 }
 
 function problemSummary(problems: ValidationIssue[]): string {
@@ -133,7 +139,7 @@ const errorClass = (error: unknown) => (error instanceof Error && ERROR_CLASSES.
 /** Argument shape only: top-level key count and serialised size. Key names and values never leave the core. */
 function argSummary(args: unknown): Attrs {
   let bytes = 0;
-  try { bytes = JSON.stringify(args)?.length ?? 0; } catch { bytes = 0; }
+  try { bytes = Buffer.byteLength(JSON.stringify(args) ?? '', 'utf8'); } catch { bytes = 0; }
   const count = args && typeof args === 'object' ? Object.keys(args).length : 0;
   return { argCount: count, argBytes: bytes };
 }
@@ -207,6 +213,15 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
     // `effort` is only present for providers that expose one (live); the mock label stays {mode, provider, model}.
     const execution: ExecutionLabel = { mode: provider.mode, provider: provider.name, model: provider.model, ...(provider.effort ? { effort: provider.effort } : {}) };
     let providerCalls = 0;
+    let guardCalls = 0;
+    const callWithTimeout = <V>(run: (signal: AbortSignal) => Promise<V>, ms: number) => withTimeout(run, ms, input.signal);
+    const evidenceOrdinals = new Map<TelemetryStep, number>();
+    const observe = async <V>(name: TelemetryStep, attributes: Attrs, fn: () => Promise<V>): Promise<V> => {
+      const declaredMax = telemetry.evidence?.snapshot().expected.filter(e => e.operation === name).reduce((n, e) => Math.max(n, e.ordinal), 0) ?? 0;
+      const ordinal = Math.max(evidenceOrdinals.get(name) ?? 0, declaredMax) + 1; evidenceOrdinals.set(name, ordinal);
+      try { telemetry.evidence?.expect(name, ordinal); } catch { telemetry.event('manifest_failure', { errorClass: 'Error' }); }
+      return telemetry.step(name, { ...attributes, evidenceOrdinal: ordinal }, fn);
+    };
     let repairs = 0;
     let escalations = 0;
     let toolCalls = 0;
@@ -219,7 +234,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
     const ports = budgetPorts(input.tools, () => {
       if (toolCalls >= LIMITS.maxToolCallsPerTurn) throw new BudgetError('Tool call budget exhausted');
       toolCalls++;
-    });
+    }, (name, args, fn) => observe('tool', { toolName: name, permitted: true, ...argSummary(args) }, async () => fn()));
     /** Telemetry-only decision trail ("plan→publish v3→readback ok→committed"): tokens chosen by code, never model prose. */
     const decision: string[] = [];
     const decide = (token: string) => { decision.push(token); };
@@ -227,7 +242,8 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
     const annotate = (attributes: Attrs) => { try { telemetry.annotate?.(attributes); } catch { /* telemetry never changes a turn */ } };
     try {
       telemetry.declare?.({
-        adapterIds: [adapter.id], toolNames: [...permitted.keys()], knowledgeVersions: [knowledge.version],
+        adapterIds: [adapter.id], toolNames: [...permitted.keys(), ...Object.keys(input.tools).filter(k => typeof (input.tools as Record<string, unknown>)[k] === 'function')], knowledgeVersions: [knowledge.version],
+        policyVersions: [POLICY_VERSION], modelIds: provider.model ? [provider.model] : [],
         ...(adapter.promptVersion ? { promptVersions: [adapter.promptVersion] } : {}),
         ...(adapter.recordId ? { recordIds: knowledge.all().map(r => adapter.recordId!(r)) } : {}),
       });
@@ -242,7 +258,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
     async function step<V>(name: TurnStep['name'], attributes: Record<string, string | number | boolean>, fn: () => Promise<V>, detail?: (value: V) => string | undefined, telemetryName: TurnStep['name'] = name): Promise<V> {
       const started = clock.now();
       try {
-        const value = await telemetry.step(telemetryName, attributes, fn);
+        const value = await observe(telemetryName, attributes, fn);
         const d = detail?.(value);
         steps.push({ name, status: 'ok', ...(d ? { detail: d } : {}), durationMs: Math.max(0, clock.now() - started) });
         return value;
@@ -261,18 +277,27 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
       };
     }
     /** Outcome of one provider attempt, recorded on that attempt's telemetry step. The mock is free: its cost is known (0). */
-    function attemptSettled(prov: ModelProvider<T['action'], T['explanation']>, r: { usage: unknown; latencyMs: number; requestId?: string; stopReason?: string; costUsd?: number; reservationUsd?: number }, result: 'ok' | 'invalid'): void {
+    function attemptSettled(prov: ModelProvider<T['action'], T['explanation']>, r: { usage: unknown; latencyMs: number; requestId?: string; stopReason?: string; costUsd?: number; reservationUsd?: number; reservationRef?: string; settlement?: string; pricingVersion?: string; inputAccounting?: InputAccounting }, result: 'ok' | 'invalid'): void {
       const cost = r.costUsd ?? (prov.mode === 'mock' ? 0 : undefined);
       annotate({
         attemptResult: result, latencyMs: r.latencyMs, costKnown: cost !== undefined,
+        ...accountingAttrs(r),
         ...(cost !== undefined ? { costUsd: cost } : {}), ...(r.reservationUsd !== undefined ? { reservationUsd: r.reservationUsd } : {}),
         ...(r.requestId ? { requestId: r.requestId } : {}), ...(r.stopReason ? { stopReason: r.stopReason } : {}),
       });
     }
+    function accountingAttrs(r: { reservationRef?: string; settlement?: string; pricingVersion?: string; inputAccounting?: InputAccounting }): Attrs {
+      const a = r.inputAccounting;
+      return { ...(r.reservationRef ? { reservationRef: r.reservationRef } : {}), ...(r.settlement ? { settlement: r.settlement } : {}),
+        ...(r.pricingVersion ? { pricingVersion: r.pricingVersion } : {}),
+        ...(a ? { estimationVersion: a.estimationVersion, systemBytes: a.system.bytes, systemEstimatedTokens: a.system.estimatedTokens, conversationBytes: a.conversation.bytes, conversationEstimatedTokens: a.conversation.estimatedTokens, schemaBytes: a.schema.bytes, schemaEstimatedTokens: a.schema.estimatedTokens, framingEstimatedTokens: a.framing.estimatedTokens, totalInputBytes: a.totalInputBytes, inputEstimatedTokens: a.estimatedInputTokens } : {}) };
+    }
     function attemptFailed(prov: ModelProvider<T['action'], T['explanation']>, error: unknown): void {
       if (!isProviderError(error)) { annotate({ attemptResult: 'error', providerErrorKind: 'unknown', costKnown: prov.mode === 'mock', ...(prov.mode === 'mock' ? { costUsd: 0 } : {}) }); return; }
+      telemetry.recordUsage(error.usage, prov.model);
       const cost = error.costUsd ?? (prov.mode === 'mock' ? 0 : undefined);
       annotate({
+        ...accountingAttrs(error), ...(error.latencyMs !== undefined ? { latencyMs: error.latencyMs } : {}),
         attemptResult: 'error', providerErrorKind: error.kind, retryable: error.retryable, timeout: error.kind === 'timeout', costKnown: cost !== undefined,
         ...(cost !== undefined ? { costUsd: cost } : {}), ...(error.reservationUsd !== undefined ? { reservationUsd: error.reservationUsd } : {}),
         ...(error.requestId ? { requestId: error.requestId } : {}), ...(error.stopReason ? { stopReason: error.stopReason } : {}),
@@ -285,6 +310,19 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
       const resolved = await step('load_context', { turnCount: session.conversation.length, version: session.version }, async () => resolveTurnText(session, request),
         r => (r.choice ? 'Used your choice' : copy.contextLoaded));
       const ctx: ToolContext<T> = { session, request, buyerText: resolved.effectiveText, ports, clock, step: (name, attributes, fn, detail) => step(name, attributes, fn, detail) };
+      Object.assign(ctx, { evidence: telemetry.evidence });
+      // The blocking policy stage finishes before retrieval, context or planner dispatch.
+      if (adapter.preflight) {
+        const gate = await observe('guard', { policyVersion: POLICY_VERSION, guardStage: 'intent', ...(provider.model ? { guardModel: provider.model } : {}) }, async () => {
+          const g = await callWithTimeout(signal => Promise.resolve(adapter.preflight!({ session, request, buyerText: resolved.effectiveText, choice: resolved.choice, provider, signal })), Math.min(POLICY_LIMITS.timeoutMs + 100, callBudgetMs()));
+          if (g.accounting) { guardCalls++; telemetry.recordUsage(g.accounting.usage, provider.model); attemptSettled(provider, g.accounting, 'ok'); }
+          annotate({ ...(g.policy ? { policyOutcome: g.policy.outcome, policyReason: g.policy.reason } : {}), guardOutcome: g.kind === 'continue' ? 'allow' : g.kind === 'ask' ? 'clarify' : 'reject', preventedDispatch: g.kind !== 'continue' });
+          return g;
+        });
+        if (gate.kind === 'ask') return finish('clarification', note(gate.clarification.question, 'question', { clarification: gate.clarification }), { clarification: gate.clarification });
+        if (gate.kind === 'refuse') return finish('refused', note(gate.text, 'note'));
+      }
+      if (input.signal?.aborted) { telemetry.evidence?.interrupt('cancelled'); return finish('provider_unavailable', note('This request was cancelled before planning. Please try again.', 'failed')); }
       /** What model prose without read-back evidence may repeat: the buyer's own words and the adapter's saved domain text. */
       const corpus = buildCorpus([
         resolved.effectiveText,
@@ -301,9 +339,12 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
         annotate({ recordCount: selected.length, ...(ids.length ? { sourceIds: ids.join(',') } : {}) });
         return selected;
       }, r => `${r.length} knowledge ${r.length === 1 ? 'record' : 'records'}`);
-      const context = adapter.buildContext({
+      const context = await observe('context', { contextSchemaVersion: 1 }, async () => { const value = adapter.buildContext({
         session, request, history: resolved.history, buyerText: resolved.effectiveText, choice: resolved.choice, question: resolved.question,
         records, knowledgeVersion: knowledge.version,
+      });
+        annotate({ contextBytes: Buffer.byteLength(JSON.stringify(value), 'utf8') });
+        return value;
       });
       const messages: ProviderMessage[] = [
         { role: 'system', content: adapter.systemPrompt },
@@ -338,7 +379,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
         providerCalls++;
         try {
           const { response, action } = await step(name, attemptAttrs(prov, purpose), () =>
-            withTimeout(signal => prov.complete({ messages, responseSchema: adapter.responseSchema, maxOutputTokens: AGENT_LIMITS.planningMaxOutputTokens, ...(repairOf ? { repairOf } : {}) }, signal), budgetMs)
+            callWithTimeout(signal => prov.complete({ messages, responseSchema: adapter.responseSchema, maxOutputTokens: AGENT_LIMITS.planningMaxOutputTokens, ...(repairOf ? { repairOf } : {}) }, signal), budgetMs)
               .then(r => {
                 const decoded = interpret(r.action);
                 telemetry.recordUsage(r.usage, prov.model);
@@ -400,7 +441,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
         const tool = permitted.get(a.tool);
         const name = toolToken(a.tool);
         if (!tool) {
-          await telemetry.step('tool', { toolName: name, permitted: false, resultState: 'refused', ...argSummary(a.args) }, async () => null);
+          await observe('tool', { toolName: name, permitted: false, resultState: 'refused', ...argSummary(a.args) }, async () => null);
           telemetry.event('tool_refused', { reason: 'not_permitted', toolName: name });
           decide(`${name}:not_permitted`);
           return finish('refused', note(`${copy.toolNotPermitted} Nothing was changed.`));
@@ -421,16 +462,21 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
         for (;;) {
           const started = clock.now();
           let result: MutationResult<T['readback']>;
+          if (tool.beforeMutation) {
+            const gate = await observe('guard', { guardStage: 'pre_dispatch', toolName: label }, async () => tool.beforeMutation!(args, ctx));
+            if (gate.kind === 'ask') return finish('clarification', note(gate.clarification.question, 'question', { clarification: gate.clarification }), { clarification: gate.clarification });
+            if (gate.kind === 'refuse') return finish('refused', note(gate.text, 'note'));
+          }
           // Domain validation runs in code before anything executes: a rejected action never reaches `execute`.
           const verdict = tool.validate
-            ? await telemetry.step('validate', { toolName: label }, async () => { const v = tool.validate!(args, ctx); annotate({ state: v.length ? 'rejected' : 'ok', ...issueAttrs(v) }); return v; })
+            ? await observe('validate', { toolName: label }, async () => { const v = tool.validate!(args, ctx); annotate({ state: v.length ? 'rejected' : 'ok', ...issueAttrs(v) }); return v; })
             : [];
           if (verdict.length) result = { state: 'rejected', problems: verdict, version: lastVersion };
           else {
             executions++;
             const before = lastVersion;
             try {
-              result = await telemetry.step('tool', { toolName: label, permitted: true, mutates: true, attempt: executions, versionBefore: before, ...argSummary(args) }, async () => {
+              result = await observe('tool', { toolName: label, permitted: true, mutates: true, attempt: executions, versionBefore: before, ...argSummary(args) }, async () => {
                 const r = await tool.execute(args, ctx);
                 const after = versionAfter(r);
                 annotate({ resultState: r.state, ...(after !== null ? { versionAfter: after } : {}), ...(r.state === 'readback_uncertain' ? { attemptedVersion: r.attemptedVersion } : {}) });
@@ -443,7 +489,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
                 return finish('rejected', note(`I ran out of steps for this message before I could save anything. Version ${lastVersion} is still live.`, 'failed'));
               }
               telemetry.event('publish_threw', { errorClass: errorClass(error) });
-              await telemetry.step('readback', { state: 'uncertain', lastKnownVersion: session.version }, async () => null);
+              await observe('readback', { state: 'uncertain', lastKnownVersion: session.version }, async () => null);
               decide(`${label}:threw`); decide('readback uncertain');
               steps.push({ name: 'save', status: 'failed', detail: 'No confirmation received' }, { name: 'readback', status: 'failed' });
               return finish('readback_uncertain', note(copy.uncertain(session.version), 'uncertain'));
@@ -502,7 +548,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
             const readback = result.readback;
             telemetry.event('commit', { toolName: label, version: result.version, versionBefore: session.version });
             // The authoritative readback came back with the commit; the optional detail read and the evidence ids are recorded here.
-            const detail = await telemetry.step('readback', { toolName: label, version: result.version }, async () => {
+            const detail = await observe('readback', { toolName: label, version: result.version }, async () => {
               let read: T['detail'] | null = null;
               let detailState = tool.readDetail ? 'ok' : 'not_requested';
               if (tool.readDetail) {
@@ -529,7 +575,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
           case 'save_failed':
             return finish('save_failed', note(`I couldn’t save that${result.reason ? ` (${oneLine(result.reason, 120)})` : ''}. Nothing changed: version ${result.version} is still live.`, 'failed'));
           case 'readback_uncertain':
-            await telemetry.step('readback', { toolName: label, state: 'uncertain', attemptedVersion: result.attemptedVersion, lastKnownVersion: result.lastKnownVersion }, async () => null);
+            await observe('readback', { toolName: label, state: 'uncertain', attemptedVersion: result.attemptedVersion, lastKnownVersion: result.lastKnownVersion }, async () => null);
             decide('readback uncertain');
             return finish('readback_uncertain', note(copy.uncertain(result.lastKnownVersion), 'uncertain'));
           case 'expired':
@@ -554,7 +600,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
           const messages = spec.messages({ buyerText: resolved.effectiveText, args, readback, detail });
           // Buyer-visible step `explain`; telemetry records it as `model` (purpose=explain), apart from the read tool's own `explain` step.
           const response = await step('explain', attemptAttrs(provider, 'explain'), () =>
-            withTimeout(signal => provider.explain!({ messages, responseSchema: spec.responseSchema, maxOutputTokens: LIMITS.maxExplanationOutputTokens }, signal), budgetMs)
+            callWithTimeout(signal => provider.explain!({ messages, responseSchema: spec.responseSchema, maxOutputTokens: LIMITS.maxExplanationOutputTokens }, signal), budgetMs)
               .then(r => {
                 telemetry.recordUsage(r.usage, provider.model);
                 attemptSettled(provider, r, spec.decode(r.explanation) ? 'ok' : 'invalid');
@@ -580,7 +626,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
       async function actOnRead(label: string, tool: ReadTool<T>, args: unknown, planned: string, plannedCites: string[] | undefined): Promise<Result> {
         let read: Awaited<ReturnType<ReadTool<T>['read']>>;
         try {
-          read = await telemetry.step('tool', { toolName: label, permitted: true, mutates: false, attempt: 1, ...argSummary(args) }, async () => {
+          read = await observe('tool', { toolName: label, permitted: true, mutates: false, attempt: 1, ...argSummary(args) }, async () => {
             const r = await tool.read(args, ctx);
             annotate({ resultState: r.state, ...(r.state === 'found' ? { version: r.version } : {}) });
             return r;
@@ -630,9 +676,9 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
       outcome: result.outcome, ...(reply ? { status: reply.status } : {}),
       replyChars: result.messages.reduce((n, m) => n + m.text.length, 0), groundingDrops: drops.n,
       evidenceCount: result.messages.filter(m => m.evidence !== undefined).length,
-      providerCalls, repairs, escalationCount: escalations, toolCalls, totalMs: Math.max(0, clock.now() - turnStartedAt), decision: trail,
+      providerCalls, guardCalls, repairs, escalationCount: escalations, toolCalls, totalMs: Math.max(0, clock.now() - turnStartedAt), decision: trail,
     };
-    try { telemetry.event('response', summary); } catch { /* telemetry never changes a turn */ }
+    try { telemetry.evidence?.expect('response', 1); telemetry.evidence?.observe('response', 1, 'start', 'ok'); telemetry.event('response', summary); telemetry.evidence?.observe('response', 1, 'end', 'ok'); } catch { /* telemetry never changes a turn */ }
     annotate({ decision: trail, groundingDrops: drops.n, providerCalls, repairs, escalationCount: escalations, toolCalls });
     return result;
   }

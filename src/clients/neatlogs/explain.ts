@@ -171,6 +171,34 @@ function namesGrounded(sentence: string, allowed: Allowed): boolean {
   return true;
 }
 
+/** Status and cause claims need saved support as well as valid names and measures. */
+function semanticsGrounded(sentence: string, trace: Trace | null, readback: ReadbackEvidence | null): boolean {
+  const text = sentence.toLowerCase();
+  // A causal explanation cannot be inferred from timing or status. Keep only an explicitly recorded causal statement.
+  if (/\b(?:because|caused? by|due to|thanks to|triggered|led to|resulted in|root cause|corrupt(?:ed|ion)?)\b/.test(text)) {
+    const causes = [trace?.outcome ?? '', ...(trace?.spans.map(s => s.error ?? '') ?? []), ...(readback?.traces.map(t => t.outcome) ?? [])];
+    if (!causes.some(c => flat(c).includes(flat(sentence)))) return false;
+  }
+  if (!trace && !readback) return !/\b(?:failed|succeeded|recovered|completed|never completed|successful)\b/.test(text);
+  const entry = trace ?? readback?.traces.find(t => t.key === readback.activeScenario) ?? readback?.traces[0];
+  const failed = /\b(?:failed|fails|failure|unsuccessful|never completed|did not complete|didn.t complete)\b/.test(text);
+  const succeeded = /\b(?:succeeded|successful|recovered|completed successfully)\b/.test(text);
+  const spans = trace?.spans ?? [];
+  const root = spans.find(s => s.parentId === null);
+  if (/\broot\s+(?:span|step)\b/.test(text) && root && ((failed && root.status !== 'ERROR') || (succeeded && root.status === 'ERROR'))) return false;
+  for (const s of spans) {
+    if (text.includes(s.name.toLowerCase()) && ((failed && s.status !== 'ERROR') || (succeeded && s.status === 'ERROR'))) return false;
+  }
+  if (/\b(?:retry|second attempt|last attempt)\b/.test(text)) {
+    const retries = spans.filter(s => /retry|attempt[_ -]?(?:[2-9]|\d{2,})\b/i.test(s.name));
+    const last = retries.at(-1);
+    if (last && ((failed && last.status !== 'ERROR') || (succeeded && last.status === 'ERROR'))) return false;
+  }
+  if (/\b(?:request|workflow|run|trace)\s+(?:never completed|did not complete|failed|fails|was unsuccessful)\b/.test(text) && entry?.outcomeKind === 'success') return false;
+  if (/\b(?:request|workflow|run|trace)\s+(?:succeeded|was successful|completed successfully|recovered)\b/.test(text) && entry?.outcomeKind !== 'success') return false;
+  return true;
+}
+
 /**
  * Keep only the model's sentences that the read-back evidence can back. Dropped: prices, plan/tier wording,
  * capability assertions about the product, retention/limit numbers; identifiers, CamelCase and quoted names that are not
@@ -201,6 +229,7 @@ export function groundNarrative(text: string | undefined, trace: Trace | null, r
     if ((shadow.match(IDENTIFIER) ?? []).some(tok => !isKnownIdentifier(tok))) continue;
     if (!namesGrounded(shadow, allowed)) continue;
     if (!numbersMatch(shadow, isKnownIdentifier, allowed)) continue;
+    if (!semanticsGrounded(shadow, trace, readback)) continue;
     kept.push(sentence);
   }
   return kept.join(' ');
