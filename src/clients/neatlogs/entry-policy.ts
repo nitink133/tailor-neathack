@@ -59,6 +59,24 @@ const FAILURE_QUESTION: Clarification = {
   question: 'Which failure should the fictional workflow demonstrate?',
   choices: [{ id: 'c1', label: 'An API call times out, then a retry succeeds' }, { id: 'c2', label: 'A tool returns invalid data and the step fails' }, { id: 'c3', label: 'A guardrail blocks the step and it escalates' }], allowFreeText: true,
 };
+const ALIGNMENT_QUESTION: Clarification = {
+  question: 'The proposed example did not match the workflow you described. Which part should I focus on?',
+  choices: [{ id: 'c1', label: 'Use the workflow I described' }, { id: 'c2', label: 'Focus on its failing tool call' }, { id: 'c3', label: 'Explain Neatlogs before building an example' }], allowFreeText: true,
+};
+
+/** Only the immediate code-owned alignment question signals an unapplied change. */
+function pendingCorrectionQuestion(session: SessionSnapshot, text: string): Clarification | null {
+  if (!session.story || !/^(?:please )?(?:explain|describe|walk me through) (?:the |my |our )?current (?:workflow|example|scenario)[.!?]*$/i.test(text.trim())) return null;
+  const previous = session.conversation.findLast(turn => turn.role === 'tailor');
+  const pending = previous?.clarification;
+  if (previous?.status !== 'question' || !pending || pending.question !== ALIGNMENT_QUESTION.question
+    || JSON.stringify(pending.choices) !== JSON.stringify(ALIGNMENT_QUESTION.choices)) return null;
+  const domain = session.story.domain.replace(/\s+/g, ' ').slice(0, 100);
+  return {
+    question: `Your requested workflow change has not been applied. The saved example is still “${domain}”, version ${session.version}. Would you like to explain that saved workflow or retry the change?`,
+    choices: [{ id: 'c1', label: 'Explain the saved workflow' }, { id: 'c2', label: 'Retry my requested workflow change' }, { id: 'c3', label: 'Explain what prevented the change' }], allowFreeText: true,
+  };
+}
 
 export function policyPreflight(decision: PolicyDecision, accounting?: PolicyResponse): AdapterPreflightResult {
   const metadata = { policy: decision, ...(accounting ? { accounting } : {}) };
@@ -79,6 +97,8 @@ export async function entryPreflight(input: { session: SessionSnapshot; request:
   if (!input.buyerText.trim()) return policyPreflight({ outcome: 'clarify', reason: 'ambiguous' });
   const veto = requestBoundary(input.buyerText);
   if (veto) return veto.reason === 'injection' ? policyPreflight({ outcome: 'deny_instruction_override', reason: 'instruction_override' }) : { kind: 'refuse', ...veto, text: `${veto.text} Nothing was changed.` };
+  const correction = !input.choice && pendingCorrectionQuestion(input.session, input.buyerText);
+  if (correction) return { kind: 'ask', reason: 'needs_context', clarification: correction };
   const project = (result: AdapterPreflightResult): AdapterPreflightResult => result.kind === 'ask' && result.policy?.reason === 'ambiguous' && /\b(?:fail\w*|workflow|agent)\b/i.test(input.buyerText)
     ? { ...result, clarification: FAILURE_QUESTION } : result;
   if (!input.provider.classifyPolicy) {
@@ -227,6 +247,13 @@ export function explicitWorkflowIdentity(text: string): { domain: string; raw: s
   const patterns = prefixes.map(prefix => new RegExp(`\\b${prefix}\\s+(?:(?:a|an|the|my|our)\\s+)?${noun}\\s+${kinds}\\b`));
   patterns.push(new RegExp(`(?:^|[.!?;]\\s*)${noun}\\s+${kinds}\\b`));
   const ignored = new Set(['a', 'an', 'the', 'my', 'our', 'new', 'simple', 'small', 'fictional', 'synthetic', 'own']);
+  // A correction can name the agent's job after its kind, rather than before it.
+  const job = /\b(?:my|our) (agent|workflow|bot|assistant|pipeline|copilot|chatbot) (?:actually )?(?:schedules?|processes?|handles?|manages?) ([a-z][a-z -]{1,65})(?=[.!?;]|$)/.exec(t);
+  if (job) {
+    const words = job[2]!.trim().split(/\s+/).filter(w => !ignored.has(w));
+    const terms = words.filter(w => w.length > 2).map(w => w.endsWith('s') ? w.slice(0, -1) : w);
+    if (terms.length) return { domain: `${words.join(' ')} ${job[1]}`, raw: job[0], terms };
+  }
   for (const pattern of patterns) {
     const match = pattern.exec(t);
     if (!match) continue;
@@ -235,7 +262,7 @@ export function explicitWorkflowIdentity(text: string): { domain: string; raw: s
     if (terms.length) return { domain: `${words.join(' ')} ${match[2]}`, raw: match[0]!, terms };
   }
   const headline = /^([a-z][a-z -]{1,80})\s*:/.exec(t);
-  if (!headline) return null;
+  if (!headline || /^(?:start over|correction|actually|instead|new request)$/.test(headline[1]!)) return null;
   const words = headline[1]!.split(/\s+/).filter(w => !ignored.has(w) && !['request', 'please', 'show', 'example'].includes(w));
   const terms = words.join(' ').split(/[^a-z0-9]+/).filter(w => w.length > 2);
   return terms.length ? { domain: `${words.join(' ')} workflow`, raw: headline[0], terms } : null;
@@ -251,10 +278,7 @@ export function proposalAlignment(proposal: ScenarioProposal, text: string): Pre
   const identity = normalize(`${active?.name ?? ''} ${active?.spans.find(span => span.parentKey === null)?.name ?? ''}`);
   const operations = normalize(active?.spans.filter(span => span.parentKey !== null).map(span => span.name).join(' ') ?? '');
   if ((required.length && !required.every(w => actual.includes(w) && identity.includes(w))) || namedTools.some(w => !operations.includes(w))) {
-    return { kind: 'ask', reason: 'needs_context', clarification: {
-      question: 'The proposed example did not match the workflow you described. Which part should I focus on?',
-      choices: [{ id: 'c1', label: 'Use the workflow I described' }, { id: 'c2', label: 'Focus on its failing tool call' }, { id: 'c3', label: 'Explain Neatlogs before building an example' }], allowFreeText: true,
-    } };
+    return { kind: 'ask', reason: 'needs_context', clarification: structuredClone(ALIGNMENT_QUESTION) };
   }
   return { kind: 'continue' };
 }
