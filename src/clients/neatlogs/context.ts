@@ -57,6 +57,7 @@ export interface AgentContext {
   knowledge: KnowledgeSummary[];
   knowledgeVersion: string;
   limits: Record<string, number>;
+  selection: { budgetChars: number; jsonChars: number; recentTurnsKept: number; recentTurnsDropped: number; buyerStatementsKept: number; payloadsDropped: number; knowledgeRecordsKept: number };
 }
 
 /** Persisted span IDs are `${traceId}-${spanKey}`; recover the model-facing key. */
@@ -141,16 +142,18 @@ const sizeOf = (context: AgentContext) => JSON.stringify(context).length;
  */
 export function fitContext(context: AgentContext, budget: number): AgentContext {
   const c: AgentContext = structuredClone(context);
+  const originalRecent = context.recentTurns.length;
+  let payloadsDropped = 0;
   const fits = () => sizeOf(c) <= budget;
   while (!fits() && c.recentTurns.length > 2) c.recentTurns.shift();
   while (!fits() && c.buyerStatements.length > 1) c.buyerStatements.shift();
   if (!fits()) for (const t of c.recentTurns) t.text = clip(t.text, 160);
   if (!fits()) c.buyerStatements = c.buyerStatements.map(b => clip(b, 300));
   if (!fits() && c.activeTrace) {
-    c.activeTrace.input = '[truncated]'; c.activeTrace.output = '[truncated]';
+    c.activeTrace.input = '[truncated]'; c.activeTrace.output = '[truncated]'; payloadsDropped += 2;
     for (const span of c.activeTrace.spans) {
       if (fits()) break;
-      span.input = '[truncated]'; span.output = '[truncated]';
+      span.input = '[truncated]'; span.output = '[truncated]'; payloadsDropped += 2;
     }
   }
   if (!fits()) {
@@ -162,6 +165,12 @@ export function fitContext(context: AgentContext, budget: number): AgentContext 
   }
   if (!fits()) c.knowledge = c.knowledge.map(k => ({ ...k, behaviour: clip(k.behaviour, 160), limitations: k.limitations.slice(0, 1) }));
   if (!fits()) c.recentTurns = [];
+  c.selection = { budgetChars: Math.max(0, budget), jsonChars: 0,
+    recentTurnsKept: c.recentTurns.length, recentTurnsDropped: context.selection.recentTurnsDropped + originalRecent - c.recentTurns.length,
+    buyerStatementsKept: c.buyerStatements.length, payloadsDropped, knowledgeRecordsKept: c.knowledge.length };
+  // Recompute after the diagnostic's own serialized size changes; never silently pass an oversized context.
+  for (let i = 0; i < 3; i++) c.selection.jsonChars = sizeOf(c);
+  if (!fits()) throw new Error('The bounded context cannot fit this planning call');
   return c;
 }
 
@@ -175,13 +184,18 @@ function assembleContext(args: { session: SessionSnapshot; resolved: ResolvedTur
   const active = session.dataset.traces.find(t => t.scenario === session.dataset.activeScenario) ?? null;
   const openId = args.openTraceId?.trim();
   const open = openId ? session.dataset.traces.find(t => t.id === openId) ?? null : null;
-  const recent = resolved.history.slice(-MAX_RECENT_TURNS);
+  const boundedHistory = resolved.history.slice(-MAX_RECENT_TURNS);
+  const queryWords = new Set((resolved.effectiveText.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter(w => !['what', 'this', 'that', 'with', 'show', 'make', 'neatlogs', 'agent', 'workflow'].includes(w)));
+  const lastApplied = [...boundedHistory].reverse().find(t => t.role === 'buyer' && t.status === 'applied');
+  const relevant = (turn: ChatTurn) => turn === lastApplied || !!turn.clarification ||
+    (turn.status !== 'failed' && [...queryWords].some(w => turn.text.toLowerCase().includes(w)));
+  const recent = boundedHistory.filter(relevant);
   return {
     contextSchema: CONTEXT_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
     datasetVersion: session.version,
     conversationVersion: session.conversationVersion,
-    buyerStatements: resolved.history.filter(t => t.role === 'buyer').slice(-MAX_BUYER_STATEMENTS).map(t => clip(t.text, MAX_TURN_CHARS)),
+    buyerStatements: recent.filter(t => t.role === 'buyer').slice(-MAX_BUYER_STATEMENTS).map(t => clip(t.text, MAX_TURN_CHARS)),
     story: session.story,
     recentTurns: recent.map(t => ({ role: t.role, status: t.status, text: clip(t.text, MAX_TURN_CHARS) })),
     unresolvedQuestion: resolved.question ? { question: resolved.question.question, choices: resolved.question.choices.map(c => ({ id: c.id, label: c.label })) } : null,
@@ -192,6 +206,7 @@ function assembleContext(args: { session: SessionSnapshot; resolved: ResolvedTur
     activeTrace: active ? detailOf(active) : null,
     knowledge: records.slice(0, LIMITS.maxKnowledgeRecordsPerTurn).map(summariseRecord),
     knowledgeVersion: args.knowledgeVersion,
+    selection: { budgetChars: 0, jsonChars: 0, recentTurnsKept: recent.length, recentTurnsDropped: resolved.history.length - recent.length, buyerStatementsKept: 0, payloadsDropped: 0, knowledgeRecordsKept: records.length },
     limits: {
       maxTracesPerDataset: LIMITS.maxTracesPerDataset, maxSpansPerTrace: LIMITS.maxSpansPerTrace, maxSpanJsonBytes: LIMITS.maxSpanJsonBytes,
       maxNameChars: LIMITS.maxNameChars, maxLabelChars: LIMITS.maxLabelChars, maxErrorChars: LIMITS.maxErrorChars, maxTagsPerTrace: LIMITS.maxTagsPerTrace,

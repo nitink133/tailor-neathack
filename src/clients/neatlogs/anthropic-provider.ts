@@ -15,12 +15,13 @@ import {
 import { isJson } from '../../tailor/json.ts';
 import { createAnthropicTransport, type AnthropicTransportOptions } from '../../tailor/anthropic-transport.ts';
 import { validateAgentAction, validateEvidenceExplanation } from './provider.ts';
+import { POLICY_DECISION_SCHEMA, POLICY_LIMITS, decodePolicyDecision, type PolicyRequest, type PolicyResponse } from '../../tailor/policy.ts';
 
 export {
   ProviderError, DEFAULT_EFFORT, DEFAULT_MODEL, mapSdkError, maxOutputTokensFor, toAnthropicMessages, toProviderUsage,
   type AnthropicMessageParams, type Effort, type MessagesClientLike, type OutputFormatLike, type RawMessageLike, type RequestOptionsLike,
 } from '../../tailor/anthropic-transport.ts';
-export type AnthropicProviderOptions = AnthropicTransportOptions;
+export type AnthropicProviderOptions = AnthropicTransportOptions & { guardModel?: string };
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Schemas (plain `as const` objects). Rules: additionalProperties:false on every object, every property required,
@@ -223,23 +224,37 @@ export function normaliseWireAction(parsed: unknown): unknown | null {
 // Provider
 // ---------------------------------------------------------------------------------------------------------------------
 /** Request id, stop reason, known cost and reservation for the core's per-attempt telemetry. */
-const accounting = (r: { requestId?: string; stopReason: string; costUsd?: number; reservationUsd: number }) => ({
+const accounting = (r: { requestId?: string; stopReason: string; costUsd?: number; reservationUsd: number; reservationRef?: string; settlement?: import('../../tailor/accounting.ts').AttemptSettlement; pricingVersion?: string; inputAccounting?: import('../../tailor/accounting.ts').InputAccounting }) => ({
   ...(r.requestId ? { requestId: r.requestId } : {}),
   stopReason: r.stopReason,
   reservationUsd: r.reservationUsd,
   ...(r.costUsd !== undefined ? { costUsd: r.costUsd } : {}),
+  ...(r.reservationRef ? { reservationRef: r.reservationRef } : {}),
+  ...(r.settlement ? { settlement: r.settlement } : {}),
+  ...(r.pricingVersion ? { pricingVersion: r.pricingVersion } : {}),
+  ...(r.inputAccounting ? { inputAccounting: r.inputAccounting } : {}),
 });
 
 /** What every plan/explain call sends besides the conversation; priced once at creation as the reservation overhead. */
-export const ANTHROPIC_FIXED_PARTS = { plan: { extraSystem: WIRE_FORMAT_NOTES, schema: PLAN_SCHEMA }, explain: { schema: EXPLAIN_SCHEMA } };
+export const ANTHROPIC_FIXED_PARTS = { plan: { extraSystem: WIRE_FORMAT_NOTES, schema: PLAN_SCHEMA }, explain: { schema: EXPLAIN_SCHEMA }, guard: { schema: POLICY_DECISION_SCHEMA } };
 
 export function createAnthropicProvider(options: AnthropicProviderOptions): ModelProvider {
   const transport = createAnthropicTransport({ ...options, fixedParts: ANTHROPIC_FIXED_PARTS });
+  const guardTransport = options.guardModel && options.guardModel !== transport.model
+    ? createAnthropicTransport({ ...options, model: options.guardModel, effort: 'low', timeoutMs: Math.min(options.timeoutMs ?? POLICY_LIMITS.timeoutMs, POLICY_LIMITS.timeoutMs), fixedParts: { guard: ANTHROPIC_FIXED_PARTS.guard } })
+    : transport;
   return {
     name: transport.name,
     model: transport.model,
     mode: transport.mode,
     effort: transport.effort,
+    async classifyPolicy(request: PolicyRequest, signal?: AbortSignal): Promise<PolicyResponse> {
+      const result = await guardTransport.call({
+        kind: 'guard', messages: request.messages, maxTokens: Math.min(request.maxOutputTokens, POLICY_LIMITS.maxOutputTokens),
+        timeoutMs: POLICY_LIMITS.timeoutMs, schema: POLICY_DECISION_SCHEMA, extract: decodePolicyDecision,
+      }, signal);
+      return { decision: result.value, usage: result.usage, latencyMs: result.latencyMs, guardModel: guardTransport.model, ...accounting(result) };
+    },
     async complete(request: ProviderRequest, signal?: AbortSignal): Promise<ProviderResponse> {
       const result = await transport.call<AgentAction>({
         kind: 'plan', messages: request.messages, extraSystem: WIRE_FORMAT_NOTES, maxTokens: request.maxOutputTokens, schema: PLAN_SCHEMA,

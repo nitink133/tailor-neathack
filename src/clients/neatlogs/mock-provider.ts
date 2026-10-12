@@ -12,13 +12,26 @@ import { createOfflineProvider } from '../../tailor/mock-provider.ts';
 import type { ActiveTraceDetail, AgentContext, KnowledgeSummary } from './context.ts';
 import { parseUserMessage } from './prompts.ts';
 import { parseAgentAction } from './provider.ts';
+import { classifyOfflinePolicy, inputFromPolicyRequest } from './entry-policy.ts';
+import type { PolicyRequest, PolicyResponse } from '../../tailor/policy.ts';
+import { qualityWorkflowProposal } from './eval-fixtures.ts';
+import { requestBoundary } from './request-boundaries.ts';
 
 export function createMockProvider(): ModelProvider {
   // Round-trip through the strict parser: the mock is held to the same contract as a live provider.
-  return createOfflineProvider<AgentAction>({
+  const planner = createOfflineProvider<AgentAction>({
     decide: request => decide(request as ProviderRequest),
     check: action => parseAgentAction(JSON.stringify(action)),
   });
+  return {
+    ...planner,
+    async classifyPolicy(request: PolicyRequest): Promise<PolicyResponse> {
+      const started = performance.now();
+      const input = inputFromPolicyRequest(request);
+      const decision = input ? classifyOfflinePolicy(input) : { outcome: 'clarify', reason: 'invalid_classification' } as const;
+      return { decision, usage: null, latencyMs: Math.max(0, Math.round(performance.now() - started)), costUsd: 0 };
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -35,27 +48,6 @@ function hash(s: string): number { let h = 7; for (const c of s) h = (h * 31 + c
 // Intent patterns
 // ---------------------------------------------------------------------------------------------------------------------
 const INJECTION = /ignore (?:all |any |your |the |previous |prior |these |those )*(?:rules|instructions|guidelines)|disregard (?:all |any |your |the |previous )*(?:rules|instructions)|system prompt|developer (?:message|prompt)|jailbreak|(?:publish|push|write|send)\b[^.]{0,30}\b(?:every|all) (?:session|buyer|user)s?|reveal\b[^.]{0,30}\b(?:prompt|api key|secret|credential|cookie)|you are now\b/i;
-const CODE_STRONG = /child_process|require\s*\(|rm\s+-rf|<\s*script|\beval\s*\(|\bexec\s*\(|os\.system|subprocess|__import__|curl[^|]*\|\s*(?:ba)?sh|process\.env/i;
-const CODE_REQUEST = /\b(?:run|execute|insert|inject|embed)\b[^.]{0,40}\b(?:code|script|shell|command|javascript|python|bash|payload)\b/i;
-const CROSS_SESSION = /\b(?:other|another|previous|earlier|different|last)\s+(?:buyer|user|session|customer|visitor|person|demo)s?\b|\beveryone'?s\b|\b(?:all|every) (?:sessions?|buyers?|users?)\b|\bsomeone else'?s\b|\bwho was here before\b/i;
-// Explicit session identifiers. An ID-like token is a UUID, a 26-char ULID, a 6+ char kebab token with a digit, or an 8+ char
-// token mixing letters and digits (not a plain number with a unit such as 300000ms). Ordinary words never match.
-const ID_TOKEN = String.raw`(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-hjkmnp-tv-z]{26}|(?=[a-z0-9-]*\d)[a-z0-9]{6,}(?:-[a-z0-9]+)+|(?!\d+[a-z]{0,3}(?![a-z0-9]))(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z])[a-z0-9]{8,})`;
-const LOOSE_ID = String.raw`(?!\d+[a-z]{0,3}(?![a-z0-9]))(?=[\w-]*\d)[\w-]{6,}`;
-const GAP_WORDS = String.raw`(?:[^\w-]+[\w'’-]+){0,3}?`;
-const SESSION_ID_REFERENCES: RegExp[] = [
-  // (i) session|demo|visitor|buyer|user, then an identifier within ~3 tokens
-  new RegExp(String.raw`\b(?:session|demo|visitor|buyer|user)s?\b${GAP_WORDS}[^\w-]+${ID_TOKEN}(?![\w-])`, 'i'),
-  // (ii) /demo/<id> or /api/sessions/<id>
-  new RegExp(String.raw`/(?:demo|api/sessions)/(?!(?:traces?|entry|new|me|current|this|mine)\b)[\w-]{4,}`, 'i'),
-  // (iii) sessionId / session id / session_id  =  :  is  token
-  new RegExp(String.raw`\bsession[\s_-]?id\b\s*(?:=|:|\bis\b|\bwas\b)\s*["'“]?${LOOSE_ID}`, 'i'),
-  // (iv) show|open|load|read|get|fetch|pull|access ... session <token>
-  new RegExp(String.raw`\b(?:show|open|load|read|get|fetch|pull|access)\b${GAP_WORDS}[^\w-]+sessions?\b${GAP_WORDS}[^\w-]+${LOOSE_ID}`, 'i'),
-];
-const MUTATION_VERB = /\b(?:delete|remove|drop|wipe|cancel|rotate|revoke|reset|modify|change|update|upgrade|downgrade|edit)\b/i;
-const MUTATION_TARGET = /\b(?:real|actual|production|live)\b[^.]{0,30}\b(?:neatlogs|project|account|workspace|traces|data)\b|\bneatlogs\b[^.]{0,20}\b(?:account|project|workspace|api key|billing|subscription|plan)\b|\bmy (?:neatlogs|real) (?:account|project|workspace)\b|\bmy (?:account|api key|billing|subscription)\b/i;
-
 const CAPABILITY_STRONG = /\b(?:slack|pagerduty|opsgenie|alerts?|alerting|notifications?|replays?|evals?|evaluations?|benchmarks?|production traces?|sso|saml|webhooks?|billing|invoices?)\b/i;
 const CAPABILITY_WEAK = /\b(?:integrations?|experiments?|deployments?|dashboards?|detections? rules?)\b/i;
 const CAPABILITY_ACTION = /\b(?:set ?up|configure|enable|turn on|connect|integrate|schedule|trigger|install|add|send|create|start)\b/i;
@@ -194,17 +186,35 @@ function decide(request: ProviderRequest): AgentAction {
   const text = norm(raw);
   const lower = text.toLowerCase();
 
+  const classification = classifyOfflinePolicy({
+    remit: '', capabilities: '', latestText: text,
+    session: { hasPublishedState: ctx.story !== null, pendingClarification: ctx.unresolvedQuestion ? { question: ctx.unresolvedQuestion.question, choices: ctx.unresolvedQuestion.choices.map(c => c.label) } : null, resolvedChoice: ctx.choiceResolved?.label ?? null },
+  });
+
   const refusal = refusalFor(text);
   if (refusal) return refusal;
 
   const { spec, domainRaw } = parseSpec(text);
   const withoutDomain = domainRaw ? text.replace(domainRaw, ' ') : text;
+  if (/\b(?:create|build|make|start|run)\b[^.]{0,50}\b(?:evaluation|eval|review)\b/i.test(text) && !NEW_WORKFLOW.test(text)) {
+    return { type: 'unsupported', capabilityId: 'synthetic-evaluation-review', text: 'Use the local Evals page to create a review form and save buyer answers or explicitly simulated scores. I can explain those controls here; a hosted AI evaluator is not running.' };
+  }
+  const qualityKind = /\b(?:retriev\w*|ground\w*|source|documentation)\b/i.test(text) && /\b(?:absent|invent\w*|unsupported|hallucin\w*|wrong|false|claims?)\b/i.test(text) ? 'retrieval'
+    : /\b(?:extract\w*|invoice)\b/i.test(text) && /\b(?:omit\w*|miss\w*|due date|completeness)\b/i.test(text) ? 'extraction'
+    : /\b(?:support|customer)\b/i.test(text) && /\b(?:unresolved|doesn't resolve|does not resolve|polite|unhelpful)\b/i.test(text) ? 'support' : null;
+  if (qualityKind && classification.outcome === 'allow_demo_action') {
+    const proposal = qualityWorkflowProposal(qualityKind, ctx.datasetVersion);
+    if (spec.domain) proposal.story.domain = spec.domain;
+    return { type: 'propose', proposal, explanation: 'The synthetic run completes without an execution error while its output misses the buyer’s quality requirement.' };
+  }
 
   const asksToDoCapability = CAPABILITY_ACTION.test(withoutDomain) || (!INFO_QUESTION_START.test(text) && CAPABILITY_ACTION_EXT.test(withoutDomain));
   if ((CAPABILITY_STRONG.test(withoutDomain) || CAPABILITY_WEAK.test(withoutDomain)) && asksToDoCapability && !NEW_WORKFLOW.test(text) && !(spec.pattern && !/\b(alert|slack|pagerduty|opsgenie|replay|webhook|sso|saml)\b/i.test(withoutDomain))) {
     const hit = unsupportedFor(withoutDomain, ctx);
     if (hit) return hit;
   }
+
+  if (classification.outcome === 'allow_product_question' && !/\b(?:this|open|saved|current)\s+(?:trace|run)\b/i.test(text)) return answerFor(ctx, text, true);
 
   if (EXPLAIN.test(text)) {
     if (!ctx.activeTrace) return { type: 'answer', text: 'There is no scenario to explain yet. Describe the workflow you want to see and I will build one first.', knowledgeIds: [] };
@@ -235,10 +245,9 @@ function decide(request: ProviderRequest): AgentAction {
 }
 
 function refusalFor(text: string): AgentAction | null {
-  if (INJECTION.test(text)) return { type: 'refuse', reason: 'injection', text: 'I can’t follow instructions that change how this demo works or reach beyond it, so I haven’t changed anything. I can still build or explain a fictional scenario for you.' };
-  if (CODE_STRONG.test(text) || CODE_REQUEST.test(text)) return { type: 'refuse', reason: 'arbitrary_code', text: 'I can’t add or run code in this demo. Scenarios are plain fictional data, so I haven’t changed anything. Describe the failure in words and I’ll model it.' };
-  if (CROSS_SESSION.test(text) || SESSION_ID_REFERENCES.some(re => re.test(text))) return { type: 'refuse', reason: 'cross_session', text: 'I can only see this demo’s own data, never another visitor’s. Nothing was changed.' };
-  if (MUTATION_VERB.test(text) && MUTATION_TARGET.test(text)) return { type: 'refuse', reason: 'real_mutation', text: 'I can’t touch a real Neatlogs project or account from this demo. Everything here is synthetic, and nothing was changed.' };
+  if (classifyOfflinePolicy({ remit: '', capabilities: '', latestText: text, session: { hasPublishedState: false, pendingClarification: null, resolvedChoice: null } }).outcome === 'deny_instruction_override') return { type: 'refuse', reason: 'injection', text: 'I can’t follow instructions that change how this demo works or reach beyond it, so I haven’t changed anything. I can still build or explain a fictional scenario for you.' };
+  const boundary = requestBoundary(text);
+  if (boundary) return { type: 'refuse', ...boundary };
   return null;
 }
 

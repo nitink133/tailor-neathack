@@ -1,6 +1,7 @@
 // A classifier can stop dispatch; it never authorizes a tool, session access, a write or a commercial claim.
 // Kept separate from the planner and given only the current text and compact product policy.
-import type { ProviderMessage, ProviderUsage } from './contract.ts';
+import type { ProviderErrorKind, ProviderMessage, ProviderUsage } from './contract.ts';
+import type { AttemptSettlement, InputAccounting } from './accounting.ts';
 
 export const POLICY_VERSION = 'tailor-entry-policy-2026-10-12.1' as const;
 export const POLICY_OUTCOMES = ['allow_product_question', 'allow_demo_action', 'clarify', 'redirect_off_topic', 'deny_instruction_override'] as const;
@@ -25,12 +26,18 @@ export interface PolicyResponse {
   stopReason?: string;
   costUsd?: number;
   reservationUsd?: number;
+  reservationRef?: string;
+  settlement?: AttemptSettlement;
+  pricingVersion?: string;
+  inputAccounting?: InputAccounting;
+  errorKind?: ProviderErrorKind;
+  guardModel?: string | null;
 }
 export interface PolicyClassifier {
   readonly model: string | null;
   classify(input: PolicyInput, signal?: AbortSignal): Promise<PolicyResponse>;
 }
-export const POLICY_LIMITS = { maxOutputTokens: 256, timeoutMs: 10_000, maxRetries: 0, maxInputChars: 6_000 } as const;
+export const POLICY_LIMITS = { maxOutputTokens: 1024, timeoutMs: 10_000, maxRetries: 0, maxInputChars: 8_000 } as const;
 export const POLICY_DECISION_SCHEMA = {
   type: 'object', properties: {
     outcome: { type: 'string', enum: POLICY_OUTCOMES }, reason: { type: 'string', enum: POLICY_REASONS },
@@ -51,4 +58,5 @@ export function decodePolicyDecision(value: unknown): PolicyDecision | null {
 
 /** Benchmark seam only. These options do not enable an API or cache in the normal runtime. */
 export const OPTIONAL_POLICY_BENCHMARK = { enabled: false, classifier: 'none', promptCaching: false } as const;
+export const POLICY_BENCHMARK_CANDIDATES = ['existing_classifier', 'jev', 'topic_control', 'semantic_route'] as const;
 export interface PolicyBenchmarkCandidate { name: string; classify(input: PolicyInput, signal?: AbortSignal): Promise<PolicyResponse> }

@@ -20,7 +20,8 @@
     "test:ui": "playwright test",
     "fixture": "node scripts/fixture.ts",
     "dev:live": "npm run build && TAILOR_PROVIDER=anthropic node --env-file-if-exists=.env.local src/main.ts",
-    "smoke:live": "node --env-file-if-exists=.env.local scripts/live-smoke.ts"
+    "smoke:live": "node --env-file-if-exists=.env.local scripts/live-smoke.ts",
+    "eval:quality": "node scripts/eval-quality.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.133.0",

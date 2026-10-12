@@ -15,7 +15,7 @@ export { isJson };
 /** No `maxRetries`: the SDK never retries; the service's bounded loop owns retries so every attempt is reserved and settled. */
 export type ProviderConfig =
   | { kind: 'mock' }
-  | { kind: 'anthropic'; apiKey: string; model?: string; effort?: Effort; spend: SpendGuard; timeoutMs?: number; client?: AnthropicProviderOptions['client'] };
+  | { kind: 'anthropic'; apiKey: string; model?: string; guardModel?: string; effort?: Effort; spend: SpendGuard; timeoutMs?: number; client?: AnthropicProviderOptions['client'] };
 
 export function createProvider(config: ProviderConfig): ModelProvider {
   switch (config.kind) {

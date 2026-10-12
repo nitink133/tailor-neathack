@@ -14,6 +14,7 @@ import type { Evidence, Story, Trace } from './contracts.ts';
 import { buyerWording, composeAnswer } from './answer.ts';
 import { PRODUCT_NAMES } from './claims.ts';
 import { buildContext } from './context.ts';
+import { entryPreflight, proposalAlignment } from './entry-policy.ts';
 import { citedSpanIds, describeCommit, describeTrace, groundNarrative, safeNarrative } from './explain.ts';
 import { explanationMessage, EXPLANATION_SYSTEM_PROMPT, PROMPT_VERSION, repairMessage, SYSTEM_PROMPT } from './prompts.ts';
 import { validateAgentAction, validateEvidenceExplanation } from './provider.ts';
@@ -69,12 +70,20 @@ function decodeAction(raw: AgentAction): ReturnType<ProductAdapter<NeatlogsTypes
   }
 }
 
+export const NEATLOGS_ADAPTER_VERSION = 'neatlogs-adapter-2026-10-12.2';
 export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
   id: 'neatlogs',
   productNames: PRODUCT_NAMES,
   systemPrompt: SYSTEM_PROMPT,
   promptVersion: PROMPT_VERSION,
   responseSchema: 'agent_action',
+  preflight: entryPreflight,
+  contextMetrics(value) {
+    const context = value as import('./context.ts').AgentContext;
+    return { contextBudgetChars: context.selection.budgetChars, contextChars: context.selection.jsonChars,
+      contextRecentTurnsKept: context.selection.recentTurnsKept, contextRecentTurnsDropped: context.selection.recentTurnsDropped,
+      contextPayloadsDropped: context.selection.payloadsDropped, contextKnowledgeRecordsKept: context.selection.knowledgeRecordsKept };
+  },
   buildContext: ({ session, request, history, buyerText, choice, question, records, knowledgeVersion }) => buildContext({
     session, resolved: { effectiveText: buyerText, choice, question, history }, records, knowledgeVersion,
     ...(request.openTraceId ? { openTraceId: request.openTraceId } : {}),
@@ -85,6 +94,15 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
     publishScenario: {
       mutates: true,
       parseArgs: (args): ScenarioProposal | null => (isObj(args) ? args as unknown as ScenarioProposal : null),
+      async beforeMutation(args, ctx) {
+        const alignment = proposalAlignment(args as ScenarioProposal, ctx.buyerText);
+        if (alignment.kind !== 'continue') return alignment;
+        if (!ctx.ports.prepareScenario) return { kind: 'continue' };
+        const prepared = await ctx.ports.prepareScenario(args as ScenarioProposal);
+        return prepared.state === 'confirmation_required'
+          ? { kind: 'ask', reason: 'material_switch', clarification: prepared.confirmation }
+          : { kind: 'continue' };
+      },
       // No pre-validate: publishScenario validates against current state and returns `rejected` without writing.
       execute: (proposal: ScenarioProposal, ctx) => ctx.ports.publishScenario(proposal),
       echo: (proposal: ScenarioProposal, explanation) => JSON.stringify({ type: 'propose', proposal, explanation }),
