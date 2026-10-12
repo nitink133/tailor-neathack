@@ -94,7 +94,7 @@ test('restoring entry restarts one rotation and navigation stops stale updates',
   await page.getByRole('link',{name:'← Back to landing'}).click();
   await page.clock.fastForward(16000);
   await expect(page.locator('[data-starter-list]')).toHaveCount(0);
-  await expect(page.getByRole('heading',{level:1})).toContainText('See where your agent workflow can fail');
+  await expect(page.getByRole('heading',{level:1})).toContainText('Your agent is already running');
 });
 
 test('empty, expired, failed and stale selections never show a resume action',async({page})=>{

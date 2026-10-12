@@ -401,3 +401,9 @@ html.chat-dock{--chat-w:380px}
 .native-fidelity-preview .routing-readback dl{display:block}
 
 .native-fidelity-preview .workspace:has(.routing-sheet)>.chat-reopen{position:absolute;top:8px;left:8px;z-index:67}
+
+/* Textarea heuristics mark pointer editing as focus-visible too. Keep the
+   composer focus ring on its rounded frame only for keyboard navigation. */
+.chat-composer textarea:focus,.chat-composer textarea:focus-visible{outline:none}
+.chat-composer:has(textarea:focus){border-color:var(--muted)}
+html.keyboard-navigation .chat-composer:has(textarea:focus-visible){outline:2px solid #2766c7;outline-offset:3px}

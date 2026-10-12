@@ -66,3 +66,36 @@
 .ne-evals .ne-eyebrow{color:var(--ne-muted);letter-spacing:.3px}
 .ne-evals .ne-field{color:lab(2.51107 .242703 -.886115)}
 .native-fidelity-preview .ne-evals.ne-wizard,.native-fidelity-preview .ne-evals.ne-editor{color:lab(2.51107 .242703 -.886115)}
+/* Evaluator Model & output: official measured anchors relative to y81 are
+   heading20, description58, model114/select138, output198, rows222/277.1875,
+   skills336.375/row360.375. Caption line-height is 13.2px, not 17px. */
+.ne-evals.ne-editor{border-left:1px solid var(--ne-line)}
+.ne-evals.ne-editor .ne-eyebrow{font-size:12px;line-height:12px;margin-bottom:8px;color:var(--ne-muted)}
+.ne-evals.ne-editor .ne-description{margin:8px 0 32px;font-size:13px;line-height:24px}
+.ne-evals .ne-model{display:flex;flex-direction:column}
+.ne-evals .ne-model>.ne-field{gap:12px;font-weight:400}
+.ne-evals .ne-model>.ne-field>.ne-uppercase{font-size:12px;line-height:12px;letter-spacing:.3px;margin:0;color:var(--ne-muted)}
+.ne-evals .ne-model select{height:36px;min-height:36px;border-radius:6px;padding:6px 28px 6px 8px;line-height:20px}
+.ne-evals .ne-model>.ne-uppercase{font-size:12px;line-height:12px;letter-spacing:.3px;margin:24px 0 12px;color:var(--ne-muted)}
+.ne-evals .ne-model>.ne-toggle-row{margin:0;font-size:13px;line-height:20px;font-weight:500}
+.ne-evals .ne-model>.ne-toggle-row+.ne-toggle-row{margin-top:20px}
+.ne-evals .ne-toggle-row small{font-size:11px;line-height:1.2;font-weight:400;margin-top:2px}
+.ne-evals .ne-toggle-row input{height:18.390625px;margin-top:2px;background:var(--ne-line);border-color:transparent}
+.ne-evals .ne-toggle-row input:checked{background:lab(20.6043 1.53267 -3.64184);border-color:transparent}
+.ne-evals .ne-toggle-row input:before{height:16px;width:16px;top:.2px;left:0}
+.ne-evals .ne-toggle-row input:checked:before{left:14px}
+
+.ne-evals .ne-model-select{display:block;position:relative}
+.ne-evals .ne-model-select img{position:absolute;z-index:1;left:9px;top:10px;transform:scale(.78);filter:invert(1);pointer-events:none}
+.ne-evals .ne-model .ne-model-select select{padding-left:32px;width:100%}
+.ne-evals.ne-editor .ne-step-nav .ne-step{font-size:12px;line-height:16px}
+.ne-evals.ne-editor .ne-step-number{font-weight:600;line-height:16px;background:lab(96.1634 .0993311 -.364041);border-color:lab(85.152 0 -.0000119209);color:var(--ne-muted)}
+.ne-evals.ne-editor .ne-current{background:lab(96.1634 .0993311 -.364041)}
+.ne-evals.ne-editor .ne-complete{font-weight:500;color:var(--ne-muted)}
+.ne-evals.ne-editor .ne-future{color:lab(66.128 -.0000298023 .0000119209)}
+.ne-evals.ne-editor .ne-complete .ne-step-number,.ne-evals.ne-editor .ne-current .ne-step-number{background:lab(7.78201 -.0000149012 0);border:0;color:lab(98.26 0 0)}
+.ne-evals.ne-editor .ne-step-number svg{width:14px;height:14px}
+
+.ne-evals .ne-model-chevron{position:absolute;right:9px;top:10px;width:16px;height:16px;opacity:.6;pointer-events:none}
+.ne-evals .ne-model-chevron svg{width:16px;height:16px}
+.ne-evals .ne-model .ne-model-select select{background-image:none}
