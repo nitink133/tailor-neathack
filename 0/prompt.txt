@@ -1,0 +1,15 @@
+Audit the completed NIT-265 Neatlogs replica in this repository. Start by reading AGENTS.md, the project-local Entire skill, Linear NIT-265 and the existing handoff. Verify the current branch contains Codex’s latest implementation. Preserve all existing work.
+Act as the lead auditor and split the review among parallel agents where supported:
+1. Layout and visual fidelity: compare the official Neatlogs traces list with our replica. Check sidebar, header, table columns, spacing, typography, colours, borders, badges, icons, row density, scrolling and selected states.
+2. Trace details: compare the detail view, span hierarchy, timeline, inputs/outputs, errors, timing, tabs and expandable sections. Check long content and nested spans as well as the default view.
+3. Interaction and state: compare search, filters, sorting and navigation where included in NIT-265. Test Back/Forward, direct links, reloads, empty results, loading/error states and repeated interactions. Confirm synthetic data stays consistent between list and detail.
+Use the authenticated official Neatlogs sandbox as a read-only reference. Do not edit its data, settings or either real project. Use the existing browser session; ask me for access if needed. Inspect the actual rendered UI rather than relying on memory or documentation. If agents share one browser, designate one reference collector to gather screenshots and interaction evidence; don’t let agents fight over tabs or navigate the same window concurrently.
+Capture paired official-versus-local screenshots at matching viewport size, zoom, theme and equivalent UI states. Record the reference URL, capture time, viewport and state for each pair. Use synthetic sandbox examples and keep credentials or unrelated private information out of screenshots. Compare layout and behaviour rather than expecting identical trace text or timestamps. Mark anything inaccessible as unverified.
+Keep this first pass audit-only: do not modify implementation, dependencies or configuration, and do not merge or deploy. Don’t add out-of-scope Neatlogs features just because they appear in the official UI. Separate visual mismatches, functional defects, deliberate scope exclusions and unverified areas.
+Consolidate findings into docs/NIT-265-ui-audit.md with:
+- A short verdict on visual fidelity, limited to the screens actually inspected.
+- Prioritised findings with the affected screen, expected versus actual result, reproduction steps and screenshot evidence.
+- Relevant code locations and the smallest suggested correction.
+- A checklist of states inspected and any gaps.
+- A proposed parallel fix plan with non-overlapping file ownership.
+Follow the project’s Entire recording requirements for each supported agent session and report any capture gaps honestly. Return the highest-impact findings and the report location. Wait for my review before starting fixes.
