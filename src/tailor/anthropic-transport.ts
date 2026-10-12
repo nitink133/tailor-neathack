@@ -16,7 +16,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { CORE_LIMITS as LIMITS, type ProviderErrorKind, type ProviderMessage, type ProviderUsage } from './contract.ts';
 import { ProviderError } from './provider-error.ts';
-import { PER_CALL_OUTPUT_TOKEN_CEILING, WORST_CHARS_PER_TOKEN, type SpendGuard } from './spend.ts';
+import { PER_CALL_OUTPUT_TOKEN_CEILING, WORST_CHARS_PER_TOKEN, validProviderUsage, type SpendGuard } from './spend.ts';
 import { INPUT_ESTIMATION_VERSION, PRICING_VERSION, type InputAccounting, type AttemptSettlement } from './accounting.ts';
 
 export { ProviderError } from './provider-error.ts';
@@ -158,13 +158,16 @@ export function mapSdkError(error: unknown): ProviderError {
 
 export function toProviderUsage(usage: RawMessageLike['usage'] | undefined | null): ProviderUsage | null {
   if (!usage || typeof usage.input_tokens !== 'number' || typeof usage.output_tokens !== 'number') return null;
-  return {
+  if ([usage.cache_read_input_tokens, usage.cache_creation_input_tokens, usage.output_tokens_details?.thinking_tokens]
+    .some(value => value != null && typeof value !== 'number')) return null;
+  const result: ProviderUsage = {
     inputTokens: usage.input_tokens,
     outputTokens: usage.output_tokens,
     ...(typeof usage.cache_read_input_tokens === 'number' ? { cacheReadInputTokens: usage.cache_read_input_tokens } : {}),
     ...(typeof usage.cache_creation_input_tokens === 'number' ? { cacheCreationInputTokens: usage.cache_creation_input_tokens } : {}),
     ...(usage.output_tokens_details && typeof usage.output_tokens_details.thinking_tokens === 'number' ? { thinkingTokens: usage.output_tokens_details.thinking_tokens } : {}),
   };
+  return validProviderUsage(result) ? result : null;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

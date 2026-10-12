@@ -185,3 +185,52 @@ test('a ledger that cannot be written after a paid call degrades the guard: late
     assert.equal(spend.summary().degraded, true);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('invalid reported usage cannot credit the cap or poison a durable ledger', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tailor-invalid-usage-'));
+  try {
+    const invalid = [
+      { inputTokens: -1_000_000, outputTokens: 0 },
+      { inputTokens: NaN, outputTokens: 0 },
+      { inputTokens: 0, outputTokens: Infinity },
+      { inputTokens: 0.5, outputTokens: 0 },
+      { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: -1_000_000 },
+      { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: NaN },
+      { inputTokens: 0, outputTokens: 0, thinkingTokens: -1 },
+    ];
+    for (const [index, usage] of invalid.entries()) {
+      const ledgerPath = join(dir, `${index}.json`);
+      const spend = createSpendGuard({ capUsd: 0.01, ledgerPath });
+      const reservation = spend.reserve(0.01, { kind: 'plan', model: 'claude-sonnet-5-5' });
+      spend.settle(reservation, usage);
+      spend.settle(reservation, usage);
+      for (const guard of [spend, createSpendGuard({ capUsd: 0.01, ledgerPath })]) {
+        const summary = guard.summary();
+        assert.equal(summary.spentUsd, 0.01);
+        assert.equal(summary.remainingUsd, 0);
+        assert.equal(summary.unreconciledCalls, 1);
+        assert.equal(summary.inputTokens, 0);
+        assert.equal(guard.priceUsd!(usage, 'claude-sonnet-5-5'), null);
+        assert.throws(() => guard.reserve(0.001, { kind: 'plan', model: 'claude-sonnet-5-5' }), (e: unknown) => e instanceof ProviderError && e.kind === 'spend_cap');
+      }
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('malformed API usage is reported as unknown and retains the pre-dispatch reservation', async () => {
+  for (const usage of [
+    { input_tokens: -1_000_000, output_tokens: 0 },
+    { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: -1 },
+    { input_tokens: 1, output_tokens: NaN },
+    { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 'unavailable' } as unknown as RawMessageLike['usage'],
+  ]) {
+    const spend = createSpendGuard({ capUsd: 1 });
+    const provider = createAnthropicProvider({ apiKey: KEY, spend, client: { messages: { async create() { return { ...ok(1, 1), usage }; } } } });
+    const response = await provider.complete(planRequest());
+    assert.equal(response.usage, null);
+    assert.equal(response.costUsd, undefined);
+    assert.equal(response.settlement, 'settled_unreconciled');
+    assert.equal(spend.summary().spentUsd, response.reservationUsd);
+    assert.equal(spend.summary().unreconciledCalls, 1);
+  }
+});
