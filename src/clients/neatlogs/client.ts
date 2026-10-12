@@ -170,9 +170,25 @@ async function showEvaluationPreview(targetId: string) {
   }
 }
 
-function guidanceCurrent(g: GuidanceSuggestion, s: DemoSession): boolean {
-  return isCurrentGuidance(g,s);
+const evaluationGuideDetails=new Map<string,EvaluationDetail>();
+const evaluationGuideFailures=new Map<string,'missing'|'loading'>();
+const evaluationGuideKey=(demoId:string,id:string)=>`${demoId}:${id}`;
+function evaluationBinding(g:GuidanceSuggestion){return {evaluationId:typeof g.binding.evaluationId==='string'?g.binding.evaluationId:undefined,evaluationVersion:typeof g.binding.evaluationVersion==='number'?g.binding.evaluationVersion:undefined};}
+const currentGuidanceWithReview:(g:unknown,s:DemoSession,detail?:EvaluationDetail)=>boolean=isCurrentGuidance;
+async function refreshGuidedEvaluations(s:DemoSession){
+  const ids=[...new Set(s.conversation.flatMap(t=>sanitiseStoredGuidance(t.guidance)).filter(g=>g.binding.version===s.version&&g.binding.scenario===s.dataset.activeScenario).map(g=>evaluationBinding(g).evaluationId).filter((id):id is string=>!!id))];
+  await Promise.all(ids.map(async id=>{const key=evaluationGuideKey(s.id,id);try{const detail=await request<EvaluationDetail>(`/api/sessions/${s.id}/evaluations/${encodeURIComponent(id)}`,{},true);if(current?.id===s.id){evaluationGuideDetails.set(key,detail);evaluationGuideFailures.delete(key);}}catch(error){evaluationGuideDetails.delete(key);evaluationGuideFailures.set(key,error instanceof ApiFailure&&error.status===404?'missing':'loading');}}));
 }
+function guidedEvaluation(g:GuidanceSuggestion,s:DemoSession){const id=evaluationBinding(g).evaluationId,key=id?evaluationGuideKey(s.id,id):'';return id&&!evaluationGuideFailures.has(key)?evaluationGuideDetails.get(key):undefined;}
+function guidanceCurrent(g: GuidanceSuggestion, s: DemoSession): boolean {
+  return currentGuidanceWithReview(g,s,guidedEvaluation(g,s));
+}
+function guidancePath(g:GuidanceSuggestion,s:DemoSession){const id=evaluationBinding(g).evaluationId;return g.targetId.startsWith('evals.')?(id?evalLink(s.id,id):evalBase(s.id)):g.targetId==='alerts.overview'?routingBase(s.id):`${base(s.id)}/${g.binding.traceId}`;}
+function guidanceSelector(g:GuidanceSuggestion){
+ const bound=!!evaluationBinding(g).evaluationId;
+ return g.targetId==='evals.evaluator'?(bound?'.eval-evaluator-guide':'.eval-reviewer-selection'):g.targetId==='evals.criteria'?(bound?'.eval-criteria-guide':'#eval-question-editor'):g.targetId==='evals.results'?'.eval-results':g.targetId==='evals.overview'?(bound?'.eval-overview':'.eval-create'):g.targetId==='alerts.overview'?'.routing-create':g.targetId==='trace.output'?'.root-output':'.steps';
+}
+
 function guidanceEvent(messageId: string, g: GuidanceSuggestion, outcome: 'selected'|'shown'|'failed'|'dismissed', reason?: 'stale'|'missing'|'navigation'|'loading'|'dismissed'|'render') {
   void request(`/api/sessions/${encodeURIComponent(String(g.binding.sessionId))}/guidance-events`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({messageId,suggestionId:g.id,outcome,...(reason?{reason}:{})}) }, true).catch(() => {});
 }
@@ -187,8 +203,8 @@ function guidanceCards(turn: ChatTurn, s: DemoSession): string {
   }).join('');
   const stale = guidance.every(g => !guidanceCurrent(g,s));
   const a = activeGuidance?.messageId === turn.id ? activeGuidance : undefined;
-  const note = a ? `<div class="contextual-guide-note${a.state==='failed'?' is-recovery':''}" role="status"><div><span>${a.state==='shown'?'Showing in your playground':a.state==='loading'?'Opening the relevant area':'Suggestion unavailable'}</span><button type="button" data-guidance-dismiss aria-label="Dismiss highlight">×</button></div><strong>${esc(a.suggestion.label)}</strong><p>${esc(a.state==='shown'?a.suggestion.purpose:a.state==='loading'?'Keeping your conversation here while the area loads.':a.reason==='stale'?'This suggestion is no longer current. Ask Tailor about the current scenario.':'That area is unavailable here. Explore the current trace or ask Tailor again.')}</p></div>` : '';
-  return `<section class="contextual-suggestions" aria-label="Contextual suggestions"><div class="contextual-suggestion-heading"><span>Take a closer look</span><small>${stale?'Scenario changed':'Choose what’s useful'}</small></div>${cards}${stale?'<p class="contextual-stale">Ask Tailor again for suggestions about the current scenario.</p>':''}${note}</section>`;
+  const note = a ? `<div class="contextual-guide-note${a.state==='failed'?' is-recovery':''}" role="status"><div><span>${a.state==='shown'?'Showing in your playground':a.state==='loading'?'Opening the relevant area':'Suggestion unavailable'}</span><button type="button" data-guidance-dismiss aria-label="Dismiss highlight">×</button></div><strong>${esc(a.suggestion.label)}</strong><p>${esc(a.state==='shown'?a.suggestion.purpose:a.state==='loading'?'Keeping your conversation here while the area loads.':a.reason==='stale'?'This suggestion is no longer current. Ask Tailor about the current scenario.':'That area is unavailable here. Explore the current trace or ask Tailor again.')}</p>${a.state==='failed'&&a.suggestion.targetId.startsWith('evals.')?link(evalBase(s.id),'Back to Evals'):''}</div>` : '';
+  return `<section class="contextual-suggestions" aria-label="Contextual suggestions"><div class="contextual-suggestion-heading"><span>Take a closer look</span><small>${stale?(guidance.some(g=>evaluationBinding(g).evaluationId)?'Saved review changed or unavailable':'Scenario changed'):'Choose what’s useful'}</small></div>${cards}${stale?(guidance.some(g=>evaluationBinding(g).evaluationId)?`<p class="contextual-stale">The saved review changed or is unavailable. ${link(evalBase(s.id),'Back to Evals')}</p>`:'<p class="contextual-stale">Ask Tailor again for suggestions about the current scenario.</p>'):''}${note}</section>`;
 }
 function clearGuidance(reason: 'navigation'|'dismissed' = 'dismissed', focus = true) {
   const a = activeGuidance; activeGuidance = undefined; guidanceAttempt++;
@@ -209,8 +225,8 @@ function restoreGuidanceHighlight() {
   };
   if (!guidanceCurrent(a.suggestion,current)) { unavailable('stale'); return; }
   const g=a.suggestion;
-  if (location.pathname !== (g.targetId==='alerts.overview'?routingBase(current.id):g.targetId==='evals.overview'?evalBase(current.id):`${base(current.id)}/${g.binding.traceId}`)) { clearGuidance('navigation',false); queueMicrotask(() => { if (!activeGuidance) repaint(); }); return; }
-  const target = g.binding.spanId ? [...root.querySelectorAll<HTMLElement>('[data-span-id]')].find(el=>el.dataset.spanId===g.binding.spanId) : root.querySelector<HTMLElement>(g.targetId==='alerts.overview'?'.routing-create':g.targetId==='evals.overview'?'.eval-create':g.targetId==='trace.output'?'.root-output':'.steps');
+  if (location.pathname !== guidancePath(g,current)) { clearGuidance('navigation',false); queueMicrotask(() => { if (!activeGuidance) repaint(); }); return; }
+  const target = g.binding.spanId ? [...root.querySelectorAll<HTMLElement>('[data-span-id]')].find(el=>el.dataset.spanId===g.binding.spanId) : root.querySelector<HTMLElement>(guidanceSelector(g));
   if(target && target.getClientRects().length) target.classList.add('contextual-guide-target');
   else unavailable('missing');
 }
@@ -220,27 +236,36 @@ async function showGuidance(messageId: string, suggestionId: string) {
   const attempt=++guidanceAttempt; activeGuidance={messageId,suggestion:g,state:'loading'};
   guidanceEvent(messageId,g,'selected');
   const fail=(reason:'stale'|'missing'|'navigation'|'loading'|'render') => { if(attempt!==guidanceAttempt)return;activeGuidance={messageId,suggestion:g,state:'failed',reason};guidanceEvent(messageId,g,'failed',reason);repaint(); };
-  if(!guidanceCurrent(g,s)) {fail(g.binding.version!==s.version || g.binding.scenario!==s.dataset.activeScenario?'stale':'missing');return;}
+  if(evaluationBinding(g).evaluationId){
+    try{
+      const owner=await request<BrowserSession>('/api/browser-session',{},true),fresh=await request<DemoSession>(`/api/sessions/${s.id}`,{},true),detail=await request<EvaluationDetail>(`/api/sessions/${s.id}/evaluations/${encodeURIComponent(evaluationBinding(g).evaluationId!)}`,{},true);
+      if(attempt!==guidanceAttempt||current?.id!==s.id)return;
+      browserSession=owner;current=fresh;evaluationGuideDetails.set(evaluationGuideKey(s.id,detail.evaluation.id),detail);evaluationGuideFailures.delete(evaluationGuideKey(s.id,detail.evaluation.id));if(evaluation?.evaluation.id===detail.evaluation.id)evaluation=detail;
+      if(!currentGuidanceWithReview(g,fresh,detail)){fail('stale');return;}
+    }catch(error){const key=evaluationGuideKey(s.id,evaluationBinding(g).evaluationId!);evaluationGuideDetails.delete(key);evaluationGuideFailures.set(key,error instanceof ApiFailure&&error.status===404?'missing':'loading');fail(error instanceof ApiFailure&&error.status===404?'missing':'loading');return;}
+  }
+  if(!guidanceCurrent(g,current??s)) {fail(g.binding.version!==s.version || g.binding.scenario!==s.dataset.activeScenario?'stale':'missing');return;}
   const trace=s.dataset.traces.find(t=>t.id===g.binding.traceId && t.sessionId===s.id);
   const span=g.binding.spanId?trace?.spans.find(x=>x.id===g.binding.spanId):undefined;
-  const allowed=['trace.overview','trace.slowest-span','trace.model-call','trace.output','evals.overview','alerts.overview'];
+  const allowed=['trace.overview','trace.slowest-span','trace.model-call','trace.output','evals.overview','evals.evaluator','evals.criteria','evals.results','alerts.overview'];
   if(!trace || !allowed.includes(g.targetId) || (g.binding.spanId && !span) || (g.targetId==='trace.model-call' && span?.kind!=='LLM') || (['trace.slowest-span','trace.model-call'].includes(g.targetId) && !span)) {fail('missing');return;}
   const original=openTrace(s);
   if(g.binding.openTraceId && original && original.id!==g.binding.openTraceId && original.id!==g.binding.traceId) {fail('stale');return;}
   chatOpen=true;sessionStorage.removeItem(chatKey(s.id));
   repaint();
   if(span) {expanded.add(span.id);for(const id of selectedSpanAncestors(trace,span.id))collapsedRoots.delete(id);}
-  const path=g.targetId==='alerts.overview'?routingBase(s.id):g.targetId==='evals.overview'?evalBase(s.id):`${traceLink(trace)}${span?'?span='+encodeURIComponent(span.id):''}`;
+  if(evaluationBinding(g).evaluationId){evaluationTab=g.targetId==='evals.criteria'?'Questions':g.targetId==='evals.results'?'Results':'Overview';sessionStorage.setItem(evaluationTabKey(evaluationBinding(g).evaluationId!),evaluationTab);}
+  const path=guidancePath(g,current??s)+(span?'?span='+encodeURIComponent(span.id):'');
   // Repeating a suggestion reopens its target without adding another Back stop.
   const rendered=await (location.pathname+location.search===path ? render() : navigate(path));
   if(attempt!==guidanceAttempt)return;
   if(!rendered || !current || !guidanceCurrent(g,current)) {fail('stale');return;}
-  const target=span?[...root.querySelectorAll<HTMLElement>('[data-span-id]')].find(el=>el.dataset.spanId===span.id):root.querySelector<HTMLElement>(g.targetId==='alerts.overview'?'.routing-create':g.targetId==='evals.overview'?'.eval-create':g.targetId==='trace.output'?'.root-output':'.steps');
+  const target=span?[...root.querySelectorAll<HTMLElement>('[data-span-id]')].find(el=>el.dataset.spanId===span.id):root.querySelector<HTMLElement>(guidanceSelector(g));
   if(!target || !target.isConnected || !target.getClientRects().length) {fail('missing');return;}
   activeGuidance={messageId,suggestion:g,state:'shown'};repaint();restoreGuidanceHighlight();
   const shown=root.querySelector<HTMLElement>('.contextual-guide-target');
   if(!shown || !shown.getClientRects().length){fail('render');return;}
-  shown.scrollIntoView({block:g.targetId==='evals.overview'||g.targetId==='alerts.overview'?'start':'center',behavior:'auto'});
+  shown.scrollIntoView({block:g.targetId.startsWith('evals.')||g.targetId==='alerts.overview'?'start':'center',behavior:'auto'});
   guidanceEvent(messageId,g,'shown');
   requestAnimationFrame(() => {
     const card=[...root.querySelectorAll<HTMLElement>('[data-guidance-id]')].find(el=>el.dataset.guidanceId===g.id && el.dataset.guidanceMessage===messageId);
@@ -291,7 +316,7 @@ function clearLocalState() {
   for (const key of SESSION_KEYS) sessionStorage.removeItem(key);
   // `tailor-exec:` is a legacy key (provider mode used to be cached per tab); it is no longer read.
   for (const key of Object.keys(sessionStorage)) if (key.startsWith('tailor-chat-collapsed:') || key.startsWith('tailor-exec:') || key.startsWith('tailor-steps:') || key.startsWith('tailor-entry-awaiting:') || key.startsWith('tailor-auto-guidance:')) sessionStorage.removeItem(key);
-  activeGuidance=undefined;guidanceAttempt++;
+  activeGuidance=undefined;guidanceAttempt++;evaluationGuideDetails.clear();evaluationGuideFailures.clear();
   evaluationPreview=undefined;activeEvaluationPreview=undefined;evaluationPreviewAttempt++;
   draft = []; pendingTurn = undefined; lastResult = undefined; turnNote = ''; chatBusy = false; current = undefined; lastList = undefined;
 }
@@ -719,7 +744,7 @@ function evalInput(q: EvaluationQuestion, traceId: string) {
   return `<textarea name="${esc(name)}" maxlength="600" ${required} aria-label="${esc(q.label)} for ${esc(traceId)}"></textarea>`;
 }
 function evalQuestionRow(q: EvaluationQuestion, index: number) {
-  return `<div class="eval-question-config" data-question-row data-question-index="${index}"><label>Question<input name="q-label:${index}" maxlength="120" required value="${esc(q.label)}"></label><label>Answer type<select name="q-type:${index}" data-q-type><option value="rating" ${q.type==='rating'?'selected':''}>Rating</option><option value="yes_no" ${q.type==='yes_no'?'selected':''}>Yes / no</option><option value="choice" ${q.type==='choice'?'selected':''}>Choice</option><option value="text" ${q.type==='text'?'selected':''}>Free text</option></select></label><label data-q-options ${q.type==='choice'?'':'hidden'}>Choice options<input name="q-options:${index}" maxlength="200" value="${esc(q.options?.join(', ') ?? '')}" placeholder="Two or more comma-separated choices"></label><label>Reviewer<select name="reviewer:${index}" aria-label="Reviewer for question ${index+1}"><option value="buyer" ${q.reviewer==='buyer'?'selected':''}>You</option><option value="simulated_judge" ${q.reviewer==='simulated_judge'?'selected':''}>Simulated reviewer</option></select></label><label class="eval-required"><input type="checkbox" name="required:${index}" ${q.required?'checked':''}> Required</label>${q.type==='rating'?`<input type="hidden" name="q-min:${index}" value="${q.min??1}"><input type="hidden" name="q-max:${index}" value="${q.max??5}">`:''}<button type="button" data-remove-question aria-label="Remove question ${index+1}">Remove</button></div>`;
+  return `<div class="eval-question-config" data-question-row data-question-index="${index}"><label>Question<input name="q-label:${index}" maxlength="120" required value="${esc(q.label)}"></label><label>Answer type<select name="q-type:${index}" data-q-type><option value="rating" ${q.type==='rating'?'selected':''}>Rating</option><option value="yes_no" ${q.type==='yes_no'?'selected':''}>Yes / no</option><option value="choice" ${q.type==='choice'?'selected':''}>Choice</option><option value="text" ${q.type==='text'?'selected':''}>Free text</option></select></label><label data-q-options ${q.type==='choice'?'':'hidden'}>Choice options<input name="q-options:${index}" maxlength="200" value="${esc(q.options?.join(', ') ?? '')}" placeholder="Two or more comma-separated choices"></label><label class="eval-reviewer-selection">Reviewer<select name="reviewer:${index}" aria-label="Reviewer for question ${index+1}"><option value="buyer" ${q.reviewer==='buyer'?'selected':''}>You</option><option value="simulated_judge" ${q.reviewer==='simulated_judge'?'selected':''}>Simulated reviewer</option></select></label><label class="eval-required"><input type="checkbox" name="required:${index}" ${q.required?'checked':''}> Required</label>${q.type==='rating'?`<input type="hidden" name="q-min:${index}" value="${q.min??1}"><input type="hidden" name="q-max:${index}" value="${q.max??5}">`:''}<button type="button" data-remove-question aria-label="Remove question ${index+1}">Remove</button></div>`;
 }
 function evaluationCheckTable(e: EvaluationDetail['evaluation']): string {
   if(!e.checkResults?.length)return '<p>No deterministic checks were selected. Review responses below are human or illustrative simulated values.</p>';
@@ -738,17 +763,19 @@ function evaluationsPage(s: DemoSession, data: EvaluationList) {
   restoreGuidanceHighlight();
 }
 function evaluationPage(s: DemoSession, result: EvaluationDetail) {
-  evaluation=result; evaluations=undefined;
+  evaluation=result; evaluations=undefined;if(!evaluationGuideFailures.has(evaluationGuideKey(s.id,result.evaluation.id)))evaluationGuideDetails.set(evaluationGuideKey(s.id,result.evaluation.id),result);
   const e=result.evaluation;
   prepareEvaluationPreview(s,result);
   const tabs=(['Overview','Questions','Results'] as const).map(t=>`<button type="button" data-eval-tab="${t}" aria-pressed="${evaluationTab===t}">${t}</button>`).join('');
   let panel='';
   if(evaluationTab==='Overview') panel=`<section class="eval-overview"><dl><div><dt>State</dt><dd>${e.state==='completed'?'Complete':'In progress'}</dd></div><div><dt>Source</dt><dd>Synthetic · local demo</dd></div><div><dt>Version</dt><dd>v${e.version} · traces v${e.datasetVersion}</dd></div></dl><h2>Questions</h2><ul>${e.questions.map(q=>`<li>${esc(q.label)} · ${q.reviewer==='buyer'?'Your review':'Simulated score — no AI evaluator ran'}</li>`).join('')}</ul><h2>Saved traces</h2><ul>${e.traceSnapshot.map(t=>`<li>${link(traceLink(t),esc(t.label))} · ${esc(t.outcomeKind)}</li>`).join('')}</ul></section>`;
 
+  if(!isEvaluationPreview()&&evaluationTab==='Overview')panel+=`<section class="eval-evaluator-guide" aria-label="Saved local reviewer configuration"><h2>Local reviewer configuration</h2><p>This configuration belongs to saved review ${esc(e.id)}, revision ${e.version}, trace snapshot v${e.datasetVersion}. No hosted AI evaluator runs.</p><ul>${e.questions.map(q=>`<li><strong>${esc(q.label)}</strong> · ${q.reviewer==='buyer'?'Human review': 'Illustrative simulated reviewer — no AI reviewer ran'}</li>`).join('')}</ul><p>${e.questions.filter(q=>q.reviewer==='buyer').length} human questions · ${e.responses.filter(r=>r.source==='buyer').length} recorded human answers. Unanswered quality judgments remain pending.</p><h3>Executed snapshot checks</h3><ul>${e.checks?.map(c=>`<li>${esc(c.label)} · ${esc(c.kind)}</li>`).join('')||'<li>No fixed predicates selected.</li>'}</ul><p>Fixed checks inspect saved trace values; passing them does not establish task quality.</p></section>`;
+
   if(evaluationTab==='Questions') {
     const qs=e.questions.filter(q=>q.reviewer==='buyer'),sims=e.questions.filter(q=>q.reviewer==='simulated_judge');
     const simRows=e.responses.filter(r=>r.source==='simulated_judge').map(r=>{const q=e.questions.find(x=>x.key===r.questionKey),t=e.traceSnapshot.find(x=>x.id===r.traceId);return `<tr><td>${esc(t?.label??r.traceId)}</td><td>${esc(q?.label??r.questionKey)}</td><td>${esc(String(r.value))}</td><td>Simulated score — no AI evaluator ran</td></tr>`}).join('');
-    panel=`<section class="eval-questions"><h2>Your review</h2><form id="review-eval-form">${qs.length?e.traceSnapshot.map(t=>`<fieldset><legend>${esc(t.label)}</legend>${qs.map(q=>`<label class="eval-answer"><span>${esc(q.label)}</span>${evalInput(q,t.id)}</label>`).join('')}</fieldset>`).join(''):'<p>No questions are assigned to you.</p>'}${sims.length?`<div class="eval-simulation-note"><strong>Simulated reviewer · no AI evaluator ran</strong><table><thead><tr><th>Trace</th><th>Question</th><th>Saved value</th><th>Source</th></tr></thead><tbody>${simRows||`<tr><td colspan="4">${sims.length} simulated question${sims.length===1?'':'s'}; no saved score yet.</td></tr>`}</tbody></table></div>`:''}<button type="submit" ${evalBusy||!qs.length?'disabled':''}>Save review</button></form></section>`;
+    panel=`<section class="eval-questions eval-criteria-guide"><h2>Your review</h2><form id="review-eval-form">${qs.length?e.traceSnapshot.map(t=>`<fieldset><legend>${esc(t.label)}</legend>${qs.map(q=>`<label class="eval-answer"><span>${esc(q.label)}</span>${evalInput(q,t.id)}</label>`).join('')}</fieldset>`).join(''):'<p>No questions are assigned to you.</p>'}${sims.length?`<div class="eval-simulation-note"><strong>Simulated reviewer · no AI evaluator ran</strong><table><thead><tr><th>Trace</th><th>Question</th><th>Saved value</th><th>Source</th></tr></thead><tbody>${simRows||`<tr><td colspan="4">${sims.length} simulated question${sims.length===1?'':'s'}; no saved score yet.</td></tr>`}</tbody></table></div>`:''}<button type="submit" ${evalBusy||!qs.length?'disabled':''}>Save review</button></form></section>`;
   }
 
   if(evaluationTab==='Results') {
@@ -865,6 +892,7 @@ async function render(preserveEntry = false): Promise<boolean> {
     if (current?.id !== s.id) { nativeEvalView='overview';nativeWizard={step:'type'};nativeEditor={step:'type'};nativeRoutingOpen=true;pendingTurn=undefined; lastResult=undefined; turnNote=''; chatBusy=false; }
     current=s; chatOpen = sessionStorage.getItem(chatKey(s.id)) !== '1';
     await loadBrowserSession();
+    await refreshGuidedEvaluations(s);
     if (run!==generation) return false;
     restorePending(s);
     restoreSteps(s);
@@ -978,7 +1006,8 @@ async function refresh(): Promise<boolean> {
       const listed = onList ? await request<TraceList>(`/api/sessions/${id}/traces${location.search}`, {}, true) : undefined;
       if (current?.id !== id) return false;
       if (listed && listed.version !== fresh.version) continue;
-      current = fresh;
+      current = fresh;await refreshGuidedEvaluations(fresh);
+      if(current?.id!==id)return false;
       if (listed) lastList = listed;
       return true;
     }
@@ -1016,6 +1045,8 @@ async function applyResponse(response: TurnResponse, sessionId: string, viewGene
   }
   conversation = mergeMessages(conversation, response.messages);
   current = { ...current, conversation, conversationVersion: Math.max(current.conversationVersion, response.conversationVersion), version: refreshed ? current.version : response.version };
+  await refreshGuidedEvaluations(current);
+  if(!ownsView())return;
   pendingTurn = undefined;
   sessionStorage.removeItem('tailor-pending-turn');
   turnNote = '';
