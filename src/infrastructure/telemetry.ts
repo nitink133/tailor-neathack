@@ -82,6 +82,8 @@ export interface ExportErrorSummary { name: string | null; code: string | null; 
 /** `turnRef` is the exported (hashed) turn id; `turnId` stays local to the operator diagnostics. */
 export interface TurnCorrelation { turnId: string; turnRef: string; correlationId: string; sessionRef?: string; demoRef?: string; requestRef?: string; clientTurnRef?: string; sourceDemoRef?: string; traceId: string | null; status: 'ok' | 'failed' | null; outcome: string | null; version?: number; conversationVersion?: number; evidence?: EvidenceManifestSnapshot; completeness?: EvidenceComparison }
 export interface TelemetryDiagnostics {
+  /** Exact local observation IDs for independent hosted readback; never a delivery claim. */
+  recentGuidance?: { traceId: string; outcome: GuidanceEvent['outcome']; demoRef: string; messageRef: string }[];
   mode: TelemetryMode;
   /** Export acknowledgement is separate from hosted receipt verification. */
   receiptState: 'unverified';
@@ -141,6 +143,8 @@ export interface Telemetry {
 }
 
 export interface GuidanceEvent {
+  /** Server-owned approved synthetic fixture flag; never copied from buyer event bodies. */
+  synthetic?: boolean;
   messageId: string; suggestionId: string; targetId: string; targetKey: string;
   version: number;
   outcome: 'selected' | 'shown' | 'failed' | 'dismissed';
@@ -375,6 +379,7 @@ function exportable(key: string, value: unknown, vocab: Vocabulary): boolean {
       if (!check || (UUID_LIKE.test(value) && !key.startsWith('tailor.synthetic_'))) return false;
       return check(value, vocab);
     }
+    if (key === 'tailor.synthetic_input_truncated' || key === 'tailor.synthetic_output_truncated') return typeof value === 'boolean';
     if (key === 'tailor.usage.available' || key === 'tailor.model_call' || key === 'tailor.synthetic') return typeof value === 'boolean';
     if (/^tailor\.usage\.(?:input_tokens|output_tokens|cache_read_input_tokens|cache_creation_input_tokens|thinking_tokens)$/.test(key)) return finiteNonNegative(value);
     const rawKey = key.slice('tailor.'.length).replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
@@ -389,9 +394,28 @@ function exportable(key: string, value: unknown, vocab: Vocabulary): boolean {
   return (typeof value === 'string' && value.length <= 200 && !/\s{2,}|[<>`]/.test(value)) || typeof value === 'number' || typeof value === 'boolean';
 }
 
+/** Native panels format JSON objects; labelled plain text preserves the diagnostic JSON line. */
+export function parseNativeDiagnosticEnvelope(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'string' || value.length > 24_000) return null;
+  const lines = value.split('\n');
+  const schema = { TAILOR_NATIVE_INPUT_V1: 'tailor-native-input-v1', TAILOR_NATIVE_OUTPUT_V1: 'tailor-native-output-v1', TAILOR_GUIDANCE_DIAGNOSTICS_V1: 'tailor-guidance-diagnostics-v1' }[lines[0] ?? ''];
+  if (!schema || lines.filter(line => line.startsWith('ORIGINAL_TEXT_JSON:')).length !== 1 || lines.filter(line => line.startsWith('DIAGNOSTICS_JSON:')).length > 1) return null;
+  try {
+    const text = JSON.parse(lines.find(line => line.startsWith('ORIGINAL_TEXT_JSON:'))!.slice('ORIGINAL_TEXT_JSON:'.length));
+    const diagnosticsLine = lines.find(line => line.startsWith('DIAGNOSTICS_JSON:'));
+    const diagnostics = diagnosticsLine ? JSON.parse(diagnosticsLine.slice('DIAGNOSTICS_JSON:'.length)) : undefined;
+    return { schema, text, ...(diagnostics ? { diagnostics } : {}) };
+  } catch { return null; }
+}
+function nativeDiagnosticText(envelope: { schema: string; text: unknown; diagnostics?: unknown }): string {
+  const schema = { 'tailor-native-input-v1': 'TAILOR_NATIVE_INPUT_V1', 'tailor-native-output-v1': 'TAILOR_NATIVE_OUTPUT_V1', 'tailor-guidance-diagnostics-v1': 'TAILOR_GUIDANCE_DIAGNOSTICS_V1' }[envelope.schema];
+  return `${schema}\nORIGINAL_TEXT_JSON:${JSON.stringify(envelope.text)}${envelope.diagnostics ? `\nDIAGNOSTICS_JSON:${JSON.stringify(envelope.diagnostics)}` : ''}`;
+}
+
 /** Defence-in-depth export mask: only allowlisted attributes and Tailor events survive; status text is dropped. */
 export function createSpanMask(vocab: Vocabulary, options: { hostedFields?: boolean; syntheticPayloads?: boolean } = {}): MaskFunction {
   const filterAttrs = (attrs: Record<string, unknown> | undefined) => Object.fromEntries(Object.entries(attrs ?? {}).filter(([k, v]) => exportable(k, v, vocab)));
+  const observed = new Map<string, { steps: Record<string, unknown>[]; truncated: boolean }>();
   return (data) => {
     const events = Array.isArray(data.events) ? data.events : [];
     const attributes = filterAttrs(data.attributes);
@@ -416,10 +440,6 @@ export function createSpanMask(vocab: Vocabulary, options: { hostedFields?: bool
           const value = attributes[key!];
           if (typeof value === 'string' && value.length <= SYNTHETIC_MAX_CHARS && !looksSensitive(value)) {
             synthetic[field!] = value;
-            // Match the pinned SDK setIO aliases; never accept these keys from caller attributes.
-            attributes[`${field}.value`] = value;
-            attributes[`neatlogs.${field}.value`] = value;
-            attributes[`neatlogs.workflow.${field}`] = value;
           }
         }
       }
@@ -448,6 +468,40 @@ export function createSpanMask(vocab: Vocabulary, options: { hostedFields?: bool
       if (finiteNonNegative(input) && finiteNonNegative(output)) attributes['neatlogs.llm.token_count.total'] = (input as number) + (output as number);
       if (attributes['neatlogs.span.kind'] === 'llm') sdk['neatlogs.span.kind'] = 'llm';
       if (Object.keys(metadataAttributes).length || metadataEvents.length) attributes['neatlogs.metadata'] = JSON.stringify({ tailor: { attributes: metadataAttributes, events: metadataEvents }, ...(Object.keys(sdk).length ? { sdk } : {}), ...(Object.keys(synthetic).length ? { synthetic } : {}) });
+      const turnRef = attributes['tailor.turn_id'];
+      const validSpanId = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{16}$/.test(value) ? value : null;
+      const record = { spanId: validSpanId(data.span_id ?? data.spanId), parentSpanId: validSpanId(data.parent_span_id ?? data.parentSpanId),
+        step: attributes['tailor.step'] ?? null, attributes: metadataAttributes,
+        events: metadataEvents.filter(event => event.name !== 'tailor.evidence'),
+        receipts: metadataEvents.filter(event => event.name === 'tailor.evidence').map(event => [event.attributes['tailor.evidence_key'], event.attributes['tailor.evidence_status']]), sdk };
+      if (typeof turnRef === 'string' && HASHED_TURN.test(turnRef) && attributes['tailor.step'] !== 'turn') {
+        if (!observed.has(turnRef)) { if (observed.size >= 20) observed.delete(observed.keys().next().value!); observed.set(turnRef, { steps: [], truncated: false }); }
+        const group = observed.get(turnRef)!;
+        if (group.steps.length < 100) group.steps.push(record); else group.truncated = true;
+      }
+      const approvedRoot = options.syntheticPayloads && attributes['tailor.synthetic'] === true && attributes['tailor.step'] === 'turn';
+      const approvedGuidance = options.syntheticPayloads && attributes['tailor.synthetic'] === true && data.name === 'tailor.guidance';
+      if (approvedRoot || approvedGuidance) {
+        const group = typeof turnRef === 'string' ? observed.get(turnRef) : undefined;
+        const diagnostics = { schema: 'tailor-observed-diagnostics-v1', traceId: typeof (data.trace_id ?? data.traceId) === 'string' && /^[0-9a-f]{32}$/.test(data.trace_id ?? data.traceId) ? (data.trace_id ?? data.traceId) : null,
+          root: record, steps: (group?.steps ?? []).map(step => ({ ...step,
+            attributes: Object.fromEntries(Object.entries(step.attributes as Record<string, unknown>).filter(([key,value]) => metadataAttributes[key] !== value)),
+            sdk: Object.fromEntries(Object.entries(step.sdk as Record<string, unknown>).filter(([key,value]) => sdk[key] !== value)),
+          })), truncated: group?.truncated ?? false };
+        const outputEnvelope = { schema: approvedRoot ? 'tailor-native-output-v1' : 'tailor-guidance-diagnostics-v1',
+          text: approvedRoot && synthetic.output !== undefined ? { value: synthetic.output, truncated: attributes['tailor.synthetic_output_truncated'] === true } : null, diagnostics };
+        while (nativeDiagnosticText(outputEnvelope).length > 24_000 && diagnostics.steps.length) { diagnostics.steps.pop(); diagnostics.truncated = true; }
+        while (nativeDiagnosticText(outputEnvelope).length > 24_000 && diagnostics.root.events.length) { diagnostics.root.events.pop(); diagnostics.truncated = true; }
+        if (nativeDiagnosticText(outputEnvelope).length <= 24_000) {
+          const value = nativeDiagnosticText(outputEnvelope);
+          for (const key of ['output.value','neatlogs.output.value', 'neatlogs.workflow.output']) attributes[key] = value;
+        }
+        if (approvedRoot && synthetic.input !== undefined) {
+          const value = nativeDiagnosticText({ schema: 'tailor-native-input-v1', text: { value: synthetic.input, truncated: attributes['tailor.synthetic_input_truncated'] === true } });
+          for (const key of ['input.value','neatlogs.input.value','neatlogs.workflow.input']) attributes[key] = value;
+        }
+      }
+      if (typeof turnRef === 'string' && attributes['tailor.step'] === 'turn') observed.delete(turnRef);
       // SDK namespace mapping documents `metadata` as the source alias for neatlogs.metadata.
       // Emit only this generated whitelist envelope; inbound metadata remains denied.
       if (typeof attributes['neatlogs.metadata'] === 'string') attributes.metadata = attributes['neatlogs.metadata'];
@@ -618,7 +672,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
       },
       flush: async () => ({ ...quiet }), shutdown: async () => ({ ...quiet }), captured: () => [],
       diagnostics: () => ({
-        mode, receiptState: 'unverified', evidenceFailures: 0, captureEvictions: 0, missingEvents: 0, failedEvents: 0, deliveryState: 'disabled', droppedSteps: 0, droppedAttributes: 0, sdkFailures: 0, redactedValues: 0,
+        mode, receiptState: 'unverified', recentGuidance: [], evidenceFailures: 0, captureEvictions: 0, missingEvents: 0, failedEvents: 0, deliveryState: 'disabled', droppedSteps: 0, droppedAttributes: 0, sdkFailures: 0, redactedValues: 0,
         syntheticPayloads: false, endpoint: null, exportFailures: 0, droppedExports: 0,
         droppedSpans: 0, queued: 0, exportedSpans: 0, markerSpans: 0, lastExportError: null, lastSuccessfulExportAt: null, recentTurns: turns.snapshot(),
       }),
@@ -654,6 +708,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
     provider.addSpanProcessor(capture);
   }
 
+  const recentGuidance: NonNullable<TelemetryDiagnostics['recentGuidance']> = [];
   const diag = { evidenceFailures: 0, droppedSteps: 0, droppedAttributes: 0, sdkFailures: 0, redactedValues: 0 };
   const syntheticPayloads = options.syntheticPayloads === true;
   const endpoint = mode === 'neatlogs' ? originOf(options.endpoint ?? process.env.NEATLOGS_ENDPOINT?.trim()) : null;
@@ -849,6 +904,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
             const value = text.slice(0, SYNTHETIC_MAX_CHARS);
             if (looksSensitive(value)) { diag.droppedAttributes++; diag.redactedValues++; continue; }
             span.setAttribute(key, value);
+            span.setAttribute(`${key}_truncated`, text.length > SYNTHETIC_MAX_CHARS);
             attached = true;
           }
         });
@@ -954,10 +1010,12 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
       try {
         const attrs = scrub({ guidanceOutcome: event.outcome, guidanceTarget: event.targetId,
           ...(event.reason ? { guidanceReason: event.reason } : {}), version: event.version,
-          sessionRef: safeRef('s', sessionId), demoRef: safeRef('d', demoId),
+          sessionRef: `s${correlationIdFor(secret, sessionId)}`, demoRef: safeRef('d', demoId),
           messageRef: safeRef('m', event.messageId), suggestionRef: safeRef('g', event.suggestionId), targetRef: safeRef('x', event.targetKey) }).clean;
-        await trace({ name: 'tailor.guidance', kind: 'CHAIN', attributes: attrs }, async span => {
+        await trace({ name: 'tailor.guidance', kind: 'CHAIN', attributes: { ...attrs, ...(syntheticPayloads && event.synthetic === true ? { 'tailor.synthetic': true } : {}) } }, async span => {
           span.addEvent('tailor.guidance', attrs);
+          recentGuidance.push({ traceId: span.spanContext().traceId, outcome: event.outcome, demoRef: String(attrs['tailor.demo_ref']), messageRef: String(attrs['tailor.message_ref']) });
+          if (recentGuidance.length > 40) recentGuidance.shift();
         });
         return true;
       } catch { diag.sdkFailures++; return false; }
@@ -973,7 +1031,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
       const t = totals();
       if (!closed) logBurst(false);
       return {
-        mode, receiptState: 'unverified', captureEvictions: capture.evictions, missingEvents: turns.snapshot().reduce((n, t) => n + (t.completeness?.missing.length ?? 0), 0), failedEvents: turns.snapshot().reduce((n, t) => n + (t.completeness?.failed.length ?? 0), 0), deliveryState: stateNow(), ...diag, syntheticPayloads, endpoint,
+        mode, receiptState: 'unverified', recentGuidance: recentGuidance.map(item => ({ ...item })), captureEvictions: capture.evictions, missingEvents: turns.snapshot().reduce((n, t) => n + (t.completeness?.missing.length ?? 0), 0), failedEvents: turns.snapshot().reduce((n, t) => n + (t.completeness?.failed.length ?? 0), 0), deliveryState: stateNow(), ...diag, syntheticPayloads, endpoint,
         exportFailures: t.failed, droppedExports: t.dropped, droppedSpans: t.dropped,
         queued: queuedNow(), exportedSpans: settledExported, markerSpans: counter.markers,
         lastExportError: exporter?.lastError ?? lastError, lastSuccessfulExportAt: lastSuccessAt,

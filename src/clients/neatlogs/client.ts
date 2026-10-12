@@ -438,7 +438,7 @@ function chatThread(turns: ChatTurn[], s?: DemoSession) {
   }).join('');
 }
 function progress() {
-  if (chatBusy) return `<p class="chat-steps" role="status">Working on your request…</p>`;
+  if (chatBusy) return `<p class="chat-steps is-working" role="status" aria-live="polite"><span class="chat-pending-indicator" aria-hidden="true"></span>Working on your request…</p>`;
   const line = lastResult ? turnSummary(lastResult.steps, lastResult.outcome) : '';
   const uncertain = lastResult?.outcome === 'readback_uncertain';
   return `${turnNote ? `<p class="chat-note${uncertain ? ' is-uncertain' : ''}" role="status">${esc(turnNote)}</p>` : ''}${line ? `<p class="chat-steps" aria-label="Latest request">${esc(line)}</p>` : ''}`;
@@ -526,7 +526,7 @@ function preparationWorkspace(s: DemoSession) {
   const clarification=s.conversation.some(turn=>!!turn.clarification);
   const title=chatBusy?'Working on your workflow…':clarification?'A little more context is needed':'Your workflow is not ready yet';
   const copy=chatBusy?'Tailor is handling your request. Your conversation stays here.':clarification?'Answer Tailor’s question to continue. No personalised traces have been saved yet.':'No personalised traces have been saved and verified. Check the conversation and try again when you’re ready.';
-  root.innerHTML=shell(s,`<main class="personalised-preparation" role="status"><span class="personalised-preparation-mark" aria-hidden="true">✳</span><h1>${esc(title)}</h1><p>${esc(copy)}</p></main>`);
+  root.innerHTML=shell(s,`<main class="personalised-preparation${chatBusy?' is-working':''}" role="status" aria-live="polite" aria-busy="${chatBusy}"><span class="personalised-preparation-mark" aria-hidden="true">✳</span><h1>${esc(title)}</h1><p>${esc(copy)}</p></main>`);
 }
 function list(s: DemoSession,data: TraceList) {
   if(awaitingPersonalisedDemo(s)){lastList=data;preparationWorkspace(s);return;}

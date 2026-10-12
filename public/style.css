@@ -345,3 +345,10 @@ html.chat-dock{--chat-w:380px}
 .personalised-preparation h1{margin:0;font-size:18px;font-weight:500;letter-spacing:-.02em}
 .personalised-preparation p{max-width:360px;margin:0;color:var(--muted);font-size:12px;line-height:1.7}
 @media(max-width:900px){.personalised-preparation{min-height:180px;padding:20px 18px}.personalised-preparation h1{font-size:16px}}
+
+/* Indeterminate activity follows the real in-flight state, never a staged progress clock. */
+.personalised-preparation.is-working .personalised-preparation-mark{position:relative}
+.personalised-preparation.is-working .personalised-preparation-mark::after{content:"";position:absolute;inset:-5px;border:2px solid var(--line);border-top-color:#8b9fc0;border-radius:50%;animation:tailor-pending-orbit 1.8s linear infinite}
+.chat-pending-indicator{display:inline-block;width:9px;height:9px;margin-right:7px;border:1.5px solid var(--line);border-top-color:#8b9fc0;border-radius:50%;vertical-align:-1px;animation:tailor-pending-orbit 1.8s linear infinite}
+@keyframes tailor-pending-orbit{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.personalised-preparation.is-working .personalised-preparation-mark::after,.chat-pending-indicator{animation:none}}

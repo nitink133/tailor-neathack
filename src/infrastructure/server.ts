@@ -251,6 +251,7 @@ export function appServer(store: Store, options: AppServerOptions) {
           const recorded = await telemetry.guidanceEvent?.(owner, id, {
             messageId: message!.id, suggestionId: suggestion.id, targetId: suggestion.targetId,
             targetKey: `${binding.traceId}:${binding.spanId ?? ''}`, version: session.version,
+            synthetic: options.syntheticFixture?.(id) === true,
             outcome: data.outcome, ...(data.reason ? { reason: data.reason } : {}),
           }).catch(() => false) ?? false;
           return send(200, { recorded, receiptState: 'unverified' });
@@ -293,7 +294,7 @@ export function appServer(store: Store, options: AppServerOptions) {
           if (request.openTraceId !== undefined && !findTrace(store.read(id), request.openTraceId)) throw traceNotFound();
           const started = performance.now();
           tt.evidence?.expect('turn');
-          const result = await tt.step('turn', { provider: provider.name, providerMode: provider.mode, evidenceOrdinal: 1 }, async () => gate.run(owner, async () => {
+          const result = await tt.step('turn', { provider: provider.name, providerMode: provider.mode, evidenceOrdinal: 1, versionBefore: store.read(id).version }, async () => gate.run(owner, async () => {
             const response = await runTurn(id, request, hash, turnId, tt, cancellation.signal);
             tt.event('turn.result', { outcome: response.outcome, version: response.version, conversationVersion: response.conversationVersion, latencyMs: Math.round(performance.now() - started) });
             tt.attachSynthetic({ input: request.text, output: response.messages.filter(m => m.role === 'tailor').map(m => m.text).join('\n') });

@@ -1,6 +1,6 @@
 // Pure hosted-readback validation: no environment, credentials, network or model calls.
 import { compareEvidence, evidenceKey, EVIDENCE_OPERATIONS, type EvidenceManifestSnapshot, type EvidenceReceipt } from '../tailor/evidence.ts';
-import { looksSensitive, createSpanMask, telemetryVocabulary, isSafeTelemetryEventName } from './telemetry.ts';
+import { looksSensitive, createSpanMask, telemetryVocabulary, isSafeTelemetryEventName, parseNativeDiagnosticEnvelope } from './telemetry.ts';
 
 export const RUNTIME_PROJECT_ID = '18c4b4b6-0b1e-4d41-9405-7960fc2d0aa8';
 export const FORBIDDEN_PROJECT_ID = 'a35a7334-258e-441c-b2e1-b8198a263f21';
@@ -17,6 +17,8 @@ export interface HostedExpectation {
   requiredRootAttributes?: readonly string[];
   /** Exact code-approved fixture text; payloads are rejected without this opt-in. */
   synthetic?: { input?: string; output?: string };
+  /** Explicit opt-in to the approved native diagnostic fallback, separate from custom metadata. */
+  nativeDiagnostics?: boolean;
 }
 export interface HostedVerification {
   ok: boolean;
@@ -90,12 +92,69 @@ export function verifyProjectIdentity(body: unknown): boolean {
   return bag(body).projectId === RUNTIME_PROJECT_ID;
 }
 
+function nativeEnvelope(span: Bag, field: 'input' | 'output'): Bag {
+  const data = bag(span.data); const attrs = attributeMap(span.attributes);
+  let value = data[`${field}_value`] ?? data[field] ?? data[`${field}.value`] ?? data[`neatlogs.${field}.value`] ?? span[field] ?? attrs[`neatlogs.${field}.value`] ?? attrs[`${field}.value`];
+  if (bag(value).value !== undefined && bag(value).schema === undefined) value = bag(value).value;
+  if (typeof value === 'string') {
+    if (value.length > 24_000) return {};
+    const native = parseNativeDiagnosticEnvelope(value);
+    if (native) return native;
+    try { return bag(JSON.parse(value)); } catch { return {}; }
+  }
+  return bag(value);
+}
+function withNativeDiagnostics(spans: Bag[], expected: HostedExpectation, issues: string[]): Bag[] {
+  const root = spans.find(span => name(span) === 'tailor.turn' && parentId(span) === null);
+  if (!root) return spans;
+  const output = nativeEnvelope(root, 'output'); const input = nativeEnvelope(root, 'input');
+  if (output.schema !== 'tailor-native-output-v1' || input.schema !== 'tailor-native-input-v1') { issues.push('native_envelope_missing'); return spans; }
+  const diagnostics = bag(output.diagnostics); const record = bag(diagnostics.root);
+  if (Object.keys(output).some(key => !['schema','text','diagnostics'].includes(key)) || Object.keys(diagnostics).some(key => !['schema','traceId','root','steps','truncated'].includes(key))) issues.push('unsafe_native_diagnostics');
+  if (diagnostics.schema !== 'tailor-observed-diagnostics-v1' || diagnostics.traceId !== expected.traceId || record.spanId !== spanId(root) || record.parentSpanId !== null) issues.push('native_identity_mismatch');
+  if (diagnostics.truncated !== false) issues.push('native_diagnostics_truncated');
+  const textIn = bag(input.text); const textOut = bag(output.text);
+  if ([textIn,textOut].some(text => Object.keys(text).some(key => !['value','truncated'].includes(key)))) issues.push('unsafe_synthetic_payload');
+  for (const [field,text] of [['input',textIn],['output',textOut]] as const) {
+    const value = text.value;
+    if (!expected.synthetic || typeof value !== 'string' || value.length > 1000 || looksSensitive(value) || typeof text.truncated !== 'boolean') issues.push('unsafe_synthetic_payload');
+    if (expected.synthetic?.[field] !== undefined && value !== expected.synthetic[field]) issues.push(`synthetic_${field}_mismatch`);
+  }
+  const steps = Array.isArray(diagnostics.steps) ? diagnostics.steps.map(bag) : [];
+  if (steps.length > 100) issues.push('native_diagnostics_limit');
+  const records = new Map([record,...steps].map(value => [value.spanId, value]));
+  if (records.size !== steps.length + 1) issues.push('native_record_duplicate');
+  const actualIds = new Set(spans.map(spanId));
+  if ([...records.keys()].some(id => typeof id !== 'string' || !actualIds.has(id))) issues.push('native_record_unknown');
+  return spans.map(span => {
+    const observed = records.get(spanId(span));
+    if (observed && Object.keys(observed).some(key => !['spanId','parentSpanId','step','attributes','events','receipts','sdk'].includes(key))) issues.push('unsafe_native_diagnostics');
+    if (!observed) return { ...span, span_metadata: {} };
+    const paidStep = typeof observed.step === 'string' && ['guard','model','repair','escalate'].includes(observed.step)
+      && String(span.node_type ?? bag(observed.sdk)['neatlogs.span.kind'] ?? '').toLowerCase() === 'llm';
+    if (observed.parentSpanId !== parentId(span) || (!paidStep && observed.step !== (span === root ? 'turn' : name(span)))) issues.push('native_record_mismatch');
+    const receipts = Array.isArray(observed.receipts) ? observed.receipts : [];
+    const events = [...(Array.isArray(observed.events) ? observed.events : [])];
+    for (const receipt of receipts) {
+      if (!Array.isArray(receipt) || receipt.length !== 2 || typeof receipt[0] !== 'string' || !['ok','failed','cancelled','interrupted'].includes(receipt[1])) { issues.push('invalid_receipt'); continue; }
+      const match = receipt[0].match(/^([a-z_]+):([1-9][0-9]{0,4}):(start|end)$/);
+      if (!match || !EVIDENCE_OPERATIONS.includes(match[1] as never)) { issues.push('invalid_receipt'); continue; }
+      events.push({ name: 'tailor.evidence', attributes: { 'tailor.evidence_key': receipt[0], 'tailor.evidence_status': receipt[1],
+        'tailor.operation': match[1], 'tailor.evidence_ordinal': Number(match[2]), 'tailor.evidence_phase': match[3] } });
+    }
+    const synthetic = span === root ? { input: textIn.value, output: textOut.value } : undefined;
+    return { ...span, attributes: undefined, events: undefined,
+      span_metadata: { tailor: { attributes: bag(observed.attributes), events }, sdk: bag(observed.sdk), ...(synthetic ? { synthetic } : {}) } };
+  });
+}
+
 /** A successful flush is deliberately not an input: only received trace contents can establish this verdict. */
 export function verifyHostedTrace(body: unknown, expected: HostedExpectation): HostedVerification {
   const trace = bag(body); const issues: string[] = [];
   if (trace.projectId !== RUNTIME_PROJECT_ID) issues.push(trace.projectId === FORBIDDEN_PROJECT_ID ? 'forbidden_project' : 'project_mismatch');
   if ((trace._id ?? trace.traceId ?? trace.trace_id) !== expected.traceId) issues.push('trace_mismatch');
-  const spans = Array.isArray(trace.spans) ? trace.spans.map(value => normaliseHostedSpan(bag(value), issues)) : [];
+  const received = Array.isArray(trace.spans) ? trace.spans.map(bag) : [];
+  const spans = (expected.nativeDiagnostics ? withNativeDiagnostics(received, expected, issues) : received).map(value => normaliseHostedSpan(value, issues));
   const roots = spans.filter(span => name(span) === 'tailor.turn' && parentId(span) === null);
   if (roots.length !== 1) issues.push('turn_root_count');
   const workflowRoots = spans.filter(span => parentId(span) === null && attributeMap(span.attributes)['neatlogs.internal'] !== true && String(attributeMap(span.attributes)['neatlogs.span.kind'] ?? attributeMap(span.attributes)['openinference.span.kind'] ?? '').toLowerCase() === 'workflow');

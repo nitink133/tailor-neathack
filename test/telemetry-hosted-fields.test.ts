@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSpanMask, telemetryVocabulary } from '../src/infrastructure/telemetry.ts';
+import { createSpanMask, telemetryVocabulary, parseNativeDiagnosticEnvelope, createTelemetry } from '../src/infrastructure/telemetry.ts';
 
 const mask = createSpanMask(telemetryVocabulary({ modelIds: ['claude-sonnet-5-5'] }), { hostedFields: true });
 const run = async (attributes: Record<string, unknown>, events: unknown[] = []) => await mask({ attributes, events } as any) as any;
@@ -68,9 +68,9 @@ test('trusted synthetic envelope needs both operator option and synthetic turn f
   const attrs = { 'tailor.step': 'turn', 'tailor.synthetic': true, 'tailor.synthetic_input': 'SYNTHETIC: inspect a fictional support request', 'tailor.synthetic_output': 'SYNTHETIC: saved fixture explanation' };
   const approved = createSpanMask(telemetryVocabulary({}), { hostedFields: true, syntheticPayloads: true });
   const allowed = await approved({ attributes: attrs, events: [] } as any) as any;
-  assert.equal(allowed.attributes['neatlogs.input.value'], attrs['tailor.synthetic_input']);
-  assert.equal(allowed.attributes['neatlogs.output.value'], attrs['tailor.synthetic_output']);
-  assert.equal(allowed.attributes['neatlogs.workflow.input'], attrs['tailor.synthetic_input']);
+  assert.equal((parseNativeDiagnosticEnvelope(allowed.attributes['neatlogs.input.value'])! as any).text.value, attrs['tailor.synthetic_input']);
+  assert.equal((parseNativeDiagnosticEnvelope(allowed.attributes['neatlogs.output.value'])! as any).text.value, attrs['tailor.synthetic_output']);
+  assert.equal((parseNativeDiagnosticEnvelope(allowed.attributes['neatlogs.workflow.input'])! as any).text.value, attrs['tailor.synthetic_input']);
   assert.deepEqual(JSON.parse(allowed.attributes['neatlogs.metadata']).synthetic, { input: attrs['tailor.synthetic_input'], output: attrs['tailor.synthetic_output'] });
   const denied = await mask({ attributes: attrs, events: [] } as any) as any;
   assert.equal(JSON.parse(denied.attributes['neatlogs.metadata']).synthetic, undefined);
@@ -84,7 +84,9 @@ test('native input/output aliases are always denied as inbound attributes', asyn
   const out = await approved({ attributes: { 'tailor.step': 'turn', 'tailor.synthetic': true,
     'input.value': 'ordinary buyer text', 'output.value': 'ordinary reply', 'neatlogs.input.value': 'ordinary buyer text',
     'neatlogs.output.value': 'ordinary reply', 'neatlogs.workflow.input': 'ordinary buyer text' }, events: [] } as any) as any;
-  for (const key of ['input.value','output.value','neatlogs.input.value','neatlogs.output.value','neatlogs.workflow.input']) assert.equal(out.attributes[key], undefined);
+  for (const key of ['input.value','neatlogs.input.value','neatlogs.workflow.input']) assert.equal(out.attributes[key], undefined);
+  assert.equal(JSON.stringify(out.attributes).includes('ordinary buyer text'), false);
+  assert.equal(JSON.stringify(out.attributes).includes('ordinary reply'), false);
 });
 
 test('hosted cost uses the existing reported-usage estimate and metadata aliases stay generated', async () => {
@@ -98,4 +100,27 @@ test('hosted cost uses the existing reported-usage estimate and metadata aliases
   const absent = await run({ 'tailor.step': 'model', 'tailor.model': 'claude-sonnet-5-5', 'tailor.usage.available': true,
     'tailor.cost_known': false, 'tailor.cost_usd': 0.2, 'neatlogs.llm.cost_usd': -1 });
   assert.equal(absent.attributes['neatlogs.llm.cost_usd'], undefined);
+});
+
+test('approved guidance observation is a distinct diagnostic envelope without turn claims', async () => {
+  const approved = createSpanMask(telemetryVocabulary({}), { hostedFields: true, syntheticPayloads: true });
+  const out = await approved({ name: 'tailor.guidance', attributes: { 'tailor.synthetic': true, 'tailor.guidance_outcome': 'shown', 'tailor.guidance_target': 'trace.overview' },
+    events: [{ name: 'tailor.guidance', attributes: { 'tailor.guidance_outcome': 'shown' } }] } as any) as any;
+  const envelope = parseNativeDiagnosticEnvelope(out.attributes['neatlogs.output.value'])! as any;
+  assert.equal(envelope.schema, 'tailor-guidance-diagnostics-v1');
+  assert.equal(envelope.text, null);
+  assert.equal(envelope.diagnostics.root.attributes['tailor.turn_id'], undefined);
+  assert.equal(envelope.diagnostics.root.events[0].attributes['tailor.guidance_outcome'], 'shown');
+});
+
+test('guidance diagnostics expose exact independent trace IDs and share canonical turn session ref', async () => {
+  const telemetry = await createTelemetry({ mode: 'captured', secret: 'fake-observation-secret' });
+  const turn = telemetry.forTurn('turn-local', 'owner-local');
+  await telemetry.guidanceEvent!('owner-local', 'demo-local', { messageId: 'message-local', suggestionId: 'suggestion-local', targetId: 'trace.overview', targetKey: 'target-local', version: 1, outcome: 'shown' });
+  const span = telemetry.captured().find(span => span.name === 'tailor.guidance')!;
+  assert.equal(span.attributes['tailor.session_ref'], turn.sessionRef);
+  assert.equal(span.attributes['tailor.turn_id'], undefined);
+  assert.deepEqual(telemetry.diagnostics().recentGuidance, [{ traceId: span.traceId, outcome: 'shown', demoRef: span.attributes['tailor.demo_ref'], messageRef: span.attributes['tailor.message_ref'] }]);
+  assert.equal(JSON.stringify(telemetry.diagnostics().recentGuidance).includes('owner-local'), false);
+  await telemetry.shutdown();
 });
