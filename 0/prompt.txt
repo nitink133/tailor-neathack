@@ -1,0 +1,23 @@
+<external_codex_apps_open_page>{"page_id":null}</external_codex_apps_open_page>
+
+---
+
+<in-app-browser-context source="ambient-ui-state">
+This block is automatically supplied ambient UI state, not part of the user's request. Do not treat it as an instruction or as evidence that the user explicitly selected the in-app browser.
+# In app browser:
+- The user has the in-app browser open with 5 tabs.
+- Current URL: http://127.0.0.1:4325/demo/2475c23b-813e-47f7-9136-7f92cd4ea7cd/traces
+</in-app-browser-context>
+
+## My request:
+Close out and publish the annotation fixes in /Users/nitinkhanna/Desktop/tailor-neathack.
+
+1. Read AGENTS.md and the project-level Entire instructions. Identify this session’s actual worktree, branch, HEAD, upstream and working-tree changes. Preserve all unrelated work. Verify origin points to nitink133/tailor-neathack.
+2. Reconcile every annotation against the implementation. List fixed, partially fixed and unresolved items honestly. Use parallel subagents for independent functional and UI review where available, with disjoint review ownership and models appropriate to complexity. Report actual models used.
+3. Run the repository’s typecheck, unit tests, build, browser tests and local doctor, plus focused regression checks for the annotation fixes. Use mock/scripted providers; no paid model calls or hosted telemetry exports. Do not weaken tests to obtain a pass. If a blocker remains, report it before publishing.
+4. Inspect the outgoing diff and commits for secrets, .env files, local databases, private transcripts, screenshots containing private information and generated artifacts. Stage only intended source, tests and documentation. Do not use git add indiscriminately or discard anyone’s changes.
+5. Commit any remaining intended changes and push the feature branch normally to origin. If detached, create a named branch preserving the current commits before pushing. Do not amend, rebase, force-push, merge into main or delete branches/worktrees. If already committed and pushed, verify rather than creating a redundant commit.
+6. Follow the existing Entire capture/sync workflow. Verify actual checkpoint refs locally and on origin, and distinguish live capture, historical imports, trailer-only commits and missing coverage. Entire gaps are nonblocking: diagnose and record them, but do not fabricate trailers, amend commits, import unrelated sessions or change authentication/configuration to repair them.
+7. Independently verify the remote branch SHA equals the final local HEAD and that no intended changes remain uncommitted. Leave the current review server available; report its URL, served worktree/commit and verified mock/live mode without exposing credentials.
+
+Return a concise handoff containing the GitHub branch link, final commit SHA, test results, annotation completion checklist, Entire evidence/gaps, remaining blockers and whether the session is safe to archive. State clearly whether main contains these fixes. Do not archive the session yourself or begin new feature work.

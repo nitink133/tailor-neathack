@@ -1,0 +1,54 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4QHNXRMR5NNJEVGT26JM2AJ",
+  "session_id": "01a12e25-d25c-7e40-a6b7-ccd1c95c084f",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-12T07:54:31.882314Z",
+  "branch": "codex/tailor-20261012-review-fixes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/tailor-annotation-closeout.md",
+    "docs/tailor-entry-review.md",
+    "docs/tailor-transition-review.md",
+    "public/style.css",
+    "ui/traces-review.spec.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.1-sol",
+  "turn_id": "d384f40cd7ce",
+  "checkpoint_transcript_start": 2473,
+  "transcript_lines_at_start": 2473,
+  "compact_transcript_start": 304,
+  "token_usage": {
+    "input_tokens": 30064,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5386112,
+    "output_tokens": 9902,
+    "api_call_count": 25,
+    "subagent_tokens_complete": false
+  },
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-12T07:54:31.466366Z",
+    "agent_lines": 354,
+    "agent_removed": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 354,
+    "total_lines_changed": 358,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
