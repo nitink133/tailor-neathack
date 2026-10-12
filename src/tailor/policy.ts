@@ -1,7 +1,7 @@
 // A classifier can stop dispatch; it never authorizes a tool, session access, a write or a commercial claim.
 // Kept separate from the planner and given only the current text and compact product policy.
 import type { ProviderErrorKind, ProviderMessage, ProviderUsage } from './contract.ts';
-import type { AttemptSettlement, InputAccounting } from './accounting.ts';
+import type { AttemptSettlement, InputAccounting, ProviderMetadata } from './accounting.ts';
 
 export const POLICY_VERSION = 'tailor-entry-policy-2026-10-12.3' as const;
 export const POLICY_OUTCOMES = ['allow_product_question', 'allow_demo_action', 'clarify', 'redirect_off_topic', 'deny_instruction_override'] as const;
@@ -26,6 +26,7 @@ export interface PolicyInput {
 export interface PolicyRequest { messages: ProviderMessage[]; responseSchema: 'entry_policy'; maxOutputTokens: number }
 export interface PolicyResponse {
   decision: PolicyDecision;
+  providerMetadata?: ProviderMetadata;
   usage: ProviderUsage | null;
   latencyMs: number;
   requestId?: string;

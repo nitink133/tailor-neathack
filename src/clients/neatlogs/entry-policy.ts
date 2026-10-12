@@ -139,6 +139,7 @@ export async function entryPreflight(input: { session: SessionSnapshot; request:
         ...(error.settlement ? { settlement: error.settlement } : {}),
         ...(error.pricingVersion ? { pricingVersion: error.pricingVersion } : {}),
         ...(error.inputAccounting ? { inputAccounting: error.inputAccounting } : {}),
+        ...(error.providerMetadata ? { providerMetadata: error.providerMetadata } : {}),
       } : { errorKind: 'unknown' as const }),
     };
     return policyPreflight(unavailable, failure);

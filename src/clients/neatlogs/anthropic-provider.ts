@@ -233,7 +233,7 @@ export function normaliseWireAction(parsed: unknown): unknown | null {
 // Provider
 // ---------------------------------------------------------------------------------------------------------------------
 /** Request id, stop reason, known cost and reservation for the core's per-attempt telemetry. */
-const accounting = (r: { requestId?: string; stopReason: string; costUsd?: number; reservationUsd: number; reservationRef?: string; settlement?: import('../../tailor/accounting.ts').AttemptSettlement; pricingVersion?: string; inputAccounting?: import('../../tailor/accounting.ts').InputAccounting }) => ({
+const accounting = (r: { requestId?: string; stopReason: string; costUsd?: number; reservationUsd: number; reservationRef?: string; settlement?: import('../../tailor/accounting.ts').AttemptSettlement; pricingVersion?: string; inputAccounting?: import('../../tailor/accounting.ts').InputAccounting; providerMetadata?: import('../../tailor/accounting.ts').ProviderMetadata }) => ({
   ...(r.requestId ? { requestId: r.requestId } : {}),
   stopReason: r.stopReason,
   reservationUsd: r.reservationUsd,
@@ -242,6 +242,7 @@ const accounting = (r: { requestId?: string; stopReason: string; costUsd?: numbe
   ...(r.settlement ? { settlement: r.settlement } : {}),
   ...(r.pricingVersion ? { pricingVersion: r.pricingVersion } : {}),
   ...(r.inputAccounting ? { inputAccounting: r.inputAccounting } : {}),
+  ...(r.providerMetadata ? { providerMetadata: r.providerMetadata } : {}),
 });
 
 /** What every plan/explain call sends besides the conversation; priced once at creation as the reservation overhead. */

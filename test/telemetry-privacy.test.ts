@@ -19,7 +19,7 @@ const RAW_UUID = randomUUID();
 const HOSTILE = ['refund', 'Opsgenie', 'IgnoreRules', RAW_UUID];
 /** Every key that may carry a string value, plus the aliases service code uses. */
 const STRING_KEYS = [
-  'turnId', 'correlationId', 'traceId', 'requestId', 'providerRequestId', 'provider', 'providerMode', 'mode', 'model',
+  'requestedModel', 'resolvedModel', 'systemPrefixSha256', 'schemaSha256', 'turnId', 'correlationId', 'traceId', 'requestId', 'providerRequestId', 'provider', 'providerMode', 'mode', 'model',
   'outcome', 'status', 'state', 'reason', 'action', 'step', 'code', 'errorCode', 'errorClass', 'stopReason', 'kind',
   'providerErrorKind', 'purpose', 'effort', 'attemptResult', 'resultState', 'detailState', 'source', 'adapterId',
   'knowledgeVersion', 'promptVersion', 'sessionRef', 'demoRef', 'sourceDemoRef', 'requestRef', 'clientTurnRef', 'reservationRef', 'codeVersion', 'adapterVersion', 'policyVersion', 'contractVersion', 'policyOutcome', 'policyReason', 'guardOutcome', 'guardClassification', 'guardReason', 'guardStage', 'guardModel', 'settlement', 'evidencePhase', 'evidenceStatus', 'evidenceKey', 'operation', 'estimationVersion', 'pricingVersion', 'sourceComponent', 'sourceIds', 'issueCodes', 'decision', 'toolName', 'argKeys',
