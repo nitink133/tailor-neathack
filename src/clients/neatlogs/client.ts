@@ -1,5 +1,7 @@
 import type { ChatTurn, DemoSession, Json, Span, Trace, TraceList } from './contracts.ts';
 import type { ExecutionInfoResponse, ExecutionLabel, TurnOutcome, TurnRequest, TurnResponse, TurnStep } from './agent-contract.ts';
+import type { BrowserSession } from '../../tailor/demo-contract.ts';
+import type { EvaluationDetail, EvaluationList, EvaluationQuestion, ReviewEvaluationRequest } from './eval-contract.ts';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -23,6 +25,14 @@ let lastResult: { steps: TurnStep[]; outcome: TurnOutcome } | undefined;
 /** Server-authoritative provider mode. `undefined` = not known (never rendered as live). */
 let execution: ExecutionLabel | undefined;
 let executionLoad: Promise<void> | undefined;
+let capabilityLoad: Promise<void> | undefined;
+let capabilities: PublicCapabilities | undefined;
+let browserSession: BrowserSession | undefined;
+let evaluations: EvaluationList | undefined;
+let evaluation: EvaluationDetail | undefined;
+let evaluationTab: 'Overview' | 'Questions' | 'Results' = 'Overview';
+const evaluationTabKey = (id: string) => `tailor-eval-tab:${id}`;
+let evalBusy = false;
 let turnNote = '';
 let entryNotice = '';
 let ended = false;
@@ -34,6 +44,16 @@ let returnTo = '';
 const link = (path: string,label: string,cls='')=>`<a data-nav href="${esc(path)}" class="${cls}">${label}</a>`;
 const base = (id: string) => `/demo/${id}/traces`;
 const traceLink = (t: Trace) => `${base(t.sessionId)}/${t.id}`;
+const evalBase = (id: string) => `/demo/${id}/evals`;
+const evalLink = (id: string, evaluationId: string) => `${evalBase(id)}/${evaluationId}`;
+type PublicCapabilities = { version: string; verifiedOn: string; starters: { id: string; capabilityId: string; title: string; prompt: string }[]; capabilities: { id: string; title: string; scope: 'official_product'|'clone_only'; support: string; surfaces: string[]; limitations: string[]; hostedAvailability: string }[] };
+function syntheticReviewQuestions(): EvaluationQuestion[] {
+  return [
+    { key: 'resolved', label: 'Did the output resolve the fictional request?', type: 'yes_no', required: true, reviewer: 'simulated_judge' },
+    { key: 'quality', label: 'How useful and accurate is the answer?', type: 'rating', min: 1, max: 5, required: true, reviewer: 'buyer' },
+    { key: 'notes', label: 'What should change?', type: 'text', required: false, reviewer: 'buyer' },
+  ];
+}
 function historyDepth() {
   const state = history.state as { tailor?: unknown } | null;
   return state && typeof state.tailor === 'number' ? state.tailor : 0;
@@ -123,6 +143,40 @@ function loadExecution(): Promise<void> {
   })();
   return executionLoad;
 }
+function loadCapabilities(): Promise<void> {
+  if (capabilities) return Promise.resolve();
+  capabilityLoad ??= (async () => {
+    try {
+      const response = await fetch('/api/capabilities', { cache: 'no-store' });
+      if (!response.ok) throw new Error('status');
+      const payload = (await response.json()) as Partial<PublicCapabilities>;
+      if (Array.isArray(payload.starters) && Array.isArray(payload.capabilities)) {
+        capabilities = { version: String(payload.version ?? ''), verifiedOn: String(payload.verifiedOn ?? ''), starters: payload.starters.slice(0, 3), capabilities: payload.capabilities } as PublicCapabilities;
+      }
+    } catch { /* starter ideas are optional; never invent a capability when the projection is unavailable */ }
+    finally {
+      capabilityLoad = undefined;
+      paintStarters();
+    }
+  })();
+  return capabilityLoad;
+}
+async function loadBrowserSession(): Promise<void> {
+  try { browserSession = await request<BrowserSession>('/api/browser-session', { cache: 'no-store' } as RequestInit, true); }
+  catch { browserSession = undefined; }
+  paintSavedDemos();
+}
+function savedDemoButtons() {
+  return browserSession?.demos.map(d=>`<button type="button" data-select-demo="${esc(d.id)}">${esc(d.label)} · v${d.version}</button>`).join('') ?? '';
+}
+function paintSavedDemos() {
+  const target=document.querySelector<HTMLElement>('[data-saved-demos]');
+  if(target) { target.innerHTML=savedDemoButtons(); target.closest<HTMLElement>('.saved-demos')!.hidden = !browserSession?.demos.length; }
+}
+function paintStarters() {
+  const target = document.querySelector<HTMLElement>('[data-starter-list]');
+  if (target) target.innerHTML = starterButtons();
+}
 const sameExecution = (a: ExecutionLabel | undefined, b: ExecutionLabel | undefined) =>
   !!a && !!b && a.mode === b.mode && a.provider === b.provider && (a.model ?? null) === (b.model ?? null) && (a.effort ?? null) === (b.effort ?? null);
 const execChip = () => execution?.mode === 'mock' ? 'Mock-backed' : execution?.mode === 'live' ? `Live model${execution.model ? ` · ${execution.model}` : ''}` : 'Provider status unavailable';
@@ -153,7 +207,9 @@ function shell(s: DemoSession,content: string) {
   const labeled = (name: string, label: string, extra = '') => `<button type="button" class="rail-button" data-unavailable aria-label="${label} — outside this demo">${icon(name)}<span class="rail-label">${label}</span>${extra}</button>`;
   const traces = link(base(s.id), `${icon('list')}<span class="rail-label">traces</span>`, 'rail-button selected');
   const collapsed = `${['message','tree','home','tool'].map(quiet).join('')}${link(base(s.id), icon('list'), 'rail-button selected')}${['search','bell'].map(quiet).join('')}`;
-  const expanded = `<div class="rail-switch"><button type="button" data-unavailable>console</button><button type="button" data-chat-open>chats</button></div><div class="rail-project"><span>Synthetic demo</span></div>${labeled('rocket','setup','<em>1/2</em>')}<nav class="rail-menu" aria-label="Project">${labeled('home','home')}${labeled('bell','incidents')}${traces}${labeled('tool','detections')}${labeled('bell','alerts')}${labeled('tree','analytics')}${labeled('search','evals')}${labeled('tool','experiments','<em>beta</em>')}</nav>`;
+  const activeDemo = browserSession?.demos.find(d => d.id === s.id);
+  const demoPicker = browserSession?.demos.length ? `<details class="demo-picker"><summary aria-label="Choose demo">${esc(activeDemo?.label ?? 'Your demos')}</summary><nav aria-label="Your demos">${browserSession.demos.map(d => `<button type="button" data-select-demo="${esc(d.id)}" ${d.id === s.id ? 'aria-current="page"' : ''}>${esc(d.label)} <small>v${d.version}</small></button>`).join('')}</nav></details>` : '';
+  const expanded = `<div class="rail-switch"><button type="button" data-unavailable>console</button><button type="button" data-chat-open>chats</button></div>${demoPicker}<div class="rail-project"><span>Fictional demo</span></div>${labeled('rocket','setup','<em>1/2</em>')}<nav class="rail-menu" aria-label="Project">${labeled('home','home')}${labeled('bell','incidents')}${traces}${labeled('tool','detections')}${labeled('bell','alerts')}<a data-nav href="${esc(evalBase(s.id))}" class="rail-button${location.pathname.includes('/evals')?' selected':''}">${icon('check')}<span class="rail-label">evals</span></a>${labeled('tree','analytics')}${labeled('search','search')}${labeled('tool','experiments','<em>beta</em>')}</nav>`;
   const opener = chatOpen ? '' : `<div class="chat-reopen"><button type="button" data-chat-open>Open conversation</button><button type="button" data-end-demo class="end-demo">End demo</button></div>`;
   return `<aside class="rail${railOpen?' is-labeled':''}"><a data-nav href="/" class="mark" aria-label="Landing page">n</a><button type="button" class="rail-toggle" data-rail aria-expanded="${railOpen}" aria-label="${railOpen?'Collapse sidebar':'Expand sidebar'}">${icon(railOpen?'back':'chevron')}</button><div class="rail-collapsed-only">${collapsed}</div>${railOpen?expanded:''}<div class="rail-bottom"><button data-theme aria-label="Toggle local theme">${icon('sun')}</button></div></aside><div class="workspace">${opener}${content}</div>${chatOpen ? chatPanel(s) : ''}`;
 }
@@ -180,7 +236,9 @@ function chatThread(turns: ChatTurn[], s?: DemoSession) {
       return link(`${base(s!.id)}/${id}`, esc(found?.label ?? 'open trace'));
     });
     const evidence = turn.evidence && s ? `<small class="chat-evidence">Evidence · v${turn.evidence.version} · ${evidenceLinks(turn.evidence).join(' · ')}${turn.evidence.spanIds.length ? ` · ${turn.evidence.spanIds.length} ${turn.evidence.spanIds.length === 1 ? 'step' : 'steps'} cited` : ''}</small>` : '';
-    const choices = turn.clarification && i === lastIndex ? `<div class="chat-choices" role="group" aria-label="Choose one">${turn.clarification.choices.map(c => `<button type="button" data-choice="${esc(c.id)}" ${chatBusy ? 'disabled' : ''}>${esc(c.label)}</button>`).join('')}</div><small>or type your own answer below</small>` : '';
+    const confirmationRef = turn.clarification?.kind === 'demo_switch' ? turn.clarification.referenceId : undefined;
+    const choiceGroup = turn.clarification?.kind === 'demo_switch' ? 'Choose how to handle this workflow change' : 'Choose one';
+    const choices = turn.clarification && i === lastIndex ? `<div class="chat-choices" role="group" aria-label="${esc(choiceGroup)}">${turn.clarification.choices.map(c => `<button type="button" data-choice="${esc(c.id)}" ${confirmationRef ? `data-confirmation-ref="${esc(confirmationRef)}"` : ''} ${chatBusy ? 'disabled' : ''}>${esc(c.label)}</button>`).join('')}</div><small>or type your own answer below</small>` : '';
     const retry = pendingTurn && pendingTurn.turn.id === turn.id && (turn.status === 'failed' || turn.status === 'uncertain') && !chatBusy ? `<button type="button" class="chat-retry" data-retry-turn>Retry</button>` : '';
     return `<article class="chat-turn is-${turn.role}${turn.status === 'uncertain' ? ' is-uncertain' : ''}" data-status="${turn.status}"${label === 'Declined' ? ' data-declined' : ''}><p>${esc(turn.role === 'tailor' ? buyerText(turn.text) : turn.text)}</p>${label ? `<small class="turn-status">${label}</small>` : ''}${retry}${evidence}${choices}</article>`;
   }).join('');
@@ -216,12 +274,14 @@ function composer(busy: boolean, asking?: Trace) {
   const about = asking ? `<p class="chat-asking" data-asking-about="${esc(asking.id)}" title="${esc(asking.id)}">Asking about: ${esc(asking.label)}</p>` : '';
   return `<form id="chat-form" class="chat-composer">${about}<textarea name="message" aria-label="Ask anything" placeholder="Describe your agent or ask a question…" maxlength="2000" rows="2" ${busy?'disabled':''}>${esc(text)}</textarea><div class="chat-tools"><span class="chat-chip">Synthetic data</span><span class="chat-chip" data-exec-chip>${esc(execChip())}</span><button type="submit" aria-label="Send message" ${busy?'disabled':''}>${icon('chevron')}</button></div></form>`;
 }
-/** `starting` = no personalised demo yet: offer ways to begin, not follow-ups about data that does not exist. */
+/** Starter prompts are a public projection of executable capabilities; they fill the composer and never send. */
+function starterButtons() {
+  return (capabilities?.starters ?? []).slice(0, 3).map(x => `<button type="button" data-example="${esc(x.prompt)}" data-capability-id="${esc(x.capabilityId)}">${esc(x.title || x.prompt)}</button>`).join('');
+}
 function examples(starting: boolean) {
-  const items = starting
-    ? ['I’m building a customer-support agent. Show a refund lookup that times out, then a retry that succeeds.', 'I’m building an insurance claims bot. The OCR tool returns bad data and a guardrail blocks the payout.']
-    : ['Explain this trace', 'Make the retry fail too'];
-  return `<div class="chat-examples">${items.map(x => `<button type="button" data-example="${esc(x)}">${esc(x)}</button>`).join('')}</div>`;
+  return starting
+    ? `<div class="chat-examples" data-starter-list aria-label="Capability-backed starter prompts">${starterButtons()}</div>`
+    : `<div class="chat-examples" aria-label="Suggested prompts"><button type="button" data-example="Explain this trace">Explain this trace</button><button type="button" data-example="Make the retry fail too">Make the retry fail too</button></div>`;
 }
 function honestLines() {
   return `<p class="chat-label">Powered by Tailor · synthetic data</p><p class="chat-label ${execClass()}" data-exec-line>${esc(execLine())}</p>`;
@@ -237,15 +297,17 @@ function landing() {
     : n === 'Product' ? `<button data-unavailable class="nav-caret">${n}</button>`
     : n === 'Docs' ? `<button data-unavailable class="nav-out">${n}</button>`
     : `<button data-unavailable>${n}</button>`;
-  root.innerHTML = `<div class="landing"><div class="hack"><span class="hack-date">Oct 10–12</span> Join neatHack · $19,000 in prizes & credits ↗</div><header class="public-nav">${link('/','neatlogs','wordmark')}<nav>${['Manifesto','Product','Pricing','Docs','Blog','Changelog','Careers'].map(item).join('')}<span class="nav-rule" aria-hidden="true"></span>${link('/entry','Try with your project ↗','solid')}</nav></header><main class="hero"><picture><source media="(max-width:600px)" srcset="/assets/portrait.webp"><img src="/assets/landscape.webp" alt="San Francisco skyline and bridge in silver fog"></picture><div class="hero-copy"><h1><span>Your agent is already running.</span><br>That’s not the same as working</h1><p>neatlogs finds what’s failing, works out why, and hands you a fix.</p><div class="hero-actions"><button class="setup" data-unavailable><span class="setup-border" aria-hidden="true"><span class="setup-comet"></span></span><span class="agent-symbols" aria-hidden="true"><img src="/assets/claude-color.svg" alt="" title="Claude Code"><img src="/assets/codex-symbol.svg" alt="" title="Codex"><img src="/assets/cursor-symbol.svg" alt="" title="Cursor"></span><span class="setup-label">Copy setup prompt</span><svg class="setup-copy" viewBox="0 0 256 256" aria-hidden="true"><path d="M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96H160Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z"/></svg></button>${link('/entry','Try with your project ↗','outline')}</div></div></main><footer class="landing-foot">Tailor proof of concept · limited Neatlogs replica · fictional projects only. ${link('/entry','Explore the demo')}</footer></div>`;
+  root.innerHTML = `<div class="landing"><div class="hack"><span class="hack-date">Oct 10–12</span> Join neatHack · $19,000 in prizes & credits ↗</div><header class="public-nav">${link('/','neatlogs','wordmark')}<nav>${['Manifesto','Product','Pricing','Docs','Blog','Changelog','Careers'].map(item).join('')}<span class="nav-rule" aria-hidden="true"></span>${link('/entry','Explore the demo ↗','solid')}</nav></header><main class="hero"><picture><source media="(max-width:600px)" srcset="/assets/portrait.webp"><img src="/assets/landscape.webp" alt="San Francisco skyline and bridge in silver fog"></picture><div class="hero-copy"><h1><span>See where your agent workflow can fail.</span><br>Explore it with Tailor</h1><p>Describe a fictional workflow, inspect its synthetic traces, and ask Tailor to explain or change the demo.</p><div class="hero-actions">${link('/entry','Explore the demo ↗','outline')}</div></div></main><footer class="landing-foot">Tailor proof of concept · fictional workflows and synthetic traces. ${link('/entry','Start a demo')}</footer></div>`;
 }
 function entry() {
   document.documentElement.classList.remove('chat-dock', 'rail-open');
   void loadExecution();
+  void loadCapabilities();
   const turns = draft;
   const started = turns.length > 0;
   const banner = entryNotice ? `<p class="entry-notice" role="status">${esc(entryNotice)}</p>` : '';
-  root.innerHTML = `<div class="chat-home"><header class="entry-nav">${link('/','neatlogs','wordmark')}${link('/','← Back to landing')}</header><div class="chat-stage">${banner}<p class="chat-label">Powered by Tailor · synthetic data</p><p class="chat-label ${execClass()}" data-exec-line>${esc(execLine())}</p>${started?`<div class="chat-thread">${chatThread(turns)}</div>`:`<h1>hello</h1><p>Describe the agent or workflow you’re building. I’ll show you a fictional failure for it.</p>`}${chatBusy?`<p class="chat-steps" role="status">Setting up your demo…</p>`:''}${composer(chatBusy)}${examples(true)}${started?`${turns[turns.length-1]!.status==='failed'?`<button type="button" data-retry-draft>Retry</button> `:''}<button type="button" data-discard-draft>Discard draft</button>`:`<button type="button" id="resume">Resume this browser’s saved session</button>`}<p class="form-error" role="alert"></p></div></div>`;
+  const savedDemos = browserSession?.demos.length ? `<section class="saved-demos"><h2>Your saved demos</h2><div data-saved-demos>${savedDemoButtons()}</div></section>` : `<section class="saved-demos" hidden><h2>Your saved demos</h2><div data-saved-demos></div></section>`;
+  root.innerHTML = `<div class="chat-home"><header class="entry-nav">${link('/','neatlogs','wordmark')}${link('/','← Back to landing')}</header><div class="chat-stage">${banner}<p class="chat-label">Powered by Tailor · fictional workflows and synthetic traces</p><p class="chat-label ${execClass()}" data-exec-line>${esc(execLine())}</p>${started?`<div class="chat-thread">${chatThread(turns)}</div>`:`<h1>hello</h1><p>Describe an agent workflow or choose a prompt. Tailor will help you explore a fictional example with synthetic traces.</p>`}${chatBusy?`<p class="chat-steps" role="status">Setting up your demo…</p>`:''}${composer(chatBusy)}${examples(true)}${savedDemos}${started?`${turns[turns.length-1]!.status==='failed'?`<button type="button" data-retry-draft>Retry</button> `:''}<button type="button" data-discard-draft>Discard draft</button>`:`<button type="button" id="resume">Resume this browser’s saved session</button>`}<p class="form-error" role="alert"></p></div></div>`;
 }
 function list(s: DemoSession,data: TraceList) {
   lastList = data;
@@ -275,22 +337,90 @@ function detail(s:DemoSession,t:Trace) {
   const graphNode = (x: Span) => `<a href="${path}?span=${x.id}" data-graph-select="${x.id}" class="${kindClass(x.kind)} ${graphSelection===x.id?'graph-selected':''}">${icon(kindMark(x.kind))}${x.status==='ERROR'?`<span class="error-x">${icon('close')}</span>`:''}${esc(x.name)}</a>`;
   root.innerHTML=shell(s,`<header class="detail-header">${link(back,icon('back'),'back-link')}<span>${esc(ingested(t.ingestedAt).heading)}</span><div><button data-unavailable aria-label="Search this trace">${icon('search')}</button><button data-unavailable aria-label="Replay unavailable">${icon('clock')}</button><button data-unavailable aria-label="Comments unavailable">${icon('message')}</button><button data-tags>${t.tags.length} tags</button><button data-unavailable>Ask neat AI</button></div></header><div class="trace-toolbar"><details class="trace-picker"><summary aria-label="Trace navigator">${icon('list')}<span>${esc(t.name)}</span><small>${t.spans.length}</small>${icon('chevron')}</summary><nav aria-label="Synthetic trace choices">${s.dataset.traces.map(x=>link(traceLink(x),`${esc(x.label)} · ${x.spans[0]!.durationMs}ms · ${x.spans.length} spans`,x.id===t.id?'active':'')).join('')}</nav></details><button data-graph aria-pressed="${graph}" aria-label="Toggle span tree">${icon('tree')}</button><button data-timeline aria-pressed="${timeline}" aria-label="Toggle timeline">${icon('list')}</button><span class="trace-identity">${esc(t.name)} · ${t.spans.length} spans</span></div><main class="trace-canvas ${timeline?'with-timeline':''}">${graph?`<div class="graph-tree" aria-label="Span parent tree"><div class="graph-nodes"><svg class="graph-connectors" viewBox="0 0 360 360" preserveAspectRatio="none" aria-hidden="true">${t.spans.slice(1).map((_,i)=>`<path d="M140 32 C175 32 175 ${32+i*64} 205 ${32+i*64}"/>`).join('')}</svg><strong class="${kindClass(t.spans[0]!.kind)}">${icon(kindMark(t.spans[0]!.kind))}${esc(t.spans[0]!.name)}</strong><div class="graph-children">${t.spans.slice(1).map(graphNode).join('')}</div></div></div>`:''}<section class="trace-flow"><div class="root-input"><label>INPUT</label><div class="input-bubble">${io(t.input)}</div></div><div class="steps"><header><span>${t.spans.length} STEPS · ${t.spans[0]!.durationMs/1000}S</span><button data-expand-all>EXPAND ALL</button></header>${t.spans.filter(x=>!x.parentId||!collapsedRoots.has(x.parentId)).map(x=>spanRow(t,x,selected)).join('')}</div><div class="root-output"><label>OUTPUT</label><p>${io(t.output)}</p></div></section></main>${timeline?`<section class="timeline" aria-label="Trace timeline"><header>TIMELINE · ${t.spans[0]!.durationMs} ms</header>${t.spans.map(x=>`<div class="timeline-row ${graphSelection===x.id?'graph-selected':''}"><a data-nav href="${path}?span=${x.id}">${esc(x.name)}</a><div class="time-track"><a data-nav aria-label="Select ${esc(x.name)} in timeline" href="${path}?span=${x.id}" class="time-bar ${x.status==='ERROR'?'bad':''}" style="left:${x.startMs/t.spans[0]!.durationMs*100}%;width:${Math.max(0.5,x.durationMs/t.spans[0]!.durationMs*100)}%"></a></div><time>${durationLabel(x.durationMs)}</time></div>`).join('')}</section>`:''}${notice(s)}`);
 }
+function evalInput(q: EvaluationQuestion, traceId: string) {
+  const name = `response:${traceId}:${q.key}`, required = q.required ? 'required' : '';
+  if (q.type === 'rating') return `<input type="number" name="${esc(name)}" min="${q.min ?? 1}" max="${q.max ?? 5}" step="1" ${required} aria-label="${esc(q.label)} for ${esc(traceId)}">`;
+  if (q.type === 'yes_no') return `<select name="${esc(name)}" ${required} aria-label="${esc(q.label)} for ${esc(traceId)}"><option value="">Choose…</option><option value="true">Yes</option><option value="false">No</option></select>`;
+  if (q.type === 'choice') return `<select name="${esc(name)}" ${required} aria-label="${esc(q.label)} for ${esc(traceId)}"><option value="">Choose…</option>${(q.options ?? []).map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select>`;
+  return `<textarea name="${esc(name)}" maxlength="600" ${required} aria-label="${esc(q.label)} for ${esc(traceId)}"></textarea>`;
+}
+function evalQuestionRow(q: EvaluationQuestion, index: number) {
+  return `<div class="eval-question-config" data-question-row data-question-index="${index}"><label>Question<input name="q-label:${index}" maxlength="120" required value="${esc(q.label)}"></label><label>Answer type<select name="q-type:${index}" data-q-type><option value="rating" ${q.type==='rating'?'selected':''}>Rating</option><option value="yes_no" ${q.type==='yes_no'?'selected':''}>Yes / no</option><option value="choice" ${q.type==='choice'?'selected':''}>Choice</option><option value="text" ${q.type==='text'?'selected':''}>Free text</option></select></label><label data-q-options ${q.type==='choice'?'':'hidden'}>Choice options<input name="q-options:${index}" maxlength="200" value="${esc(q.options?.join(', ') ?? '')}" placeholder="Two or more comma-separated choices"></label><label>Reviewer<select name="reviewer:${index}" aria-label="Reviewer for question ${index+1}"><option value="buyer" ${q.reviewer==='buyer'?'selected':''}>You</option><option value="simulated_judge" ${q.reviewer==='simulated_judge'?'selected':''}>Simulated reviewer</option></select></label><label class="eval-required"><input type="checkbox" name="required:${index}" ${q.required?'checked':''}> Required</label>${q.type==='rating'?`<input type="hidden" name="q-min:${index}" value="${q.min??1}"><input type="hidden" name="q-max:${index}" value="${q.max??5}">`:''}<button type="button" data-remove-question aria-label="Remove question ${index+1}">Remove</button></div>`;
+}
+function evalHeader(title: string) { return `<h1>${esc(title)}</h1>`; }
+function evaluationsPage(s: DemoSession, data: EvaluationList) {
+  evaluations=data; evaluation=undefined;
+  const rows=data.evaluations.map(({evaluation:e,stale})=>`<tr><td>${link(evalLink(s.id,e.id),esc(e.name))}${stale?'<small>Saved trace snapshot</small>':''}</td><td>${e.traceIds.length} traces</td><td>${e.questions.map(q=>q.reviewer==='buyer'?'Your review':'Simulated score').filter((x,i,a)=>a.indexOf(x)===i).join(' · ')}</td><td>${e.state==='completed'?'Complete':'In progress'} · ${e.responses.length} saved answers</td></tr>`).join('');
+  const defaults=syntheticReviewQuestions();
+  root.innerHTML=shell(s,`<main class="eval-page"><header class="list-header"><h1>${icon('check')}Evals</h1><span class="eval-local-label">Docs-grounded reconstruction · synthetic · local demo</span></header><p class="eval-provenance">Synthetic evaluation · local demo · no AI evaluator ran</p><section class="eval-create"><h2>New evaluation</h2><p>Select saved traces and choose who answers each question.</p><form id="create-eval-form"><label>Name<input name="name" maxlength="100" required value="Workflow review"></label><label>Description<input name="description" maxlength="300" placeholder="Optional"></label><fieldset><legend>Saved traces</legend>${s.dataset.traces.map((t,i)=>`<label><input type="checkbox" name="traceId" value="${esc(t.id)}" ${i===0?'checked':''}> ${esc(t.label)}</label>`).join('')}</fieldset><fieldset id="eval-question-editor"><legend>Questions</legend>${defaults.map(evalQuestionRow).join('')}<button type="button" data-add-question>Add question</button></fieldset><button type="submit" ${evalBusy?'disabled':''}>Create evaluation</button><small>Assign each question to you or a simulated reviewer. Simulated review is deterministic demo data; no AI evaluator runs.</small></form></section><section class="eval-list"><h2>Saved evaluations</h2><table><thead><tr><th>Name</th><th>Trace set</th><th>Reviewers</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="4">No evaluations yet.</td></tr>'}</tbody></table></section></main>${notice(s)}`);
+}
+function evaluationPage(s: DemoSession, result: EvaluationDetail) {
+  evaluation=result; evaluations=undefined;
+  const e=result.evaluation;
+  const tabs=(['Overview','Questions','Results'] as const).map(t=>`<button type="button" data-eval-tab="${t}" aria-pressed="${evaluationTab===t}">${t}</button>`).join('');
+  let panel='';
+  if(evaluationTab==='Overview') panel=`<section class="eval-overview"><dl><div><dt>State</dt><dd>${e.state==='completed'?'Complete':'In progress'}</dd></div><div><dt>Source</dt><dd>Synthetic · local demo</dd></div><div><dt>Version</dt><dd>v${e.version} · traces v${e.datasetVersion}</dd></div></dl><h2>Questions</h2><ul>${e.questions.map(q=>`<li>${esc(q.label)} · ${q.reviewer==='buyer'?'Your review':'Simulated score — no AI evaluator ran'}</li>`).join('')}</ul><h2>Saved traces</h2><ul>${e.traceSnapshot.map(t=>`<li>${link(traceLink(t),esc(t.label))} · ${esc(t.outcomeKind)}</li>`).join('')}</ul></section>`;
+  if(evaluationTab==='Questions') {
+    const qs=e.questions.filter(q=>q.reviewer==='buyer'),sims=e.questions.filter(q=>q.reviewer==='simulated_judge');
+    const simRows=e.responses.filter(r=>r.source==='simulated_judge').map(r=>{const q=e.questions.find(x=>x.key===r.questionKey),t=e.traceSnapshot.find(x=>x.id===r.traceId);return `<tr><td>${esc(t?.label??r.traceId)}</td><td>${esc(q?.label??r.questionKey)}</td><td>${esc(String(r.value))}</td><td>Simulated score — no AI evaluator ran</td></tr>`}).join('');
+    panel=`<section class="eval-questions"><h2>Your review</h2><form id="review-eval-form">${qs.length?e.traceSnapshot.map(t=>`<fieldset><legend>${esc(t.label)}</legend>${qs.map(q=>`<label class="eval-answer"><span>${esc(q.label)}</span>${evalInput(q,t.id)}</label>`).join('')}</fieldset>`).join(''):'<p>No questions are assigned to you.</p>'}${sims.length?`<div class="eval-simulation-note"><strong>Simulated reviewer · no AI evaluator ran</strong><table><thead><tr><th>Trace</th><th>Question</th><th>Saved value</th><th>Source</th></tr></thead><tbody>${simRows||`<tr><td colspan="4">${sims.length} simulated question${sims.length===1?'':'s'}; no saved score yet.</td></tr>`}</tbody></table></div>`:''}<button type="submit" ${evalBusy||!qs.length?'disabled':''}>Save review</button></form></section>`;
+  }
+  if(evaluationTab==='Results') {
+    const aggs=e.aggregates.map(a=>{const q=e.questions.find(x=>x.key===a.questionKey);const val=a.value===null?'No saved responses':q?.type==='yes_no'?`${Math.round(a.value*100)}% yes`:String(a.value);return `<tr><td>${esc(q?.label??a.questionKey)}</td><td>${a.answeredCount} / ${a.totalCount}</td><td>${esc(val)}</td><td>${a.source==='simulated_judge'?'Simulated score — no AI evaluator ran':a.source==='buyer'?'Your review':'Mixed sources'}</td></tr>`}).join('');
+    const responses=e.responses.map(r=>{const q=e.questions.find(x=>x.key===r.questionKey),t=e.traceSnapshot.find(x=>x.id===r.traceId);return `<tr><td>${t?link(traceLink(t),esc(t.label)):esc(r.traceId)}</td><td>${esc(q?.label??r.questionKey)}</td><td>${esc(String(r.value))}</td><td>${r.source==='simulated_judge'?'Simulated score — no AI evaluator ran':'Your review'}</td></tr>`}).join('');
+    panel=`<section class="eval-results"><h2>Per-question summary</h2><table><thead><tr><th>Question</th><th>Answered</th><th>Result</th><th>Source</th></tr></thead><tbody>${aggs||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table><h2>Saved responses</h2><table><thead><tr><th>Trace</th><th>Question</th><th>Response</th><th>Source</th></tr></thead><tbody>${responses||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table></section>`;
+  }
+  root.innerHTML=shell(s,`<main class="eval-page"><header class="eval-detail-header">${link(evalBase(s.id),'← Evals')}<div>${evalHeader(e.name)}<p>${esc(e.description||'Review of saved synthetic traces')}</p></div><span class="eval-local-label">Docs-grounded reconstruction</span></header><p class="eval-provenance">Synthetic evaluation · local demo · no AI evaluator ran</p>${result.stale?'<p role="status" class="eval-stale">Saved trace snapshot · the current dataset has changed.</p>':''}<nav class="eval-tabs" aria-label="Evaluation detail">${tabs}</nav>${panel}</main>${notice(s)}`);
+}
+async function createEvaluation(form: HTMLFormElement) {
+  if(!current||evalBusy)return;
+  const f=new FormData(form), traceIds=f.getAll('traceId').map(String);
+  if(!traceIds.length){toast('Choose at least one saved trace.');return;}
+  evalBusy=true;
+  const rows=[...form.querySelectorAll<HTMLElement>('[data-question-row]')];
+  if(rows.length<1||rows.length>8){evalBusy=false;toast('Choose between one and eight questions.');return;}
+  if(rows.some(row=>String(f.get(`q-type:${row.dataset.questionIndex}`))==='choice'&&String(f.get(`q-options:${row.dataset.questionIndex}`)??'').split(',').map(x=>x.trim()).filter(Boolean).length<2)){evalBusy=false;toast('Add at least two choices for each choice question.');return;}
+  const questions:EvaluationQuestion[]=rows.map(row=>{
+    const index=Number(row.dataset.questionIndex);
+    const label=String(f.get(`q-label:${index}`)??'').trim(),key=(label.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,34)||`question-${index+1}`);
+    const type=String(f.get(`q-type:${index}`)) as EvaluationQuestion['type'];
+    const q:EvaluationQuestion={key:`${key}-${index+1}`,label,type,required:f.has(`required:${index}`),reviewer:String(f.get(`reviewer:${index}`)) as EvaluationQuestion['reviewer']};
+    if(type==='rating'){q.min=Number(f.get(`q-min:${index}`)??1);q.max=Number(f.get(`q-max:${index}`)??5);}
+    if(type==='choice')q.options=String(f.get(`q-options:${index}`)??'').split(',').map(x=>x.trim()).filter(Boolean);
+    return q;
+  });
+  try { const result=await request<EvaluationDetail>(`/api/sessions/${current.id}/evaluations`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientOperationId:crypto.randomUUID(),datasetVersion:current.version,name:String(f.get('name')??''),description:String(f.get('description')??''),traceIds,questions})},true); evaluationTab='Overview'; await navigate(evalLink(current.id,result.evaluation.id)); }
+  catch(e){toast(plain((e as Error).message));} finally{evalBusy=false;}
+}
+async function saveEvaluationReview(form: HTMLFormElement) {
+  if(!current||!evaluation||evalBusy)return;
+  const e=evaluation.evaluation,f=new FormData(form),responses:ReviewEvaluationRequest['responses']=[];
+  for(const t of e.traceSnapshot)for(const q of e.questions.filter(x=>x.reviewer==='buyer')){const v=f.get(`response:${t.id}:${q.key}`);if(v===null||String(v).trim()==='')continue;responses.push({traceId:t.id,questionKey:q.key,value:q.type==='rating'?Number(v):q.type==='yes_no'?String(v)==='true':String(v)});}
+  evalBusy=true;
+  try{evaluation=await request<EvaluationDetail>(`/api/sessions/${current.id}/evaluations/${e.id}/reviews`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientOperationId:crypto.randomUUID(),datasetVersion:e.datasetVersion,expectedVersion:e.version,responses})},true);evaluationTab='Results';sessionStorage.setItem(evaluationTabKey(e.id),evaluationTab);evaluationPage(current,evaluation);}
+  catch(error){toast(plain((error as Error).message));}finally{evalBusy=false;}
+}
 async function render() {
   const run = ++generation; controller?.abort(); controller = new AbortController(); ended = false;
   void loadExecution();
   if (location.pathname==='/') { landing(); return; }
-  if (location.pathname==='/entry') { entry(); return; }
+  if (location.pathname==='/entry') { void loadBrowserSession(); entry(); return; }
   document.documentElement.classList.remove('chat-dock');
   root.innerHTML='<main class="loading" role="status">Loading synthetic traces…</main>';
   try {
-    const route = /^\/demo\/([^/]+)\/traces(?:\/([^/]+))?$/.exec(location.pathname);
+    const route = /^\/demo\/([^/]+)\/(traces|evals)(?:\/([^/]+))?$/.exec(location.pathname);
     if (!route) throw new Error('NOT_FOUND: Page not found.');
     const s = await request<DemoSession>(`/api/sessions/${route[1]}`);
     if (run!==generation) return; current=s; chatOpen = sessionStorage.getItem(chatKey(s.id)) !== '1';
+    await loadBrowserSession();
     restorePending(s);
     restoreSteps(s);
-    if (route[2]) {
-      const t=s.dataset.traces.find(t=>t.id===route[2]); if (!t) throw new Error('NOT_FOUND: Trace not found in this session.');
+    if (route[2] === 'evals') {
+      evaluationTab = route[3] ? (sessionStorage.getItem(evaluationTabKey(route[3])) as typeof evaluationTab | null) ?? 'Overview' : 'Overview';
+      if (route[3]) evaluationPage(s, await request<EvaluationDetail>(`/api/sessions/${s.id}/evaluations/${route[3]}`));
+      else evaluationsPage(s, await request<EvaluationList>(`/api/sessions/${s.id}/evaluations`));
+    } else if (route[3]) {
+      const t=s.dataset.traces.find(t=>t.id===route[3]); if (!t) throw new Error('NOT_FOUND: Trace not found in this session.');
       detail(s,t);
     } else {
       const data=await request<TraceList>(`/api/sessions/${s.id}/traces${location.search}`);
@@ -415,9 +545,9 @@ async function runTurn(req: TurnRequest) {
   chatBusy = true; turnNote = '';
   if (pendingTurn) pendingTurn = { ...pendingTurn, turn: { ...pendingTurn.turn, status: 'pending' } };
   // The base conversation version lets a reload tell "never reached the server" from "answered meanwhile"; it survives retries.
-  let base = s.conversationVersion;
-  try { const earlier = JSON.parse(sessionStorage.getItem('tailor-pending-turn') ?? 'null') as StoredTurn | null; if (earlier && earlier.clientTurnId === req.clientTurnId && earlier.baseConversationVersion !== undefined) base = earlier.baseConversationVersion; } catch { /* ignore */ }
-  sessionStorage.setItem('tailor-pending-turn', JSON.stringify({ sessionId: s.id, baseConversationVersion: base, ...req }));
+  let baseVersion = s.conversationVersion;
+  try { const earlier = JSON.parse(sessionStorage.getItem('tailor-pending-turn') ?? 'null') as StoredTurn | null; if (earlier && earlier.clientTurnId === req.clientTurnId && earlier.baseConversationVersion !== undefined) baseVersion = earlier.baseConversationVersion; } catch { /* ignore */ }
+  sessionStorage.setItem('tailor-pending-turn', JSON.stringify({ sessionId: s.id, baseConversationVersion: baseVersion, ...req }));
   repaint();
   let response: TurnResponse;
   try {
@@ -453,13 +583,21 @@ async function runTurn(req: TurnRequest) {
   lastResult = { steps: response.steps, outcome: response.outcome };
   try { sessionStorage.setItem(stepsKey(s.id), JSON.stringify({ clientTurnId: req.clientTurnId, steps: response.steps, outcome: response.outcome })); } catch { /* quota: the strip is optional */ }
   await applyResponse(response);
+  if (!ended && response.demoId && current && response.demoId !== current.id) {
+    await loadBrowserSession();
+    const next = await request<DemoSession>(`/api/sessions/${response.demoId}`, {}, true);
+    current = next; lastList = undefined; lastResult = undefined; turnNote = '';
+    chatOpen = true;
+    sessionStorage.removeItem(chatKey(next.id));
+    await navigate(base(next.id));
+  }
 }
-async function sendTurn(text: string, choiceId?: string) {
+async function sendTurn(text: string, choiceId?: string, confirmationRef?: string) {
   if (!current || chatBusy) return;
   const retryable = pendingTurn && (pendingTurn.turn.status === 'failed' || pendingTurn.turn.status === 'uncertain');
   const kept = retryable && pendingTurn!.request.text === text && pendingTurn!.request.choiceId === choiceId ? pendingTurn!.request : undefined;
   const open = openTrace(current);
-  const req: TurnRequest = kept ?? { text, clientTurnId: crypto.randomUUID(), ...(choiceId ? { choiceId } : {}), ...(open ? { openTraceId: open.id } : {}) };
+  const req: TurnRequest = kept ?? { text, clientTurnId: crypto.randomUUID(), ...(choiceId ? { choiceId } : {}), ...(confirmationRef ? { confirmationRef } : {}), ...(open ? { openTraceId: open.id } : {}) };
   pendingTurn = { turn: stamp('buyer', text, 'pending'), request: req };
   await runTurn(req);
 }
@@ -478,7 +616,7 @@ async function startSession(text: string) {
   entry();
   let created: DemoSession;
   try {
-    created = await request<DemoSession>('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operation }, body: payload }, true);
+    created = await request<DemoSession>('/api/browser-session/demos', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operation }, body: payload }, true);
   } catch (e) {
     chatBusy = false;
     if (isEnded(e) || ended) return;
@@ -493,6 +631,7 @@ async function startSession(text: string) {
   }
   for (const key of ['creation-operation', 'creation-payload', 'creation-turn-id', 'tailor-draft-chat']) sessionStorage.removeItem(key);
   draft = [];
+  await loadBrowserSession();
   current = created; lastList = undefined; lastResult = undefined; turnNote = '';
   chatOpen = true; sessionStorage.removeItem(chatKey(created.id));
   const req: TurnRequest = { text, clientTurnId: firstTurnId };
@@ -501,12 +640,12 @@ async function startSession(text: string) {
   await navigate(base(created.id));
   await runTurn(req);
 }
-async function sendChat(text: string, choiceId?: string) {
+async function sendChat(text: string, choiceId?: string, confirmationRef?: string) {
   const message = text.trim();
   if (!message || chatBusy) return;
   entryNotice = '';
   if (location.pathname === '/entry' || !current) await startSession(message);
-  else await sendTurn(message, choiceId);
+  else await sendTurn(message, choiceId, confirmationRef);
 }
 async function endDemo() {
   if (!current) return;
@@ -514,8 +653,22 @@ async function endDemo() {
   try { await request(`/api/sessions/${id}/end`, { method: 'POST' }, true); }
   catch (e) { if (isEnded(e)) return; toast('Couldn’t end the demo just now. Nothing was deleted; try again.'); return; }
   clearLocalState();
+  await loadBrowserSession();
   entryNotice = 'Demo ended. Your conversation and demo data were deleted.';
   navigate('/entry');
+}
+async function selectDemo(demoId: string) {
+  if (!browserSession || demoId === current?.id) return;
+  const previous = browserSession;
+  try {
+    browserSession = await request<BrowserSession>('/api/browser-session/active-demo', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({demoId,expectedVersion:previous.version})}, true);
+    const next = await request<DemoSession>(`/api/sessions/${demoId}`, {}, true);
+    current=next; lastList=undefined; pendingTurn=undefined; lastResult=undefined; turnNote='';
+    await navigate(base(next.id));
+  } catch(e) {
+    await loadBrowserSession();
+    toast(plain((e as Error).message));
+  }
 }
 document.addEventListener('click', event => {
   const clear = (event.target as Element).closest<HTMLElement>('[data-clear-filter]');
@@ -528,8 +681,27 @@ document.addEventListener('click', event => {
 }, true);
 document.addEventListener('click',async event=>{
   const el=(event.target as Element).closest<HTMLElement>('a,button'); if (!el || el.hasAttribute('data-clear-filter')) return;
-  if (el.hasAttribute('data-example')) { void sendChat(el.dataset.example ?? ''); return; }
-  if (el.hasAttribute('data-choice')) { void sendChat(el.textContent ?? '', el.dataset.choice); return; }
+  if (el.hasAttribute('data-example')) {
+    const input = document.querySelector<HTMLTextAreaElement>('#chat-form textarea[name="message"]');
+    if (input) { input.value = el.dataset.example ?? ''; input.focus(); input.dispatchEvent(new Event('input', { bubbles: true })); }
+    return;
+  }
+  if (el.hasAttribute('data-select-demo')) { void selectDemo(el.dataset.selectDemo ?? ''); return; }
+  if (el.hasAttribute('data-add-question')) {
+    const editor=document.querySelector<HTMLElement>('#eval-question-editor');
+    if(editor){const rows=[...editor.querySelectorAll<HTMLElement>('[data-question-row]')];if(rows.length>=8){toast('An evaluation can have up to eight questions.');return;}const next=Math.max(-1,...rows.map(x=>Number(x.dataset.questionIndex)))+1;el.insertAdjacentHTML('beforebegin',evalQuestionRow({key:`question-${next+1}`,label:'New question',type:'text',required:false,reviewer:'buyer'},next));}
+    return;
+  }
+  if (el.hasAttribute('data-remove-question')) {
+    const editor=el.closest('#eval-question-editor');if(editor?.querySelectorAll('[data-question-row]').length===1){toast('Keep at least one question.');return;}el.closest('[data-question-row]')?.remove();return;
+  }
+  if (el.hasAttribute('data-eval-tab') && current && evaluation) {
+    evaluationTab = el.dataset.evalTab as typeof evaluationTab;
+    sessionStorage.setItem(evaluationTabKey(evaluation.evaluation.id), evaluationTab);
+    evaluationPage(current,evaluation);
+    return;
+  }
+  if (el.hasAttribute('data-choice')) { void sendChat(el.textContent ?? '', el.dataset.choice, el.dataset.confirmationRef); return; }
   if (el.hasAttribute('data-retry-draft')) { void sendChat(draft[0]?.text ?? ''); return; }
   if (el.hasAttribute('data-retry-turn')) { if (pendingTurn && !chatBusy) void runTurn(pendingTurn.request); return; }
   if (el.hasAttribute('data-end-demo')) { void endDemo(); return; }
@@ -575,6 +747,8 @@ function toast(message:string) { document.querySelector('.toast')?.remove();cons
 document.addEventListener('submit',async event=>{
   const form=event.target as HTMLFormElement; event.preventDefault();
   if (form.id==='chat-form') { void sendChat(String(new FormData(form).get('message') ?? '')); return; }
+  if (form.id==='create-eval-form') { void createEvaluation(form); return; }
+  if (form.id==='review-eval-form') { void saveEvaluationReview(form); return; }
   if (current && (form.id==='filters'||form.id==='search-form')) {
     const params=new URLSearchParams(location.search);new FormData(form).forEach((v,k)=>{if(String(v))params.set(k,String(v));else params.delete(k);});
     navigate(`${base(current.id)}${params.size?'?'+params:''}`);
@@ -591,6 +765,7 @@ document.addEventListener('change',event=>{
   const el=event.target as HTMLInputElement;
   if(el.id==='trace-navigator' && current)navigate(`${base(current.id)}/${el.value}`);
   if(el.id==='select-all')document.querySelectorAll<HTMLInputElement>('[data-select]').forEach(x=>x.checked=el.checked);
+  if(el.matches('[data-q-type]')){const options=el.closest('[data-question-row]')?.querySelector<HTMLElement>('[data-q-options]');if(options)options.hidden=el.value!=='choice';}
 });
 // Keep the newest message (and any clarification buttons) in view after every repaint.
 new MutationObserver(() => { const thread = document.querySelector<HTMLElement>('.chat-panel .chat-thread'); if (thread) thread.scrollTop = thread.scrollHeight; }).observe(root, { childList: true });

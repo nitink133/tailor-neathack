@@ -15,7 +15,7 @@ async function session(page:Pg):Promise<DemoSession>{return await (await page.re
 const countText=(n:number)=>`1 – ${n} of ${n}`;
 const errSpans=(t:DemoSession['dataset']['traces'][number])=>t.spans.filter(x=>x.status==='ERROR');
 test('every generated scenario agrees across API, trace tree, timeline, navigation, direct links, reload and session boundaries',async({page,browser})=>{
-  await page.goto('/');await expect(page.getByRole('heading',{level:1})).toContainText('Your agent is already running.');
+  await page.goto('/');await expect(page.getByRole('heading',{level:1})).toContainText('See where your agent workflow can fail.');
   await expect(page.locator('.hack')).toHaveCSS('background-color','rgb(2, 141, 194)');
   await expect(page.locator('.hack')).toHaveCSS('height','32px');
   await expect(page.locator('.hack-date')).toHaveText('Oct 10–12');
@@ -25,7 +25,8 @@ test('every generated scenario agrees across API, trace tree, timeline, navigati
   await expect(page.locator('.nav-rule')).toBeVisible();
   expect(await page.locator('.public-nav .wordmark').evaluate(el=>getComputedStyle(el).fontFamily)).toContain('GeistMono');
   expect(await page.evaluate(()=>document.documentElement.scrollHeight<=document.documentElement.clientHeight+1)).toBe(true);
-  await page.getByRole('link',{name:'Try with your project ↗'}).first().click();
+  await expect(page.locator('.hero-copy')).toContainText('fictional workflow');
+  await page.getByRole('link',{name:'Explore the demo ↗'}).first().click();
   await expect(page.getByRole('heading',{name:'hello'})).toBeVisible();
   await page.getByLabel('Ask anything').fill(BUILD);await page.getByRole('button',{name:'Send message'}).click();
   await expect(page.locator('[data-count]')).toBeVisible();
@@ -128,27 +129,62 @@ test('dated desktop/mobile evidence',async({page})=>{
   await page.goto('/');await page.screenshot({path:ed+'/replica-public-mobile.png',fullPage:true});
 });
 
-// Regression for the annotated public setup control: assets, live motion and fallback.
-test('official setup control assets, comet motion and reduced-motion fallback',async({page})=>{
-  await page.setViewportSize({width:980,height:729});await page.goto('/');await page.evaluate(()=>document.fonts.ready);
-  const button=page.getByRole('button',{name:'Copy setup prompt',exact:true});
-  await expect(button.locator('img')).toHaveCount(3);
-  expect(await button.locator('img').evaluateAll(xs=>xs.every(x=>(x as HTMLImageElement).complete&&(x as HTMLImageElement).naturalWidth>0))).toBe(true);
-  expect(await button.evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBe(360);
-  const motion=page.locator('.setup-comet');
-  expect(await motion.evaluate(el=>el.getAnimations()[0]!.effect!.getTiming())).toMatchObject({duration:2900,easing:'linear',iterations:Infinity});
-  const initial=await motion.evaluate(el=>getComputedStyle(el).transform);
-  await expect.poll(()=>motion.evaluate(el=>getComputedStyle(el).transform)).not.toBe(initial);
-  await page.screenshot({path:ed+'/setup-prompt-980.png'});
-  await page.emulateMedia({reducedMotion:'reduce'});
-  await expect(page.locator('.setup-border')).toBeHidden();expect(await motion.evaluate(el=>el.getAnimations().length)).toBe(0);
-  await page.setViewportSize({width:390,height:844});await expect(button).toBeVisible();
-  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+test('entry makes the synthetic scope clear and keeps suggestions editable',async({page})=>{
+  await page.goto('/entry');
+  await expect(page.locator('.chat-stage')).toContainText('Powered by Tailor · fictional workflows and synthetic traces');
+  await expect(page.locator('.chat-stage')).toContainText('Mock-backed prototype');
+  await expect(page.locator('.chat-stage')).toContainText('synthetic traces');
+  await expect(page.locator('[data-starter-list] button')).toHaveCount(3);
+  const first=page.locator('[data-starter-list] button').first(),prompt=await first.getAttribute('data-example');
+  expect(prompt).toBeTruthy();expect(await first.getAttribute('data-capability-id')).toBeTruthy();
+  let creates=0;await page.route('**/api/browser-session/demos',async route=>{creates++;await route.continue();});
+  await first.click();
+  const composer=page.getByLabel('Ask anything');await expect(composer).toHaveValue(prompt!);await expect(composer).toBeFocused();
+  expect(creates).toBe(0);expect(await page.evaluate(()=>sessionStorage.getItem('creation-operation'))).toBeNull();
+  await composer.fill(`${prompt} Use one fictional retry.`);
+  await page.getByRole('button',{name:'Send message'}).click();await expect(page).toHaveURL(/\/demo\/[^/]+\/traces$/);
+  expect(creates).toBe(1);await expect(page.locator('.chat-panel')).toContainText('Powered by Tailor');
+});
+
+test('clarification offers exactly three choices and accepts an editable free-text answer',async({page})=>{
+  await page.goto('/entry');await page.getByLabel('Ask anything').fill('Show me something failing.');
+  await page.getByRole('button',{name:'Send message'}).click();await expect(page.locator('[data-count]')).toBeVisible();
+  const choices=page.locator('.chat-choices button[data-choice]');await expect(choices).toHaveCount(3);
+  await expect(page.locator('.chat-choices + small')).toContainText('type your own answer');
+  await page.getByLabel('Ask anything').fill('I’m building a travel-booking agent. Show a booking API timeout followed by a successful retry.');
+  await page.getByRole('button',{name:'Send message'}).click();
+  await expect(page.locator('.chat-panel [data-status=applied]').last()).toBeVisible();
+  expect((await session(page)).dataset.traces.length).toBeGreaterThan(0);
+});
+
+test('evaluation overview, questions, saved results and simulated provenance',async({page})=>{
+  await enter(page);const s:DemoSession=await session(page);const first=s.dataset.traces[0]!;
+  await page.goto(`/demo/${s.id}/evals`);await expect(page.getByRole('heading',{name:'Evals'})).toBeVisible();
+  await expect(page.locator('.eval-provenance').first()).toContainText('no AI evaluator ran');
+  await expect(page.locator('.eval-local-label')).toContainText('Docs-grounded reconstruction');
+  await page.getByRole('button',{name:'Add question'}).click();
+  await page.locator('input[name="q-label:3"]').fill('Was the escalation necessary?');
+  await page.locator('select[name="q-type:3"]').selectOption('choice');
+  await page.locator('input[name="q-options:3"]').fill('Yes, No, Unclear');
+  await page.getByRole('button',{name:'Create evaluation'}).click();
+  await expect(page.getByRole('heading',{name:'Workflow review'})).toBeVisible();
+  await page.getByRole('button',{name:'Questions'}).click();
+  await page.getByLabel(`How useful and accurate is the answer? for ${first.id}`).fill('4');
+  await page.getByLabel(`What should change? for ${first.id}`).fill('Keep the explanation concise.');
+  await page.getByLabel(`Was the escalation necessary? for ${first.id}`).selectOption('Yes');
+  await page.getByRole('button',{name:'Save review'}).click();
+  await expect(page.getByRole('button',{name:'Results'})).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('.eval-results')).toContainText('Your review');
+  await expect(page.locator('.eval-results')).toContainText('Simulated score — no AI evaluator ran');
+  const detailPath=page.url();await page.reload();await expect(page).toHaveURL(detailPath);
+  await expect(page.locator('.eval-results')).toContainText('Keep the explanation concise.');
+  await expect(page.locator('.eval-results')).toContainText('Was the escalation necessary?');
+  await expect(page.locator('.eval-results')).toContainText('Synthetic evaluation · local demo');
 });
 
 test('buyer conversation: clarify, build, edit, explain, answer; a failed send retries without duplicating; End demo clears the session',async({page})=>{
   await page.goto('/entry');
-  await expect(page.locator('.chat-stage')).toContainText('Powered by Tailor · synthetic data');
+  await expect(page.locator('.chat-stage')).toContainText('Powered by Tailor · fictional workflows and synthetic traces');
   await page.getByLabel('Ask anything').fill('Show me something failing.');
   await page.getByRole('button',{name:'Send message'}).click();
   await expect(page.locator('[data-count]')).toBeVisible();
@@ -162,6 +198,16 @@ test('buyer conversation: clarify, build, edit, explain, answer; a failed send r
   const traceUrl=page.url();
   await page.locator('tbody tr a').first().click();
   await expect(page.locator('.chat-panel')).toBeVisible();
+  const openTraceUrl=page.url(),openTraceId=openTraceUrl.split('/').pop()!;
+  await expect(page.locator('.chat-asking')).toHaveAttribute('data-asking-about',openTraceId);
+  await page.locator('.chat-panel textarea').fill('Explain this trace');
+  await page.locator('.chat-panel').getByRole('button',{name:'Send message'}).click();
+  await expect(page.locator('.chat-evidence').last()).toBeVisible();
+  const cited=page.locator('.chat-evidence').last().locator('a');
+  await expect(cited).toHaveCount(1);await expect(cited.first()).toHaveAttribute('href',new RegExp(`/demo/${s.id}/traces/${openTraceId}$`));
+  const secondTab=await page.context().newPage();await secondTab.goto(openTraceUrl);
+  await expect(secondTab.locator('.chat-panel')).toContainText('Explain this trace');
+  await secondTab.close();
   await page.goBack();await expect(page).toHaveURL(traceUrl);
   await page.reload();await expect(page.locator('.chat-panel')).toContainText('Applied');
   await page.getByRole('button',{name:'Collapse conversation'}).click();
@@ -174,11 +220,14 @@ test('buyer conversation: clarify, build, edit, explain, answer; a failed send r
   // A dropped request keeps the buyer's message, offers Retry and sends once.
   let dropped=0;await page.route('**/turns',route=>dropped++===0?route.abort():route.continue());
   await page.locator('.chat-panel textarea').fill('Can Neatlogs detect failed retries?');
+  const sendsBefore = await page.evaluate(async()=>{const s=await fetch('/api/session').then(r=>r.json());return s.conversation.filter((t:any)=>t.role==='buyer'&&t.text==='Can Neatlogs detect failed retries?').length;});
   await page.locator('.chat-panel').getByRole('button',{name:'Send message'}).click();
   await expect(page.locator('.chat-retry')).toBeVisible();
   await page.locator('.chat-retry').click();
   await expect(page.locator('.chat-retry')).toHaveCount(0);
   await expect(page.locator('.chat-thread .chat-turn.is-buyer',{hasText:'Can Neatlogs detect failed retries?'})).toHaveCount(1);
+  expect(dropped).toBe(2);
+  expect(sendsBefore).toBe(0);
   await page.unrouteAll();
   await page.setViewportSize({width:390,height:844});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);

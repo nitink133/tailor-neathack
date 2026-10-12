@@ -392,3 +392,52 @@ test('390 px: the conversation keeps a usable thread height and nothing overflow
   expect(composer!.y + composer!.height).toBeLessThanOrEqual(844);
   await page.screenshot({ path: `${evidenceDir}/owner-e-mobile-390-chat.png` });
 });
+
+test('material workflow switches wait for confirmation; keep, adapt and separate preserve demo history',async({page})=>{
+  const original=await buildTravel(page),originalUrl=page.url(),originalTraceIds=original.dataset.traces.map(t=>t.id);
+  const askSwitch=async(text:string)=>{
+    await send(page,text);
+    const choices=page.locator('.chat-choices button[data-choice]');
+    await expect(choices).toHaveCount(3,{timeout:15000});
+    await expect(choices).toHaveText(['Adapt current demo','Start separate demo','Keep current demo']);
+    await expect(choices.first()).toHaveAttribute('data-confirmation-ref',/.+/);
+    const unchanged=await sessionOf(page);expect(unchanged.version).toBe(original.version);expect(unchanged.dataset.traces.map(t=>t.id)).toEqual(originalTraceIds);
+    await page.reload();await expect(page.locator('.chat-choices button[data-choice]')).toHaveCount(3);
+  };
+  const claims='Switch to an insurance claims agent. Show a policy lookup timing out, then a successful retry.';
+  await askSwitch(claims);
+  await page.locator('.chat-choices button[data-choice="keep_current"]').click();
+  await expect(page).toHaveURL(originalUrl);expect((await sessionOf(page)).version).toBe(original.version);
+  await askSwitch(claims);
+  await page.locator('.chat-choices button[data-choice="adapt_current"]').click();
+  await expect(page.locator('.chat-panel .chat-choices')).toHaveCount(0);
+  const adapted=await sessionOf(page);expect(adapted.id).toBe(original.id);expect(adapted.version).toBeGreaterThan(original.version);
+  await askSwitch('Switch to a travel-booking agent. Show a booking API timeout followed by a successful retry.');
+  await page.locator('.chat-choices button[data-choice="start_separate"]').click();
+  await expect(page).not.toHaveURL(originalUrl);
+  const separateId=/\/demo\/([^/]+)\/traces/.exec(page.url())![1]!;expect(separateId).not.toBe(original.id);
+  const owner=await page.request.get('/api/browser-session').then(r=>r.json());
+  expect(owner.demos.map((d:{id:string})=>d.id)).toContain(original.id);expect(owner.demos.map((d:{id:string})=>d.id)).toContain(separateId);
+  const old=await page.request.get(`/api/sessions/${original.id}`).then(r=>r.json());
+  expect(old.dataset.traces.map((t:{id:string})=>t.id)).toEqual(adapted.dataset.traces.map(t=>t.id));
+  await page.getByRole('button',{name:'Expand sidebar'}).click();
+  await page.locator(`[data-select-demo="${original.id}"]`).click();
+  await expect(page).toHaveURL(originalUrl);await expect(page.locator('[data-count]')).toBeVisible();
+  await expect(page.locator('.chat-panel')).toContainText('Keep current demo');
+});
+
+test('a fast repeat click sends one edit; direct trace explanations retain their saved citation',async({page})=>{
+  const s=await buildTravel(page),first=s.dataset.traces[0]!;
+  let posts=0;await page.route('**/api/sessions/**/turns',async route=>{posts++;await new Promise(r=>setTimeout(r,250));await route.continue();});
+  await send(page,'Make the retry fail too.');
+  await expect(page.locator('.chat-panel button[type=submit]')).toBeDisabled();
+  expect(posts).toBe(1);await expect(page.locator('.demo-notice')).toContainText('v3');
+  await page.unrouteAll();
+  const updated=await sessionOf(page),older=updated.dataset.traces.find(t=>t.id===first.id)!;
+  await page.goto(`/demo/${s.id}/traces/${older.id}`);
+  await expect(page.locator('.chat-asking')).toContainText(older.label);
+  await send(page,'Explain this trace');
+  const evidence=page.locator('.chat-evidence').last();await expect(evidence).toBeVisible();
+  await expect(evidence.locator('a')).toHaveAttribute('href',new RegExp(`/demo/${s.id}/traces/${older.id}$`));
+  await page.reload();await expect(page.locator('.chat-evidence').last().locator('a')).toHaveAttribute('href',new RegExp(`/demo/${s.id}/traces/${older.id}$`));
+});
