@@ -213,7 +213,7 @@ test('buyer conversation: clarify, build, edit, explain, answer; a failed send r
   const traceUrl=page.url();
   await page.locator('tbody tr a').first().click();
   await expect(page.locator('.chat-panel')).toBeVisible();
-  const openTraceUrl=page.url(),openTraceId=openTraceUrl.split('/').pop()!;
+  const openTraceUrl=page.url(),openTraceId=new URL(openTraceUrl).pathname.split('/').pop()!;
   await expect(page.locator('.chat-asking')).toHaveAttribute('data-asking-about',openTraceId);
   await page.locator('.chat-panel textarea').fill('Explain this trace');
   await page.locator('.chat-panel').getByRole('button',{name:'Send message'}).click();

@@ -19,6 +19,8 @@ Models/ownership: GPT-6.1-sol behavior agent owns client/helper/unit tests; GPT-
 ![Before at annotation size](tailor-traces-review/traces-before-980.png)
 ![After at annotation size](tailor-traces-review/traces-after-980.png)
 
-[Desktop before](tailor-traces-review/traces-before-1440.png) · [Desktop after](tailor-traces-review/traces-after-1440.png) · [Mobile before](tailor-traces-review/traces-before-390.png) · [Mobile after](tailor-traces-review/traces-after-390.png) · [Dark list](tailor-traces-review/traces-after-dark.png).
+[Desktop before](tailor-traces-review/traces-before-1440.png) · [Desktop after](tailor-traces-review/traces-after-1440.png) · [Mobile before](tailor-traces-review/traces-before-390.png) · [Mobile after](tailor-traces-review/traces-after-390.png) · [Dark list](tailor-traces-review/traces-after-dark.png) · [Mobile detail guide](tailor-traces-review/traces-detail-guide-mobile.png).
 
 No backend policy, grounding, spend or telemetry changes. Mock/captured testing only; no paid calls, hosted exports, merge, push, deployment or history rewrite. Preview is left at port 4325; exact URL is in the final response. Entire is best effort: caller metadata at this turn resolved via ancestry to an ended record on the original Codex worktree, so live capture of this review worktree is unverified. Normal Git-hook checkpoint evidence is checked separately after committing; no trailer is manufactured.
+
+Final-suite follow-up: mobile detail guidance initially overflowed at 512px; bounded wrapping repaired it, and the original 390px assertion remains intact. An existing test extracted a trace ID from the entire URL including the new span query; it now uses URL.pathname while retaining exact asking-about and cited-trace assertions. Four focused regression checks pass. The first failed run is preserved in `.local/review-evidence/traces-first-final-browser.log` and its result JSON; final results are rerun on the follow-up commit.

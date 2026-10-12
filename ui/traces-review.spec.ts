@@ -47,6 +47,8 @@ test('guide explains saved traces and opens the real failed step',async({page})=
  await link.click();await expect(page.locator('.selected-span .span-content')).toBeVisible();
  await expect(page.locator('.trace-detail-guide')).toBeVisible();await expect(page.locator('.trace-detail-guide')).toContainText(/step/i);
  await expect(page.locator('.root-output')).toBeVisible();
+ await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+ await page.screenshot({path:'.local/review-evidence/traces-detail-guide-mobile.png',fullPage:true});
 });
 
 test('field help works with keyboard and guide dismissal persists only for its demo',async({page})=>{
