@@ -31,6 +31,8 @@ let capabilities: PublicCapabilities | undefined;
 let browserSession: BrowserSession | undefined;
 let entrySuggestionBatch = 0;
 let stopEntryRotation = () => {};
+let entryPreparation: { demoId?: string } | undefined;
+let entryViewTransition: ViewTransition | undefined;
 let evaluations: EvaluationList | undefined;
 let evaluation: EvaluationDetail | undefined;
 let evaluationTab: 'Overview' | 'Questions' | 'Results' = 'Overview';
@@ -61,7 +63,7 @@ function historyDepth() {
   const state = history.state as { tailor?: unknown } | null;
   return state && typeof state.tailor === 'number' ? state.tailor : 0;
 }
-function navigate(path: string): Promise<void> { history.pushState({ tailor: historyDepth() + 1 },'',path); return render(); }
+function navigate(path: string, preserveEntry = false): Promise<boolean> { history.pushState({ tailor: historyDepth() + 1 },'',path); return render(preserveEntry); }
 function durationLabel(ms: number) { return ms < 1 ? `${Math.round(ms * 1000)}µs` : `${ms}ms`; }
 function ingested(iso: string) {
   const d = new Date(iso);
@@ -89,6 +91,10 @@ function clearLocalState() {
 }
 function showEnded() {
   stopEntryRotation();
+  entryViewTransition?.skipTransition();
+  entryViewTransition = undefined;
+  document.documentElement.classList.remove('entry-view-transition');
+  entryPreparation = undefined;
   ended = true; generation++; controller?.abort();
   clearLocalState();
   document.documentElement.classList.remove('chat-dock', 'rail-open');
@@ -97,6 +103,10 @@ function showEnded() {
 /** Friendly page for a demo this browser cannot open (ended, expired in another tab, or someone else's). No raw codes. */
 function showUnavailable() {
   stopEntryRotation();
+  entryViewTransition?.skipTransition();
+  entryViewTransition = undefined;
+  document.documentElement.classList.remove('entry-view-transition');
+  entryPreparation = undefined;
   document.documentElement.classList.remove('chat-dock', 'rail-open');
   root.innerHTML = `<main class="ended request-error"><h1>Demo unavailable</h1><p role="alert">This demo isn’t available in this browser. It may have ended or expired, or it was started somewhere else.</p>${link('/entry','Start a new demo','solid')}</main>`;
 }
@@ -289,7 +299,7 @@ function stepsLine(steps: TurnStep[], outcome?: TurnOutcome) {
   return parts.join(' · ');
 }
 function progress() {
-  if (chatBusy) return `<p class="chat-steps" role="status">Working on it…</p>`;
+  if (chatBusy) return `<p class="chat-steps" role="status">Working on your request…</p>`;
   const line = lastResult ? stepsLine(lastResult.steps, lastResult.outcome) : '';
   const uncertain = lastResult?.outcome === 'readback_uncertain';
   return `${turnNote ? `<p class="chat-note${uncertain ? ' is-uncertain' : ''}" role="status">${esc(turnNote)}</p>` : ''}${line ? `<p class="chat-steps" aria-label="What I did">${esc(line)}</p>` : ''}`;
@@ -333,7 +343,7 @@ function entry() {
   const banner = entryNotice ? `<p class="entry-notice" role="status">${esc(entryNotice)}</p>` : '';
   const saved = entrySavedState(browserSession);
   const savedDemos = `<section class="saved-demos" ${saved.demos.length ? '' : 'hidden'}><h2>Your saved demos</h2><div data-saved-demos>${savedDemoButtons()}</div></section>`;
-  root.innerHTML = `<div class="chat-home"><header class="entry-nav">${link('/','neatlogs','wordmark')}${link('/','← Back to landing')}</header><div class="chat-stage">${banner}${started?`<div class="chat-thread">${chatThread(turns)}</div>`:`<div class="entry-intro"><h1>See your agent in action</h1><p>Explore a workflow. See what happens at every step.</p></div>`}${chatBusy?`<p class="chat-steps" role="status">Setting up your demo…</p>`:''}${composer(chatBusy)}<div class="chat-examples entry-suggestions" data-starter-list aria-label="Suggested workflow questions">${entrySuggestionButtons()}</div><p class="tailor-attribution">Powered by <span class="tailor-pill">Tailor</span></p>${savedDemos}${started?`${turns[turns.length-1]!.status==='failed'?`<button type="button" data-retry-draft>Retry</button> `:''}<button type="button" data-discard-draft>Discard draft</button>`:`<button type="button" id="resume" ${saved.activeDemo ? '' : 'hidden'}>Resume this browser’s saved session</button>`}<p class="form-error" role="alert"></p></div></div>`;
+  root.innerHTML = `<div class="chat-home"><header class="entry-nav">${link('/','neatlogs','wordmark')}${link('/','← Back to landing')}</header><div class="chat-stage${chatBusy ? ' is-preparing' : ''}">${banner}${started?`<div class="chat-thread">${chatThread(turns)}</div>`:`<div class="entry-intro"><h1>See your agent in action</h1><p>Explore a workflow. See what happens at every step.</p></div>`}${chatBusy?`<div class="entry-transition" role="status" aria-live="polite"><span class="entry-transition-mark" aria-hidden="true"></span><div><h1>Preparing your playground…</h1><p data-entry-phase>Creating your demo…</p></div></div>`:''}${composer(chatBusy)}<div class="chat-examples entry-suggestions" data-starter-list aria-label="Suggested workflow questions">${entrySuggestionButtons()}</div><p class="tailor-attribution">Powered by <span class="tailor-pill">Tailor</span></p>${savedDemos}${started?`${turns[turns.length-1]!.status==='failed'?`<button type="button" data-retry-draft>Retry</button> `:''}<button type="button" data-discard-draft>Discard draft</button>`:`<button type="button" id="resume" ${saved.activeDemo ? '' : 'hidden'}>Resume this browser’s saved session</button>`}<p class="form-error" role="alert"></p></div></div>`;
   startEntryRotation();
 }
 function list(s: DemoSession,data: TraceList) {
@@ -427,20 +437,29 @@ async function saveEvaluationReview(form: HTMLFormElement) {
   try{evaluation=await request<EvaluationDetail>(`/api/sessions/${current.id}/evaluations/${e.id}/reviews`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientOperationId:crypto.randomUUID(),datasetVersion:e.datasetVersion,expectedVersion:e.version,responses})},true);evaluationTab='Results';sessionStorage.setItem(evaluationTabKey(e.id),evaluationTab);evaluationPage(current,evaluation);}
   catch(error){toast(plain((error as Error).message));}finally{evalBusy=false;}
 }
-async function render() {
+async function render(preserveEntry = false): Promise<boolean> {
   stopEntryRotation();
+  entryViewTransition?.skipTransition();
+  entryViewTransition = undefined;
+  document.documentElement.classList.remove('entry-view-transition');
+  const keepEntry = preserveEntry && !!entryPreparation?.demoId && location.pathname === base(entryPreparation.demoId) && !!root.querySelector('.chat-stage.is-preparing');
+  if (entryPreparation && !keepEntry) {
+    if (!entryPreparation.demoId) saveDraft(draft.map(t => ({ ...t, status: 'failed' as const })));
+    entryPreparation = undefined; chatBusy = false; pendingTurn = undefined;
+  }
   const run = ++generation; controller?.abort(); controller = new AbortController(); ended = false;
   void loadExecution();
-  if (location.pathname==='/') { landing(); return; }
-  if (location.pathname==='/entry') { void loadBrowserSession(); entry(); return; }
+  if (location.pathname==='/') { landing(); return true; }
+  if (location.pathname==='/entry') { void loadBrowserSession(); entry(); return true; }
   document.documentElement.classList.remove('chat-dock');
-  root.innerHTML='<main class="loading" role="status">Loading synthetic traces…</main>';
+  if (!keepEntry) root.innerHTML='<main class="loading" role="status">Loading synthetic traces…</main>';
   try {
     const route = /^\/demo\/([^/]+)\/(traces|evals)(?:\/([^/]+))?$/.exec(location.pathname);
     if (!route) throw new Error('NOT_FOUND: Page not found.');
     const s = await request<DemoSession>(`/api/sessions/${route[1]}`);
-    if (run!==generation) return; current=s; chatOpen = sessionStorage.getItem(chatKey(s.id)) !== '1';
+    if (run!==generation) return false; current=s; chatOpen = sessionStorage.getItem(chatKey(s.id)) !== '1';
     await loadBrowserSession();
+    if (run!==generation) return false;
     restorePending(s);
     restoreSteps(s);
     if (route[2] === 'evals') {
@@ -452,16 +471,34 @@ async function render() {
       detail(s,t);
     } else {
       const data=await request<TraceList>(`/api/sessions/${s.id}/traces${location.search}`);
-      if (run!==generation) return;
+      if (run!==generation) return false;
       // Publication racing the two reads: retry against a coherent version.
-      if (data.version!==s.version) { void render(); return; }
-      list(s,data);
+      if (data.version!==s.version) return render(keepEntry);
+      const commit = () => { if (run === generation) { entryPreparation = undefined; list(s,data); } };
+      if (keepEntry && typeof document.startViewTransition === 'function' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        document.documentElement.classList.add('entry-view-transition');
+        try {
+          const transition = document.startViewTransition(commit);
+          entryViewTransition = transition;
+          void transition.finished.catch(() => {}).finally(() => {
+            if (entryViewTransition === transition) { entryViewTransition = undefined; document.documentElement.classList.remove('entry-view-transition'); }
+          });
+          try { await transition.updateCallbackDone; }
+          catch { if (run === generation && root.querySelector('.chat-stage.is-preparing')) commit(); }
+        } catch {
+          document.documentElement.classList.remove('entry-view-transition');
+          commit();
+        }
+      } else commit();
     }
+    return run === generation;
   } catch(e) {
-    if (run!==generation || (e as Error).name==='AbortError') return;
-    if (e instanceof ApiFailure && (e.status===404 || e.status===403)) { showUnavailable(); return; }
+    if (run!==generation || (e as Error).name==='AbortError') return false;
+    entryPreparation = undefined;
+    if (e instanceof ApiFailure && (e.status===404 || e.status===403)) { showUnavailable(); return false; }
     document.documentElement.classList.remove('chat-dock');
     root.innerHTML=`<main class="ended request-error"><h1>Demo unavailable</h1><p role="alert">${esc(plain((e as Error).message))}</p><button data-refresh>Retry</button> ${link('/entry','Create a fictional session')}</main>`;
+    return false;
   }
 }
 type StoredTurn = TurnRequest & { sessionId: string; baseConversationVersion?: number };
@@ -631,6 +668,8 @@ async function sendTurn(text: string, choiceId?: string, confirmationRef?: strin
 }
 async function startSession(text: string) {
   chatBusy = true;
+  const preparation: { demoId?: string } = {};
+  entryPreparation = preparation;
   const payload = JSON.stringify({ description: text, conversation: [] });
   let operation = sessionStorage.getItem('creation-operation');
   let firstTurnId = sessionStorage.getItem('creation-turn-id');
@@ -651,6 +690,8 @@ async function startSession(text: string) {
     createStarted = true;
     created = await request<DemoSession>('/api/browser-session/demos', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operation }, body: payload }, true);
   } catch (e) {
+    if (entryPreparation !== preparation) return;
+    entryPreparation = undefined;
     chatBusy = false;
     if (isEnded(e) || ended) return;
     saveDraft(draft.map(t => ({ ...t, status: 'failed' as const })));
@@ -662,15 +703,33 @@ async function startSession(text: string) {
     document.querySelector('.form-error')?.replaceChildren(document.createTextNode(copy));
     return;
   }
+  if (entryPreparation !== preparation) return;
+  const req: TurnRequest = { text, clientTurnId: firstTurnId };
+  // Make the first turn recoverable before removing creation/draft identity or
+  // awaiting optional metadata: reloading at either point must retain this ID.
+  sessionStorage.setItem('tailor-pending-turn', JSON.stringify({ sessionId: created.id, baseConversationVersion: created.conversationVersion, ...req }));
+  preparation.demoId = created.id;
+  const phase = document.querySelector<HTMLElement>('[data-entry-phase]');
+  if (phase) phase.textContent = 'Loading your demo…';
   for (const key of ['creation-operation', 'creation-payload', 'creation-turn-id', 'tailor-draft-chat']) sessionStorage.removeItem(key);
   draft = [];
   await loadBrowserSession();
+  if (entryPreparation !== preparation) return;
   current = created; lastList = undefined; lastResult = undefined; turnNote = '';
   chatOpen = true; sessionStorage.removeItem(chatKey(created.id));
-  const req: TurnRequest = { text, clientTurnId: firstTurnId };
   pendingTurn = { turn: stamp('buyer', text, 'pending'), request: req };
   chatBusy = true;
-  await navigate(base(created.id));
+  const ready = await navigate(base(created.id), true);
+  if (!ready || ended || current?.id !== created.id || location.pathname !== base(created.id)) {
+    if (pendingTurn?.request.clientTurnId === req.clientTurnId) {
+      chatBusy = false;
+      if (location.pathname === base(created.id)) {
+        pendingTurn = { ...pendingTurn, turn: { ...pendingTurn.turn, status: 'failed' }, why: 'unsent' };
+        turnNote = `Your message has not been sent. ${RETRY_COPY}`;
+      } else pendingTurn = undefined;
+    }
+    return;
+  }
   await runTurn(req);
 }
 async function sendChat(text: string, choiceId?: string, confirmationRef?: string) {

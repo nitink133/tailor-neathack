@@ -124,3 +124,14 @@ tr.is-active-fixture{background:#f4f8ff}
 .dark .chat-panel .chat-composer{background:var(--ground);color:var(--ink);border-color:var(--line)}
 .dark .chat-panel .chat-composer textarea{color:var(--ink)}
 .dark .chat-panel .chat-composer textarea::placeholder{color:var(--muted);opacity:1}
+.chat-stage.is-preparing .entry-suggestions,.chat-stage.is-preparing .saved-demos,.chat-stage.is-preparing #resume,.chat-stage.is-preparing [data-discard-draft],.chat-stage.is-preparing [data-retry-draft]{display:none!important}
+.chat-stage.is-preparing .entry-transition{display:flex;align-items:center;gap:10px;max-width:min(420px,100%);text-align:left}
+.chat-stage.is-preparing .entry-transition-mark{width:9px;height:9px;flex:0 0 9px;border-radius:50%;background:#2766c7;box-shadow:0 0 0 4px rgb(39 102 199 / .13);animation:entry-transition-pulse 1.35s ease-in-out infinite}
+.chat-stage.is-preparing .entry-transition h1{margin:0;font-size:17px;line-height:23px;font-weight:500;letter-spacing:-.02em}
+.chat-stage.is-preparing .entry-transition p{margin:2px 0 0;color:#66656a;font-size:12px;line-height:17px}
+@keyframes entry-transition-pulse{0%,100%{opacity:.62;transform:scale(.9)}50%{opacity:1;transform:scale(1)}}
+html.entry-view-transition::view-transition-old(root){animation:entry-view-out 220ms ease both}
+html.entry-view-transition::view-transition-new(root){animation:entry-view-in 220ms ease both}
+@keyframes entry-view-out{to{opacity:0}}
+@keyframes entry-view-in{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.chat-stage.is-preparing .entry-transition-mark{animation:none}html.entry-view-transition::view-transition-old(root),html.entry-view-transition::view-transition-new(root){animation:none}}
