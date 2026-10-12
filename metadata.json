@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4Q78Y4EHTMSEF4GW87WBQ2J",
+  "strategy": "manual-commit",
+  "branch": "codex/tailor-20261012-review-fixes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/tailor-panel-clarity-review.md",
+    "docs/tailor-panel-clarity-review/clarity-after-1440.png",
+    "docs/tailor-panel-clarity-review/clarity-after-320.png",
+    "docs/tailor-panel-clarity-review/clarity-after-390.png",
+    "docs/tailor-panel-clarity-review/clarity-after-980.png",
+    "docs/tailor-panel-clarity-review/clarity-after-dark.png",
+    "public/style.css",
+    "src/clients/neatlogs/client.ts",
+    "src/clients/neatlogs/turn-summary.ts",
+    "src/infrastructure/server.ts",
+    "test/turn-summary.test.ts",
+    "test/ui-asset-cache.test.ts",
+    "ui/agent.spec.ts",
+    "ui/panel-clarity-review.spec.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 236296,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6194688,
+    "output_tokens": 12707,
+    "api_call_count": 37,
+    "subagent_tokens_complete": false
+  }
+}

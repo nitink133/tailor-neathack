@@ -1,0 +1,63 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4Q78Y4EHTMSEF4GW87WBQ2J",
+  "session_id": "01a12e25-d25c-7e40-a6b7-ccd1c95c084f",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-12T04:52:39.501279Z",
+  "branch": "codex/tailor-20261012-review-fixes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/tailor-panel-clarity-review.md",
+    "docs/tailor-panel-clarity-review/clarity-after-1440.png",
+    "docs/tailor-panel-clarity-review/clarity-after-320.png",
+    "docs/tailor-panel-clarity-review/clarity-after-390.png",
+    "docs/tailor-panel-clarity-review/clarity-after-980.png",
+    "docs/tailor-panel-clarity-review/clarity-after-dark.png",
+    "public/style.css",
+    "src/clients/neatlogs/client.ts",
+    "src/clients/neatlogs/turn-summary.ts",
+    "src/infrastructure/server.ts",
+    "test/turn-summary.test.ts",
+    "test/ui-asset-cache.test.ts",
+    "ui/agent.spec.ts",
+    "ui/panel-clarity-review.spec.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.1-sol",
+  "turn_id": "7fb74212dcf2",
+  "checkpoint_transcript_start": 2164,
+  "transcript_lines_at_start": 2164,
+  "compact_transcript_start": 264,
+  "token_usage": {
+    "input_tokens": 236296,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6194688,
+    "output_tokens": 12707,
+    "api_call_count": 37,
+    "subagent_tokens_complete": false
+  },
+  "session_metrics": {
+    "turn_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-12T04:52:39.108254Z",
+    "agent_lines": 1095,
+    "agent_removed": 136,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1095,
+    "total_lines_changed": 1231,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
