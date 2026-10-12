@@ -35,7 +35,7 @@ Design source: https://app.paper.design/file/01M4J3ZRFTDES668P3Y5WR4FEX/p-A-0
 
 ## Agent animation
 
-The How it works page includes a 24-second explanatory animation from the approved [motion storyboard](https://app.paper.design/file/01M4J3ZRFTDES668P3Y5WR4FEX/p-B-0). It starts paused. Play/pause and replay control one moving SVG request packet; previous/next and eight directly selectable steps support live narration. Arrow keys and Home/End work within the playback controls. Background tabs pause playback. Reduced motion uses static step changes and never starts a timer.
+The How it works page includes a 24-second explanatory animation from the approved [motion storyboard](https://app.paper.design/file/01M4J3ZRFTDES668P3Y5WR4FEX/p-B-0). It starts paused. Play/pause and replay control one sculptural SVG folio: curved context leaves fan apart, fold into a bounded action, and open into the verified result; previous/next and eight directly selectable chapter marks support live narration. Arrow keys and Home/End work within the playback controls. Background tabs pause playback. Reduced motion uses static step changes and never starts a timer.
 
 This is a fictional illustration, not live execution status. Context pruning leaves session state intact. Sonnet 5.5 is the current model, with guard low and planner/explain medium effort. Validation, save and independent readback occur in order before the verified answer. The final scene is a labelled time jump: End demo or server-clock expiry clears demo conversation/data, while hosted runtime telemetry retains its separate lifecycle. No hosted retention duration is claimed. The module makes no API requests or model calls.
 
