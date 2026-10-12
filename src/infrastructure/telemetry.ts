@@ -297,6 +297,7 @@ const EVENT_NAMES = new Set([
   'agent_error', 'commit', 'explain_unavailable', 'provider_error', 'provider_latency', 'provider_request_id', 'publish.result',
   'publish_threw', 'readback.result', 'evidence', 'policy', 'dispatch_prevented', 'context_trimmed', 'input_accounting', 'settlement', 'response', 'tool_refused', 'turn.recovered', 'turn.replayed', 'turn.result', 'validate.result', 'validation',
 ]);
+export const isSafeTelemetryEventName = (name: unknown): name is string => typeof name === 'string' && (name === 'tailor.guidance' || name === 'tailor.event' || (name.startsWith('tailor.') && EVENT_NAMES.has(name.slice(7))));
 /** SDK structural keys that may pass the export mask; anything carrying payload/content is denied. */
 const SDK_KEY = /^(neatlogs\.|openinference\.span\.kind$|session\.id$|service\.name$|telemetry\.sdk\.|_span_name$)/;
 const PAYLOAD_KEY = /(input|output|prompt|message|content|exception|retriever|parameters|end_?user|user\.|metadata|template|variables|document|query)/i;
@@ -379,20 +380,80 @@ function exportable(key: string, value: unknown, vocab: Vocabulary): boolean {
     const rawKey = key.slice('tailor.'.length).replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
     return keyAccepts(rawKey, value, vocab);
   }
+  if (key === 'neatlogs.llm.model_name') return str(value) && (Object.hasOwn(MODEL_RATES, value) || vocab.modelIds.has(value));
+  if (key === 'neatlogs.llm.cost_usd') return finiteNonNegative(value);
+  if (key === 'neatlogs.llm.provider') return str(value) && ENUMS.provider.includes(value as 'anthropic' | 'tailor-mock');
+  if (/^neatlogs\.llm\.token_count\.(?:prompt|completion|total|cache_read|cache_write|reasoning)$/.test(key)) return finiteNonNegative(value);
   if (key === 'neatlogs.end_user.id') return typeof value === 'string' && /^u[0-9a-f]{16}$/.test(value);
   if (!SDK_KEY.test(key) || PAYLOAD_KEY.test(key)) return false;
   return (typeof value === 'string' && value.length <= 200 && !/\s{2,}|[<>`]/.test(value)) || typeof value === 'number' || typeof value === 'boolean';
 }
 
 /** Defence-in-depth export mask: only allowlisted attributes and Tailor events survive; status text is dropped. */
-export function createSpanMask(vocab: Vocabulary): MaskFunction {
+export function createSpanMask(vocab: Vocabulary, options: { hostedFields?: boolean; syntheticPayloads?: boolean } = {}): MaskFunction {
   const filterAttrs = (attrs: Record<string, unknown> | undefined) => Object.fromEntries(Object.entries(attrs ?? {}).filter(([k, v]) => exportable(k, v, vocab)));
   return (data) => {
     const events = Array.isArray(data.events) ? data.events : [];
+    const attributes = filterAttrs(data.attributes);
+    const safeEvents = events.filter((e: { name?: unknown }) => typeof e?.name === 'string' && e.name.startsWith('tailor.')).map((e: { name: string; attributes?: Record<string, unknown> }) => ({ ...e, attributes: filterAttrs(e.attributes) }));
+    if (options.hostedFields) {
+      // The hosted read API exposes metadata rather than raw OTel attrs/events. Construct this
+      // envelope ourselves: inbound metadata is always denied, and payload fields never enter it.
+      const metadataAttributes = Object.fromEntries(Object.entries(attributes).filter(([k]) => k.startsWith('tailor.') && !k.startsWith('tailor.synthetic_')));
+      const metadataEvents = safeEvents.filter((e: { name: string }) => isSafeTelemetryEventName(e.name))
+        .slice(0, LIMITS.telemetryQueueMax).map((e: { name: string; attributes: Record<string, unknown> }) => ({ name: e.name,
+          attributes: Object.fromEntries(Object.entries(e.attributes).filter(([k]) => k.startsWith('tailor.') && !k.startsWith('tailor.synthetic_'))) }));
+      const sdk: Record<string, unknown> = {};
+      const session = attributes['neatlogs.session.id'];
+      if (typeof session === 'string' && /^[0-9a-f]{16}$/.test(session)) sdk['neatlogs.session.id'] = session;
+      for (const key of ['neatlogs.span.kind', 'openinference.span.kind']) {
+        const kind = attributes[key];
+        if (typeof kind === 'string' && /^(?:workflow|chain|guardrail|tool|retriever|llm|agent|Neatlogs.INTERNAL)$/i.test(kind)) sdk[key] = kind;
+      }
+      const synthetic: Record<string, string> = {};
+      if (options.syntheticPayloads && attributes['tailor.synthetic'] === true && attributes['tailor.step'] === 'turn') {
+        for (const [field, key] of [['input', 'tailor.synthetic_input'], ['output', 'tailor.synthetic_output']]) {
+          const value = attributes[key!];
+          if (typeof value === 'string' && value.length <= SYNTHETIC_MAX_CHARS && !looksSensitive(value)) {
+            synthetic[field!] = value;
+            // Match the pinned SDK setIO aliases; never accept these keys from caller attributes.
+            attributes[`${field}.value`] = value;
+            attributes[`neatlogs.${field}.value`] = value;
+            attributes[`neatlogs.workflow.${field}`] = value;
+          }
+        }
+      }
+
+      // Preserve the original Tailor evidence and add the pinned SDK's documented usage keys.
+      const model = attributes['tailor.model'];
+      if (typeof model === 'string' && exportable('neatlogs.llm.model_name', model, vocab)) attributes['neatlogs.llm.model_name'] = model;
+      const provider = attributes['tailor.provider'];
+      if (typeof provider === 'string' && exportable('neatlogs.llm.provider', provider, vocab)) attributes['neatlogs.llm.provider'] = provider;
+      const mappings = { input_tokens: 'prompt', output_tokens: 'completion', cache_read_input_tokens: 'cache_read', cache_creation_input_tokens: 'cache_write', thinking_tokens: 'reasoning' };
+      for (const [source, target] of Object.entries(mappings)) {
+        const value = attributes[`tailor.usage.${source}`];
+        if (finiteNonNegative(value)) attributes[`neatlogs.llm.token_count.${target}`] = value;
+      }
+      const paidStep = attributes['tailor.step'];
+      if (typeof paidStep === 'string' && ['guard', 'model', 'repair', 'escalate'].includes(paidStep)
+        && attributes['tailor.usage.available'] === true && attributes['neatlogs.llm.model_name'] !== undefined)
+        attributes['neatlogs.span.kind'] = 'llm';
+      if (attributes['neatlogs.span.kind'] === 'llm' && attributes['tailor.cost_known'] === true && finiteNonNegative(attributes['tailor.cost_usd'])) {
+        attributes['neatlogs.llm.cost_usd'] = attributes['tailor.cost_usd'];
+        // This is the provider-usage/rate estimate already recorded locally, never authoritative billing.
+        attributes['tailor.estimated'] = true;
+        metadataAttributes['tailor.estimated'] = true;
+      }
+      const input = attributes['tailor.usage.input_tokens']; const output = attributes['tailor.usage.output_tokens'];
+      if (finiteNonNegative(input) && finiteNonNegative(output)) attributes['neatlogs.llm.token_count.total'] = (input as number) + (output as number);
+      if (attributes['neatlogs.span.kind'] === 'llm') sdk['neatlogs.span.kind'] = 'llm';
+      if (Object.keys(metadataAttributes).length || metadataEvents.length) attributes['neatlogs.metadata'] = JSON.stringify({ tailor: { attributes: metadataAttributes, events: metadataEvents }, ...(Object.keys(sdk).length ? { sdk } : {}), ...(Object.keys(synthetic).length ? { synthetic } : {}) });
+      // SDK namespace mapping documents `metadata` as the source alias for neatlogs.metadata.
+      // Emit only this generated whitelist envelope; inbound metadata remains denied.
+      if (typeof attributes['neatlogs.metadata'] === 'string') attributes.metadata = attributes['neatlogs.metadata'];
+    }
     return {
-      ...data,
-      attributes: filterAttrs(data.attributes),
-      events: events.filter((e: { name?: unknown }) => typeof e?.name === 'string' && e.name.startsWith('tailor.')).map((e: { attributes?: Record<string, unknown> }) => ({ ...e, attributes: filterAttrs(e.attributes) })),
+      ...data, attributes, events: safeEvents,
       status: data.status ? { ...data.status, description: null } : data.status,
     };
   };
@@ -572,7 +633,7 @@ export async function createTelemetry(options: TelemetryOptions): Promise<Teleme
   await init({
     disableExport: mode !== 'neatlogs',
     tracerProvider: provider,
-    mask: createSpanMask(vocab),
+    mask: createSpanMask(vocab, { hostedFields: mode === 'neatlogs', syntheticPayloads: options.syntheticPayloads === true }),
     workflowName: 'tailor-agent',
     tags: ['tailor', 'runtime'],
     registerShutdownHandlers: false,

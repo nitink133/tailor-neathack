@@ -37,7 +37,7 @@ async function run(guidance: unknown, extra: Record<string, unknown> = {}, openT
 
 test('guidance: structured answer carries zero to three suggestions without another planning call', async () => {
   for (let count = 0; count <= 3; count++) {
-    const { result, schemas, tools, session } = await run(targets.slice(0, count).map(t => selection(t)));
+    const { result, schemas, tools, session } = await run(targets.slice(0, count));
     assert.equal(result.outcome, 'answered');
     assert.equal(result.messages.at(-1)?.guidance?.length ?? 0, count);
     assert.deepEqual(schemas, ['guard', 'plan'], 'guidance shares the answer generation call');

@@ -114,10 +114,8 @@ export const REFUSAL_REASONS = ['injection', 'arbitrary_code', 'cross_session', 
 const GUIDANCE_SCHEMA = {
   type: ['array', 'null'],
   description: 'Optional contextual destinations selected with this answer; zero to three relevant targets only. Null for ask/refuse/unsupported. Never invent destinations.',
-  items: { type: 'object', properties: {
-    targetId: { type: 'string', enum: ['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output'] },
-    traceId: nullableStr('Saved current trace id; null selects the authorised open/active trace after save'),
-  }, required: ['targetId', 'traceId'], additionalProperties: false },
+  // Keep the already-large scenario grammar small. Saved IDs are resolved by the adapter, never needed on the wire.
+  items: { type: 'string', enum: ['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output'] },
 } as const;
 export const AGENT_ACTION_SCHEMA = {
   type: 'object',
@@ -205,6 +203,8 @@ export function normaliseWireAction(parsed: unknown): unknown | null {
   if (!isObj(parsed)) return null;
   const w = parsed;
   const opt = (key: string): Obj => (w[key] === null || w[key] === undefined ? {} : { [key]: w[key] });
+  const guidance = w.guidance == null ? {} : { guidance: Array.isArray(w.guidance)
+    ? w.guidance.map(v => typeof v === 'string' ? { targetId: v } : v) : w.guidance };
   switch (w.type) {
     case 'ask':
       return { type: 'ask', clarification: w.clarification };
@@ -214,12 +214,12 @@ export function normaliseWireAction(parsed: unknown): unknown | null {
       if (traces.some(t => t === null)) return null;
       const { removeTraceKeys, ...rest } = w.proposal;
       const proposal: Obj = { kind: 'scenario_proposal', contractVersion: CONTRACT_VERSION, ...rest, ...(removeTraceKeys === null || removeTraceKeys === undefined ? {} : { removeTraceKeys }), traces };
-      return { type: 'propose', proposal, explanation: w.explanation, ...opt('guidance') };
+      return { type: 'propose', proposal, explanation: w.explanation, ...guidance };
     }
     case 'explain':
-      return { type: 'explain', text: w.text, ...opt('guidance'), ...opt('traceId'), ...opt('spanIds') };
+      return { type: 'explain', text: w.text, ...guidance, ...opt('traceId'), ...opt('spanIds') };
     case 'answer':
-      return { type: 'answer', text: w.text, knowledgeIds: w.knowledgeIds ?? [], ...opt('guidance') };
+      return { type: 'answer', text: w.text, knowledgeIds: w.knowledgeIds ?? [], ...guidance };
     case 'unsupported':
       return { type: 'unsupported', text: w.text, ...opt('capabilityId') };
     case 'refuse':

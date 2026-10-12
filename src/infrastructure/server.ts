@@ -214,6 +214,7 @@ export function appServer(store: Store, options: AppServerOptions) {
             })));
           }
           if (path === '/api/dev/telemetry' && req.method === 'GET') return send(200, telemetry.diagnostics());
+          if (path === '/api/dev/telemetry/flush' && req.method === 'POST') return send(200, await telemetry.flush());
           // Spend summary: provider-reported usage × configured rates. Estimates only; Anthropic billing is authoritative.
           if (path === '/api/dev/spend' && req.method === 'GET') {
             return send(200, options.spend ? { available: true, ...(options.spend.summary() as object) } : { available: false, reason: 'No live provider configured; the mock provider spends nothing.' });

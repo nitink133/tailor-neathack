@@ -53,8 +53,15 @@ test('contextual guidance: manual navigation and changed scenarios clear the old
   await expect(page.locator('.contextual-guide-target')).toHaveCount(0);
   await page.locator('.contextual-suggestion').first().click();
   await expect(page.locator('.contextual-guide-target')).toHaveCount(1);
+  const oldSelection=await page.locator('.contextual-suggestion[aria-pressed=true]').getAttribute('data-guidance-id');
   await send(page, 'Make the retry fail too.');
   await expect(page.locator('.demo-notice')).toContainText('v3');
+  await expect(page.locator('.contextual-guide-target')).toHaveCount(1);
+  const currentSelection=page.locator('.contextual-suggestion[aria-pressed=true]');
+  await expect(currentSelection).toHaveAttribute('data-guidance-id',/:3:/);
+  expect(await currentSelection.getAttribute('data-guidance-id')).not.toBe(oldSelection);
+  await expect(page.locator('.contextual-guide-note')).toContainText('Showing in your playground');
+  await page.getByRole('button',{name:'Dismiss highlight'}).click();
   await expect(page.locator('.contextual-guide-target')).toHaveCount(0);
   const oldCards = page.locator('.chat-turn.is-tailor').filter({ hasText: 'Saved and verified as version 2' }).locator('.contextual-suggestion');
   if (await oldCards.count()) await expect(oldCards.first()).toBeDisabled();

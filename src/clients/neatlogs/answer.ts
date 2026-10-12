@@ -97,7 +97,7 @@ function planLine(r: CapabilityRecord): string {
  * Deterministic reply built only from the cited records: title, behaviour, key limitations, prerequisites,
  * demonstration level, sources (URL + verified date) and plan availability (unknown stated plainly, and last).
  */
-export function composeAnswer(cited: CapabilityRecord[], question: string, providerText: string, knowledgeVersion?: string): string {
+function detailedAnswer(cited: CapabilityRecord[], question: string, providerText: string, knowledgeVersion?: string): string {
   const blocks: string[] = [];
   for (const [index, r] of cited.entries()) {
     const lines = [`${index + 1}. ${r.title}`, endSentence(clip(r.behaviour, 420))];
@@ -116,4 +116,53 @@ export function composeAnswer(cited: CapabilityRecord[], question: string, provi
   // Plan lines come last so a pricing answer always ends with the record's own unknown statement.
   out.push(cited.map(planLine).join('\n'));
   return buyerWording(out.join('\n\n'));
+}
+
+
+const MAX_ANSWER_CHARS = 2000;
+const QUESTION_FILLER = new Set([...STOP, 'kind', 'kinds', 'implement', 'help', 'about', 'tell', 'could', 'would', 'should', 'how', 'can', 'and', 'the', 'for', 'are', 'you']);
+const topicTokens = (text: string) => tokens(text).map(t => /^eval(?:s|uation|uations|uator|uators)?$/.test(t) ? 'eval' : t);
+/** Keep source sentences whole: the core's final safety ceiling must never cut our reply. */
+function wholeSentences(text: string, budget: number): string {
+  const out: string[] = [];
+  for (const sentence of splitSentences(text)) {
+    const next = endSentence(sentence);
+    if ([...out, next].join(' ').length > budget) break;
+    out.push(next);
+  }
+  return out.join(' ');
+}
+
+/** Ordinary short answers retain their detail. Broad answers reserve room for sources and availability first. */
+export function composeAnswer(cited: CapabilityRecord[], question: string, providerText: string, knowledgeVersion?: string): string {
+  const detailed = detailedAnswer(cited, question, providerText, knowledgeVersion);
+  if (detailed.length <= MAX_ANSWER_CHARS) return detailed;
+  const wanted = new Set(topicTokens(question).filter(t => t.length >= 3 && !QUESTION_FILLER.has(t)));
+  const score = (r: CapabilityRecord) => {
+    const topical = new Set(topicTokens(r.title));
+    const body = new Set(topicTokens(r.behaviour));
+    return [...wanted].reduce((n, word) => n + (topical.has(word) ? 3 : body.has(word) ? 1 : 0), 0);
+  };
+  const ranked = cited.map((r, index) => ({ r, index, score: score(r) })).sort((a, b) => b.score - a.score || a.index - b.index);
+  let kept = ranked.filter(x => x.score > 0).map(x => x.r).slice(0, 3);
+  if (!kept.length) kept = ranked.slice(0, 2).map(x => x.r);
+  const pricing = PRICING_QUESTION.test(question) || kept.some(r => /pric/i.test(`${r.id} ${r.title} ${r.topics.join(' ')}`));
+  const compact = (records: CapabilityRecord[]) => {
+    const blocks = records.map((r, index) => {
+      const lines = [`${index + 1}. ${r.title}`, wholeSentences(r.behaviour, 350)];
+      const limits = r.limitations.map(l => wholeSentences(l, 160)).filter(Boolean).slice(0, 2);
+      if (limits.length) lines.push(`- Limits: ${limits.join(' ')}`);
+      if (r.demonstration.level === 'explain_only') lines.push('- In this demo I can describe this capability but not run it.');
+      else if (r.demonstration.level === 'unsupported') lines.push('- This capability is not available in this demo.');
+      else lines.push('- This demo uses synthetic data.');
+      return lines.filter(Boolean).join('\n');
+    });
+    const unknown = records.filter(r => r.planAvailability.status === 'unknown');
+    const availability = records.filter(r => r.planAvailability.status === 'known').map(planLine);
+    if (unknown.length) availability.push(`Plan availability for ${unknown.map(r => r.title).join('; ')}: unknown.`);
+    return buyerWording([...blocks, sourceLine(records, knowledgeVersion), ...(pricing ? ['I don’t have verified prices, so I won’t quote any.'] : []), ...availability].join('\n\n'));
+  };
+  let answer = compact(kept);
+  while (answer.length > MAX_ANSWER_CHARS && kept.length > 1) { kept = kept.slice(0, -1); answer = compact(kept); }
+  return answer;
 }

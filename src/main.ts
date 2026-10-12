@@ -36,9 +36,13 @@ const adapterVersion = typeof (adapterModule as unknown as Record<string, unknow
 
 const clock = systemClock;
 const store = new Store(config.dataPath, { clock });
+// Operator-only allowlist for this approved synthetic review. Buyer descriptions
+// cannot opt in; every other session retains payload-free telemetry.
+const syntheticReviewIds = new Set((process.env.TAILOR_SYNTHETIC_REVIEW_IDS ?? '').split(',').filter(id => /^[0-9a-f-]{36}$/.test(id)));
 const telemetry = await createTelemetry({
   mode: config.telemetryMode,
   secret: store.secret,
+  syntheticPayloads: syntheticReviewIds.size > 0,
   versions: { codeVersion, adapterVersion, contractVersion: CONTRACT_VERSION, contextSchemaVersion: 1, policyVersion: POLICY_VERSION },
   ...(config.neatlogs ?? {}),
 });
@@ -46,7 +50,7 @@ const knowledge = loadKnowledge();
 const provider = createProvider(config.providerConfig);
 const agent = createAgentService();
 
-const server = appServer(store, { devKey: config.devKey, agent, provider, knowledge, telemetry, clock, ...(spend ? { spend } : {}) });
+const server = appServer(store, { devKey: config.devKey, agent, provider, knowledge, telemetry, clock, syntheticFixture: id => syntheticReviewIds.has(id), ...(spend ? { spend } : {}) });
 const stopSweeper = startSweeper(store, clock);
 server.listen(config.port, '127.0.0.1', () => {
   const address = server.address() as { port: number };

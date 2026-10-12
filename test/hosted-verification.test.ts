@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTelemetry } from '../src/infrastructure/telemetry.ts';
+import { createTelemetry, createSpanMask, telemetryVocabulary } from '../src/infrastructure/telemetry.ts';
 import { RUNTIME_PROJECT_ID, FORBIDDEN_PROJECT_ID, verifyHostedTrace, verifyProjectIdentity, readAndVerifyHostedTrace } from '../src/infrastructure/hosted-verification.ts';
 
 async function fixture() {
@@ -49,4 +49,29 @@ test('hosted attributes reject raw buyer payloads and credentials while declared
   const secret = structuredClone(body); secret.spans[0]!.attributes['tailor.unsafe'] = 'sk-ant-fake-secret';
   assert.ok(verifyHostedTrace(secret, expected).issues.includes('sensitive_attribute'));
   assert.equal(verifyHostedTrace(body, expected).ok, true);
+});
+
+test('hosted node projection verifies mirrored metadata evidence without raw attrs/events', async () => {
+  const { body, expected } = await fixture();
+  const mask = createSpanMask(telemetryVocabulary({ codeVersions: ['17963acb6f7302384d278835697fefbd3ae6878c'], adapterVersions: ['adapter-1'], contractVersions: ['contract-1'] }), { hostedFields: true });
+  const spans = await Promise.all(body.spans.map(async span => {
+    const mapped = await mask(span as any) as any;
+    return { node_name: span.name, span_id: span.spanId, parent_span_id: span.parentSpanId, span_metadata: JSON.parse(mapped.attributes['neatlogs.metadata']) };
+  }));
+  const projected = { ...body, spans };
+  assert.equal(verifyHostedTrace(projected, expected).ok, true, JSON.stringify(verifyHostedTrace(projected, expected)));
+  const bad = structuredClone(projected); bad.spans[0].span_metadata.tailor.attributes['tailor.hidden'] = 'private buyer prompt';
+  assert.ok(verifyHostedTrace(bad, expected).issues.includes('unsafe_metadata'));
+  const missing = structuredClone(projected); missing.spans[0].span_metadata.tailor.events = [];
+  assert.equal(verifyHostedTrace(missing, expected).ok, false);
+});
+test('received synthetic fixture text requires explicit exact expected text', async () => {
+  const { body, expected } = await fixture();
+  const root = body.spans.find(span => span.name === 'tailor.turn')!;
+  root.attributes['tailor.synthetic'] = true;
+  const spans = body.spans.map(span => ({ ...span, span_metadata: span === root ? { synthetic: { input: 'SYNTHETIC: fictional request', output: 'SYNTHETIC: fictional answer' } } : undefined }));
+  const projected = { ...body, spans };
+  assert.ok(verifyHostedTrace(projected, expected).issues.includes('unexpected_synthetic_payload'));
+  assert.equal(verifyHostedTrace(projected, { ...expected, synthetic: { input: 'SYNTHETIC: fictional request', output: 'SYNTHETIC: fictional answer' } }).ok, true);
+  assert.ok(verifyHostedTrace(projected, { ...expected, synthetic: { input: 'different approved fixture' } }).issues.includes('synthetic_input_mismatch'));
 });
