@@ -1,3 +1,4 @@
+import type { AttemptSettlement, InputAccounting } from './accounting.ts';
 import type { PolicyRequest, PolicyResponse } from './policy.ts';
 import type { EvidenceObserver } from './evidence.ts';
 // Product-agnostic Tailor contract: chat shapes, turn envelope, core limits, the model-provider and telemetry seams.
@@ -158,6 +159,10 @@ export interface ProviderUsage {
 }
 export interface ProviderResponse<TAction = unknown> {
   action: TAction;
+  inputAccounting?: InputAccounting;
+  reservationRef?: string;
+  settlement?: AttemptSettlement;
+  pricingVersion?: string;
   /** Provider-reported usage only. null when not reported; never estimate. */
   usage: ProviderUsage | null;
   latencyMs: number;
@@ -178,6 +183,10 @@ export interface ExplanationRequest {
 }
 export interface ExplanationResponse<TExplanation = unknown> {
   explanation: TExplanation;
+  inputAccounting?: InputAccounting;
+  reservationRef?: string;
+  settlement?: AttemptSettlement;
+  pricingVersion?: string;
   usage: ProviderUsage | null;
   latencyMs: number;
   requestId?: string;
@@ -245,6 +254,7 @@ export interface TelemetryVocabulary {
   codeVersions?: readonly string[];
   adapterVersions?: readonly string[];
   policyVersions?: readonly string[];
+  contractVersions?: readonly string[];
   modelIds?: readonly string[];
   toolNames?: readonly string[];
   recordIds?: readonly string[];

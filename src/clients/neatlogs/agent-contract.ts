@@ -201,6 +201,8 @@ export type TurnErrorCode =
 // Agent service seam. Implemented by NIT-272; invoked by the backend route (NIT-273).
 // ---------------------------------------------------------------------------
 export interface AgentTurnInput {
+  /** Request cancellation is forwarded to the bounded core/provider calls. */
+  signal?: AbortSignal;
   session: SessionSnapshot;
   request: TurnRequest;
   tools: SessionTools;

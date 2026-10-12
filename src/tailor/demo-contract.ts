@@ -17,6 +17,7 @@ export interface DemoSwitchConfirmation extends Clarification {
   referenceId: string;
   sourceDemoId: string;
   sourceVersion: number;
+  browserSessionVersion: number;
   /** Conversation version after the confirmation question is appended. */
   sourceConversationVersion: number;
   requestedSummary: string;

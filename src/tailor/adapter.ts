@@ -1,3 +1,4 @@
+import type { EvidenceObserver } from './evidence.ts';
 import type { PolicyDecision, PolicyResponse } from './policy.ts';
 // The ProductAdapter contract: everything product-specific the Tailor core needs, injected at construction.
 // The core owns sequencing, permissions, budgets, the deadline, idempotency and outcome classification; an adapter
@@ -51,6 +52,7 @@ export type MutationResult<TReadback> =
   | { state: 'unsupported'; reason: string };
 
 export interface ToolContext<T extends AdapterTypes> {
+  readonly evidence?: EvidenceObserver;
   session: T['session'];
   request: T['request'];
   /** The resolved buyer text for this turn (a chosen clarification label, or the typed text). */
@@ -159,6 +161,8 @@ export interface ProductAdapter<T extends AdapterTypes = AdapterTypes> {
   readonly responseSchema: string;
   /** Bounded, structured product context for the planning call (summaries, never other sessions). */
   buildContext(input: { session: T['session']; request: T['request']; history: T['session']['conversation']; buyerText: string; choice: { id: string; label: string } | null; question: Clarification | null; records: T['record'][]; knowledgeVersion: string }): unknown;
+  /** Numeric inclusion/drop counts only; context content stays private. */
+  contextMetrics?(context: unknown): Record<string, number>;
   /** The repair request sent after a validation rejection. */
   repairMessage(problems: ValidationIssue[]): string;
   /** Structural decode of the provider's action into a core action. null = malformed. */
