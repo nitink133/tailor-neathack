@@ -224,6 +224,19 @@ export interface TurnTelemetry {
    * as `step()`: ids, counts, versions and short tokens only. Optional so minimal test doubles need not implement it.
    */
   annotate?(attributes: Record<string, string | number | boolean>): void;
+  /**
+   * Declares code-owned identifiers (adapter id, tool ids, knowledge record ids, versions) the telemetry may export as
+   * attribute values. Anything not declared is rejected or replaced, so buyer/model text can never pass as an id.
+   */
+  declare?(vocabulary: TelemetryVocabulary): void;
+}
+
+export interface TelemetryVocabulary {
+  adapterIds?: readonly string[];
+  toolNames?: readonly string[];
+  recordIds?: readonly string[];
+  promptVersions?: readonly string[];
+  knowledgeVersions?: readonly string[];
 }
 
 export interface Clock { now(): number }

@@ -11,7 +11,7 @@ import {
   type SessionTools, type TurnRequest, type ValidationProblem,
 } from './agent-contract.ts';
 import type { Evidence, Story, Trace } from './contracts.ts';
-import { composeAnswer } from './answer.ts';
+import { buyerWording, composeAnswer } from './answer.ts';
 import { PRODUCT_NAMES } from './claims.ts';
 import { buildContext } from './context.ts';
 import { citedSpanIds, describeCommit, describeTrace, groundNarrative, safeNarrative } from './explain.ts';
@@ -158,6 +158,11 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
   composeAnswer,
   recordTitle: record => record.title,
   recordId: record => record.id,
+  groundingText: session => [
+    session.story?.domain ?? '',
+    ...session.dataset.traces.flatMap(t => [t.label, t.name, t.outcome, ...t.tags, ...t.spans.map(s => s.name)]),
+  ].join('\n'),
+  buyerWording,
   // An uncited "answer" about the trace on screen is really an explanation of THAT trace, read back by code.
   redirectUncitedAnswer: (action, { request, buyerText }) =>
     (request.openTraceId && ABOUT_THIS_TRACE.test(buyerText) ? { kind: 'tool', tool: 'explainTrace', args: {}, narrative: action.text } : null),

@@ -179,7 +179,8 @@ test('explain-only capability is unsupported with no tool write', async () => {
   assert.equal(result.outcome, 'unsupported');
   assert.equal(h.tools.calls.length, 0);
   assert.match(result.messages[0]!.text, /Alerts and notifications/);
-  assert.match(result.messages[0]!.text, /explain-only/);
+  assert.match(result.messages[0]!.text, /view-only/);
+  assert.doesNotMatch(result.messages[0]!.text, /explain-only|repo:|\bclone\b|\bslice\b/, 'internal wording never reaches the stored reply (L5-07)');
   assert.match(result.messages[0]!.text, /Nothing was changed/);
 });
 
@@ -513,7 +514,7 @@ test('FINDING 1: a valid pricing citation does not ground fabricated price prose
   assert.equal(h.tools.calls.length, 0);
 });
 
-test('FINDING 1: the answer is composed from the cited record (behaviour, limits, demo level, sources with URL and date, plans)', async () => {
+test('FINDING 1: the answer is composed from the cited record (behaviour, limits, demo level, source titles with date and knowledge version, plans)', async () => {
   const records = [...FAKE_RECORDS, {
     ...FAKE_RECORDS[0]!, id: 'sourced', title: 'Sourced capability', behaviour: 'Sourced capability groups failing steps by error type',
     limitations: ['Only synthetic data here', 'Second limit', 'Third limit'], prerequisites: ['An instrumented agent', 'An API key'],
@@ -527,7 +528,8 @@ test('FINDING 1: the answer is composed from the cited record (behaviour, limits
   assert.doesNotMatch(text, /Third limit/);
   assert.match(text, /You’d need: An instrumented agent; An API key\./);
   assert.match(text, /In this demo Sourced capability is shown for real on synthetic data/);
-  assert.match(text, /Sources: Sourced capability — https:\/\/docs\.example\.org\/sourced \(verified 2026-10-10\)\./);
+  assert.match(text, /Sources: Sourced capability \(verified 2026-10-10\); knowledge version test-1\./, 'human titles plus the knowledge version (L5-07)');
+  assert.doesNotMatch(text, /https?:\/\/|repo:/);
   assert.match(lastLine(text), /^Sourced capability is listed for: Team\./);
   assert.doesNotMatch(text, /Enterprise|percent/i);
 });

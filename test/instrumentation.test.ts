@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createTelemetry, type CapturedSpan, type Telemetry } from '../src/infrastructure/telemetry.ts';
 import { createAgentService } from '../src/clients/neatlogs/service.ts';
+import { createMockProvider } from '../src/clients/neatlogs/mock-provider.ts';
 import { PROMPT_VERSION } from '../src/clients/neatlogs/prompts.ts';
 import { createTailorCore } from '../src/tailor/core.ts';
 import { ProviderError } from '../src/tailor/provider-error.ts';
@@ -31,8 +32,10 @@ interface Captured {
   dump: string;
 }
 
-function collect(t: Telemetry, turnId: string, result: Captured['result']): Captured {
-  const spans = t.captured().filter(s => s.attributes['tailor.turn_id'] === turnId);
+/** `turnRef` is the hashed turn id: the only turn identifier telemetry exports. */
+function collect(t: Telemetry, turnRef: string, result: Captured['result']): Captured {
+  assert.match(turnRef, /^t[0-9a-f]{16}$/);
+  const spans = t.captured().filter(s => s.attributes['tailor.turn_id'] === turnRef);
   const root = spans.find(s => s.name === 'tailor.turn');
   assert.ok(root, 'one tailor.turn root per buyer turn');
   assert.equal(spans.filter(s => s.name === 'tailor.turn').length, 1);
@@ -59,7 +62,7 @@ async function neatlogsTurn(t: Telemetry, text: string, opts: { tools?: StubTool
   const tt = t.forTurn(turnId, SESSION_ID);
   const result = await tt.step('turn', { provider: provider.name, providerMode: provider.mode }, () =>
     service.handleTurn({ session: snapshot(tools, text), request: { text, clientTurnId: `ct-${n}` }, tools, knowledge: fakeKnowledge(), telemetry: tt, clock: fixedClock, provider }));
-  return collect(t, turnId, result);
+  return collect(t, tt.turnRef, result);
 }
 
 /** Buyer text, the raw session id (also embedded in product ids) and secrets must never be exported. */
@@ -117,7 +120,8 @@ test('committed turn: context, attempt, tool, readback and response are recorded
     assert.equal(tool['tailor.result_state'], 'committed');
     assert.equal(tool['tailor.version_before'], 1);
     assert.equal(tool['tailor.version_after'], 2);
-    assert.match(String(tool['tailor.arg_keys']), /(^|,)traces(,|$)/, 'argument key names only');
+    assert.equal(tool['tailor.arg_keys'], undefined, 'argument key names never leave the core');
+    assert.ok((tool['tailor.arg_count'] as number) > 0);
     assert.ok((tool['tailor.arg_bytes'] as number) > 0);
 
     const readback = attrs(c.named('readback')[0]);
@@ -247,6 +251,29 @@ test('live-shaped success: token categories, known cost, reservation, stop reaso
   } finally { await t.shutdown(); }
 });
 
+test('R1-F8: the evidence explanation call is a `model` span with purpose=explain; the read tool keeps its `explain` span', async () => {
+  const t = await createTelemetry({ mode: 'captured', secret: SECRET });
+  try {
+    const plan = createMockProvider();
+    const provider: ModelProvider = {
+      name: 'anthropic', model: 'claude-sonnet-5-5', mode: 'live', effort: 'medium',
+      complete: (request, signal) => plan.complete(request, signal),
+      async explain() { return { explanation: { text: 'The attempt took 1500 ms.', spanIds: [] }, usage: null, latencyMs: 5 }; },
+    };
+    const c = await neatlogsTurn(t, travelBuyerTurn1.text, { provider });
+    assert.equal(c.result.outcome, 'committed');
+    const children = c.spans.filter(s => s.parentSpanId === c.root.spanId);
+    assert.deepEqual(children.map(s => s.name), ['load_context', 'retrieve_knowledge', 'model', 'tool', 'readback', 'model']);
+    assert.deepEqual(c.named('model').map(s => s.attributes['tailor.purpose']), ['plan', 'explain']);
+    const read = c.named('explain');
+    assert.equal(read.length, 1, 'only the read tool is an explain span');
+    assert.equal(read[0]!.attributes['tailor.purpose'], undefined);
+    assert.equal(read[0]!.parentSpanId, c.named('readback')[0]!.spanId);
+    assert.ok(c.result.steps.some(s => s.name === 'explain' && s.detail === 'Wrote the explanation from the saved trace'), 'buyer-visible steps are unchanged');
+    assert.match(String(c.root.attributes['tailor.decision']), /→explain→committed$/);
+  } finally { await t.shutdown(); }
+});
+
 test('readback_uncertain: tool result, a readback step marked uncertain and the uncertain decision', async () => {
   const t = await createTelemetry({ mode: 'captured', secret: SECRET });
   try {
@@ -280,17 +307,18 @@ test('unpermitted tool (CRM adapter, real core): refused in code, recorded as a 
       session: store.snapshot(), request: { text, clientTurnId: 'crm-1' }, tools: store.ports(), knowledge: crmKnowledge, telemetry: tt, clock: systemClock,
       provider: scriptedCrmProvider([{ type: 'tool', tool: 'deleteAllDeals', args: { owner: 'priya@example.com', all: true }, note: 'Deleting.' }]),
     }));
-    const c = collect(t, turnId, result as never);
+    const c = collect(t, tt.turnRef, result as never);
     assert.equal(result.outcome, 'refused');
     assert.equal(store.writes, 0);
     assert.equal(c.root.attributes['tailor.adapter_id'], 'crm-test');
-    assert.equal(c.root.attributes['tailor.decision'], 'plan→deleteAllDeals:not_permitted→refused');
+    assert.equal(c.root.attributes['tailor.decision'], 'plan→invalid_name:not_permitted→refused', 'an undeclared tool name never leaves the core');
     const tool = attrs(c.named('tool')[0]);
-    assert.equal(tool['tailor.tool_name'], 'deleteAllDeals');
+    assert.equal(tool['tailor.tool_name'], 'invalid_name');
     assert.equal(tool['tailor.permitted'], false);
     assert.equal(tool['tailor.result_state'], 'refused');
-    assert.equal(tool['tailor.arg_keys'], 'all,owner', 'argument names only, never values');
-    assert.equal(c.event('tool_refused')?.['tailor.tool_name'], 'deleteAllDeals');
+    assert.equal(tool['tailor.arg_count'], 2, 'argument count only, never names or values');
+    assert.equal(c.dump.includes('deleteAllDeals'), false);
+    assert.equal(c.event('tool_refused')?.['tailor.tool_name'], 'invalid_name');
     assert.equal(c.named('retrieve_knowledge')[0]!.attributes['tailor.source_ids'], undefined, 'adapter without recordId reports counts only');
     assert.equal(c.dump.includes('priya@example.com'), false);
     assert.equal(c.dump.includes(text), false);

@@ -3,7 +3,7 @@
 //
 //   Hosted:  TAILOR_TELEMETRY=neatlogs TAILOR_PROVIDER=mock node --env-file-if-exists=.env.local scripts/verify-hosted.ts --probe-trace=<doctor trace id>
 //            Refuses unless the Doctor probe trace reads back in the Tailor project (identity gate), then boots the real
-//            server on 127.0.0.1:4357 (temp SQLite under /tmp), runs clarify, build, explain and one refused turn, flushes
+//            server on an ephemeral 127.0.0.1 port (temp SQLite under /tmp), runs clarify, build, explain and one refused turn, flushes
 //            and reads every trace back by id.
 //   Failure: env -u NEATLOGS_API_KEY -u ANTHROPIC_API_KEY node scripts/verify-hosted.ts --expect-failure
 //            Fully offline: a 127.0.0.1 listener answers 401 to a fake key; delivery must be `failing` and flush not ok.
@@ -25,8 +25,6 @@ const EXPECTED_PROJECT = '18c4b4b6-0b1e-4d41-9405-7960fc2d0aa8';
 const FORBIDDEN_PROJECT = 'a35a7334-258e-441c-b2e1-b8198a263f21';
 const KNOWN_ORG = '8186e5df-b745-4e66-a01d-94c420459c43';
 const HOSTED_ORIGIN = 'https://ingest.neatlogs.com';
-const SERVER_PORT = 4357;
-const FAILURE_PORT = 4352;
 const READBACK_MS = 60_000;
 
 const args = process.argv.slice(2);
@@ -58,8 +56,8 @@ let stopListener = async () => {};
 if (expectFailure) {
   if (process.env.NEATLOGS_API_KEY) refuse('--expect-failure is offline: run it with env -u NEATLOGS_API_KEY.');
   const listener = createServer((req, res) => { req.resume(); req.on('end', () => { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":"unauthorized"}'); }); });
-  await new Promise<void>(r => listener.listen(FAILURE_PORT, '127.0.0.1', r));
-  endpoint = `http://127.0.0.1:${FAILURE_PORT}`;
+  await new Promise<void>(r => listener.listen(0, '127.0.0.1', r));
+  endpoint = `http://127.0.0.1:${(listener.address() as { port: number }).port}`;
   stopListener = () => new Promise<void>(r => listener.close(() => r()));
 } else {
   if (process.env.TAILOR_TELEMETRY !== 'neatlogs') refuse('TAILOR_TELEMETRY must be neatlogs.');
@@ -85,8 +83,8 @@ const knowledge = loadKnowledge();
 const provider = createProvider({ kind: 'mock' });
 if (provider.mode !== 'mock') refuse('Provider is not the mock; aborting.');
 const server = appServer(store, { devKey, agent: createAgentService(), provider, knowledge, telemetry });
-await new Promise<void>(r => server.listen(SERVER_PORT, '127.0.0.1', r));
-const base = `http://127.0.0.1:${SERVER_PORT}`;
+await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 emit('server', { url: base, provider: `${provider.name} (${provider.mode})`, telemetry: telemetry.mode, endpoint: origin, knowledge: knowledge.version, prompts: PROMPT_VERSION, data: dir });
 
 async function call(path: string, method = 'GET', data?: unknown, cookie = '') {

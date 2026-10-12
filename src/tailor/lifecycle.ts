@@ -55,6 +55,7 @@ export function createTurnGate(): TurnGate {
 }
 
 const uncertainText = (current: number) => `Tailor could not confirm whether this request was saved. The demo now reports version ${current}; reload it before relying on the change.`;
+const EXPIRED_TEXT = 'This demo has ended or expired, so Tailor can no longer read or change anything. Start a new demo to continue.';
 
 /**
  * Normalises an agent result so only truthful, bounded tailor turns reach the transcript. A success claim requires the
@@ -72,7 +73,10 @@ export function reconcileTurnResult<E, R extends { version: number }, S>(result:
     };
   }
   const outcome = result.outcome;
-  const messages = (Array.isArray(result.messages) ? result.messages : []).flatMap(m => {
+  // Unknown or ended state: the copy is always code-owned here, whatever text the agent result carries.
+  const owned: TailorMessage<E>[] | null = outcome === 'readback_uncertain' ? [{ role: 'tailor', status: 'uncertain', text: uncertainText(current) }]
+    : outcome === 'expired' ? [{ role: 'tailor', status: 'failed', text: EXPIRED_TEXT }] : null;
+  const messages = owned ?? (Array.isArray(result.messages) ? result.messages : []).flatMap(m => {
     const text = typeof m?.text === 'string' ? m.text.trim().slice(0, LIMITS.maxTurnTextChars) : '';
     if (!text) return [];
     let status: ChatStatus = CHAT_STATUSES.includes(m.status) && m.status !== 'pending' ? m.status : 'note';

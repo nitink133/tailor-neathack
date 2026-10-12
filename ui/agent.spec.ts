@@ -182,6 +182,40 @@ test('provider label comes from the server on every page; unknown is neutral, ne
   }
 });
 
+test('R2-02: a turn envelope that claims live never relabels the UI when /api/execution fails', async ({ page }) => {
+  const s = await buildTravel(page);
+  await page.route('**/api/execution', route => route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":{"code":"SERVER_FAILURE","message":"x"}}' }));
+  await page.route(`**/api/sessions/${s.id}/turns`, async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.execution = { mode: 'live', provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'medium' };
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(`/demo/${s.id}/traces`);
+  // Record every label the page ever paints, so a transient "Live model" also fails the test.
+  await page.evaluate(() => {
+    const w = window as unknown as { seenLabels: string[] };
+    w.seenLabels = [];
+    const record = () => { for (const el of document.querySelectorAll('[data-exec-chip], [data-exec-line]')) w.seenLabels.push(el.textContent ?? ''); };
+    new MutationObserver(record).observe(document.body, { subtree: true, childList: true, characterData: true });
+    record();
+  });
+  let statusReads = 0;
+  page.on('request', r => { if (r.url().endsWith('/api/execution')) statusReads++; });
+  const bubbles = page.locator('.chat-panel [data-status]');
+  const before = await bubbles.count();
+  const forged = page.waitForResponse(r => r.url().endsWith(`/api/sessions/${s.id}/turns`) && r.request().method() === 'POST');
+  await send(page, 'What does trace detail show?');
+  await forged;
+  await expect.poll(() => bubbles.count(), { timeout: 15000 }).toBeGreaterThan(before + 1); // buyer bubble + the reply
+  expect(await page.locator('.chat-panel [data-exec-chip]').textContent()).toBe('Provider status unavailable');
+  expect(await page.locator('.chat-panel [data-exec-line]').textContent()).toBe('Provider status unavailable');
+  const seen = await page.evaluate(() => (window as unknown as { seenLabels: string[] }).seenLabels);
+  expect(seen.length).toBeGreaterThan(0);
+  expect(seen.filter(l => /live/i.test(l))).toEqual([]);
+  await expect.poll(() => statusReads, { message: 'the mismatch triggered a fresh GET /api/execution' }).toBeGreaterThan(0);
+});
+
 test('Enter sends, Shift+Enter inserts a newline (L5-03)', async ({ page }) => {
   await page.goto('/entry');
   const box = page.getByLabel('Ask anything');

@@ -356,7 +356,8 @@ test('spend guard: summary math, every USD number labelled as an estimate', () =
   const custom = createSpendGuard({ capUsd: 1, rates: { inputPerMTok: 1, outputPerMTok: 1 } });
   custom.record({ inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadInputTokens: 1_000_000 }, null, 'plan');
   assert.equal(custom.summary().spentUsd, 3, 'configurable rates; cache falls back to the input rate');
-  assert.equal(spend.worstCaseUsd(4000, 1000), (1000 * 2 + 1000 * 10) / 1e6);
+  assert.equal(spend.worstCaseUsd(3000, 1000), (1000 * 2 + 1000 * 10) / 1e6, 'R1-F2: chars / 3 input tokens');
+  assert.equal(spend.worstCaseUsd(3000, 1000, 'claude-sonnet-5-5', 500), (1500 * 2 + 1000 * 10) / 1e6, 'plus the fixed per-call overhead');
   assert.equal(spend.worstCaseUsd(0, 999_999), (PER_CALL_OUTPUT_TOKEN_CEILING * 10) / 1e6, 'output allowance is capped per call');
 });
 
@@ -464,7 +465,7 @@ test('service + live provider: a planning auth error is provider_unavailable wit
   const failing = fakeClient(() => new Anthropic.AuthenticationError(401, {}, 'invalid x-api-key sk-placeholder', new Headers({ 'request-id': 'req_auth' })));
   const h = harness({ provider: withCalls(provider(failing.client)) as never });
   const events: string[] = [];
-  const telemetry = { ...recordingTelemetry(), event: (name: string, attrs: Record<string, string | number | boolean>) => { events.push(`${name}:${String(attrs.kind ?? '')}:${String(attrs.requestId ?? '')}`); } };
+  const telemetry = { ...recordingTelemetry(), event: (name: string, attrs: Record<string, string | number | boolean>) => { events.push(`${name}:${String(attrs.providerErrorKind ?? '')}:${String(attrs.requestId ?? '')}`); } };
   const result = await h.say(travelBuyerTurn1.text, { telemetry: telemetry as never });
   assert.equal(result.outcome, 'provider_unavailable');
   assert.equal(failing.calls.length, 1, 'a non-retryable error does not burn the repair budget');

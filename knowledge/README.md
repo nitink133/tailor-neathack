@@ -14,6 +14,6 @@
 
 ## Loading and retrieval
 
-`loadKnowledge()` synchronously parses and validates the repository files. Its returned `KnowledgeIndex.select()` performs deterministic token scoring and returns no more than `LIMITS.maxKnowledgeRecordsPerTurn` records (six in this contract), even if a caller asks for more. An empty query returns the executable core first.
+`loadKnowledge()` (`src/clients/neatlogs/knowledge.ts`; the data stays in this directory) synchronously parses and validates the repository files. Its returned `KnowledgeIndex.select()` performs deterministic token scoring and returns no more than `LIMITS.maxKnowledgeRecordsPerTurn` records (six in this contract), even if a caller asks for more. An empty query returns the executable core first.
 
 This is a small, auditable keyword index. It is **not a vector store**, makes no network requests, and has no cache outside the returned index object.

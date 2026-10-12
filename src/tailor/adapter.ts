@@ -153,8 +153,16 @@ export interface ProductAdapter<T extends AdapterTypes = AdapterTypes> {
   readonly tools: Readonly<Record<string, ToolDefinition<T>>>;
   readonly grounding: Grounding<T>;
   /** Knowledge answers are composed by code from the cited records; provider prose adds at most a filtered lead. */
-  composeAnswer(cited: T['record'][], buyerText: string, providerText: string): string;
+  composeAnswer(cited: T['record'][], buyerText: string, providerText: string, knowledgeVersion?: string): string;
   recordTitle(record: T['record']): string;
+  /**
+   * Saved, code-owned domain text (story labels, names, tags) that model prose without read-back evidence may cite:
+   * clarification questions/labels, refusals and unsupported replies. Numbers and plan-like words in that prose are
+   * kept only when they appear here or in the buyer's own words. Absent: only the buyer's words ground them.
+   */
+  groundingText?(session: T['session']): string;
+  /** Final buyer-facing wording pass over every reply text (e.g. internal terms → buyer terms). */
+  buyerWording?(text: string): string;
   /** Stable id of a knowledge record, for telemetry (retrieved source ids). Absent: only the record count is reported. */
   recordId?(record: T['record']): string;
   /** Version of the prompt text (system prompt, framing notes) this adapter sends; reported with every turn. */

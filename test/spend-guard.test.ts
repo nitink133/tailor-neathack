@@ -162,7 +162,7 @@ test('L4-03: rates are keyed by model id; unknown models fail closed; Sonnet 5.5
   assert.throws(() => createAnthropicProvider({ apiKey: KEY, spend, client, model: 'claude-imaginary-9' }), /rates/);
   // Explicit rates make any model priceable (operator override).
   const custom = createSpendGuard({ capUsd: 10, rates: { inputPerMTok: 1, outputPerMTok: 1 } });
-  assert.equal(custom.worstCaseUsd(4, 1, 'claude-imaginary-9'), 2 / 1e6);
+  assert.equal(custom.worstCaseUsd(3, 1, 'claude-imaginary-9'), 2 / 1e6);
   // Cache reads at the read rate; cache writes at the (conservative) 1-hour write rate because the split is not reported.
   const priced = createSpendGuard({ capUsd: 10 });
   priced.record({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 1_000_000, cacheCreationInputTokens: 1_000_000 }, 'claude-sonnet-5-5', 'plan');

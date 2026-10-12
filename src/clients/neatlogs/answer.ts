@@ -4,7 +4,7 @@
 
 import type { CapabilityRecord } from './agent-contract.ts';
 import { clip, cleanNarrative } from '../../tailor/text.ts';
-import { PLAN_WORDS, allWordsGroundedIn, hasBlanketPlanClaim, hasLimitNumber, hasPricingClaim, splitSentences } from './claims.ts';
+import { PLAN_WORDS, allWordsGroundedIn, hasBlanketPlanClaim, hasLimitNumber, hasPricingClaim, hasUngroundableNumber, shadowOf, splitSentences } from './claims.ts';
 
 const MAX_LEAD_CHARS = 200;
 const PRICING_QUESTION = /\b(?:pric(?:e|es|ed|ing)|costs?|how much|plans?|tiers?|subscriptions?|billing|billed|licen[cs]es?|paid|free|per (?:seat|month|user|year))\b/i;
@@ -25,8 +25,9 @@ function supportedBy(word: string, vocabulary: string[]): boolean {
 }
 
 /** A provider sentence is safe only if it makes no price, plan or capability claim the cited records don't back. */
-export function sentencePassesAnswerFilter(sentence: string, cited: CapabilityRecord[]): boolean {
-  if (/https?:\/\//i.test(sentence)) return false;
+export function sentencePassesAnswerFilter(raw: string, cited: CapabilityRecord[]): boolean {
+  const sentence = shadowOf(raw);
+  if (/https?:\/\//i.test(sentence) || hasUngroundableNumber(sentence)) return false;
   if (hasPricingClaim(sentence) || hasBlanketPlanClaim(sentence) || hasLimitNumber(sentence)) return false;
   const plans = new Set(cited.flatMap(r => (r.planAvailability.status === 'known' ? r.planAvailability.plans : [])).map(p => p.toLowerCase()));
   const planHits = [...sentence.matchAll(PLAN_WORDS)].map(m => m[1]!.toLowerCase());
@@ -54,18 +55,33 @@ export function filteredLead(providerText: string, cited: CapabilityRecord[], bo
   return endSentence(first);
 }
 
-function sourceLine(cited: CapabilityRecord[]): string {
-  const parts = cited.map(r => r.sources.length
-    ? `${r.title} — ${r.sources.slice(0, 2).map(s => `${s.url} (verified ${s.verifiedOn})`).join(', ')}`
-    : r.title);
-  return `Sources: ${parts.join('; ')}.`;
+/**
+ * Buyer-facing wording for stored/API reply text. Knowledge records use internal terms (repo source ids, "clone",
+ * "slice", "explain-only"); none of them reaches a reply. The browser applies the same mapping as defence in depth.
+ */
+export function buyerWording(text: string): string {
+  const matchCase = (word: string, replacement: string) => (word[0] === word[0]!.toUpperCase() ? replacement[0]!.toUpperCase() + replacement.slice(1) : replacement);
+  return text
+    .replace(/repo:[\w./-]+/g, 'product knowledge')
+    .replace(/\bexplain-only\b/gi, w => matchCase(w, 'view-only'))
+    .replace(/\b(the|this|a) (?:clone|slice)\b/gi, (_w, article: string) => `${article} demo`)
+    .replace(/\b(?:clone|slice)\b/gi, w => matchCase(w, 'demo'));
+}
+
+/** Human source titles with their verified dates, then the knowledge version the answer was composed from. */
+function sourceLine(cited: CapabilityRecord[], knowledgeVersion?: string): string {
+  const parts = cited.map(r => {
+    const dates = [...new Set(r.sources.slice(0, 2).map(s => s.verifiedOn))];
+    return dates.length ? `${r.title} (verified ${dates.join(', ')})` : r.title;
+  });
+  return `Sources: ${parts.join('; ')}${knowledgeVersion ? `; knowledge version ${knowledgeVersion}` : ''}.`;
 }
 
 function demonstrationLine(r: CapabilityRecord): string {
   switch (r.demonstration.level) {
     case 'demonstrable': return `In this demo ${r.title} is shown for real on synthetic data (${clip(r.demonstration.evidence, 160)}).`;
     case 'modifiable': return `In this demo you can change ${r.title} through the conversation (${clip(r.demonstration.evidence, 160)}).`;
-    case 'explain_only': return `In this demo ${r.title} is explain-only: I can describe it but not run it.`;
+    case 'explain_only': return `In this demo ${r.title} is view-only: I can describe it but not run it.`;
     case 'unsupported': return `In this demo ${r.title} is not available.`;
   }
 }
@@ -80,7 +96,7 @@ function planLine(r: CapabilityRecord): string {
  * Deterministic reply built only from the cited records: title, behaviour, key limitations, prerequisites,
  * demonstration level, sources (URL + verified date) and plan availability (unknown stated plainly, and last).
  */
-export function composeAnswer(cited: CapabilityRecord[], question: string, providerText: string): string {
+export function composeAnswer(cited: CapabilityRecord[], question: string, providerText: string, knowledgeVersion?: string): string {
   const blocks: string[] = [];
   for (const r of cited) {
     const lines = [`${r.title}: ${endSentence(clip(r.behaviour, 420))}`];
@@ -94,9 +110,9 @@ export function composeAnswer(cited: CapabilityRecord[], question: string, provi
   const pricing = PRICING_QUESTION.test(question) || cited.some(r => /pric/i.test(`${r.id} ${r.title} ${r.topics.join(' ')}`));
   const out: string[] = [];
   if (lead) out.push(lead);
-  out.push(...blocks, sourceLine(cited));
+  out.push(...blocks, sourceLine(cited, knowledgeVersion));
   if (pricing) out.push('I don’t have verified prices, so I won’t quote any.');
   // Plan lines come last so a pricing answer always ends with the record's own unknown statement.
   out.push(...cited.map(planLine));
-  return out.join('\n');
+  return buyerWording(out.join('\n'));
 }

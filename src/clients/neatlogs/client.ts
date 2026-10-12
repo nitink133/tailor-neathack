@@ -123,6 +123,8 @@ function loadExecution(): Promise<void> {
   })();
   return executionLoad;
 }
+const sameExecution = (a: ExecutionLabel | undefined, b: ExecutionLabel | undefined) =>
+  !!a && !!b && a.mode === b.mode && a.provider === b.provider && (a.model ?? null) === (b.model ?? null) && (a.effort ?? null) === (b.effort ?? null);
 const execChip = () => execution?.mode === 'mock' ? 'Mock-backed' : execution?.mode === 'live' ? `Live model${execution.model ? ` · ${execution.model}` : ''}` : 'Provider status unavailable';
 const execLine = () => execution?.mode === 'mock' ? 'Mock-backed prototype — no live model yet' : execution?.mode === 'live' ? `Live model${execution.model ? ` · ${execution.model}` : ''}` : 'Provider status unavailable';
 const execClass = () => execution?.mode === 'mock' ? 'chat-mock' : execution?.mode === 'live' ? 'chat-live' : 'chat-unknown';
@@ -445,7 +447,9 @@ async function runTurn(req: TurnRequest) {
     return;
   }
   if (ended) return;
-  execution = response.execution; paintExecution();
+  // The mode label comes only from /api/execution. A turn envelope that disagrees never relabels the UI: show
+  // "Provider status unavailable" and ask /api/execution again.
+  if (!sameExecution(execution, response.execution)) { execution = undefined; paintExecution(); void loadExecution(); }
   lastResult = { steps: response.steps, outcome: response.outcome };
   try { sessionStorage.setItem(stepsKey(s.id), JSON.stringify({ clientTurnId: req.clientTurnId, steps: response.steps, outcome: response.outcome })); } catch { /* quota: the strip is optional */ }
   await applyResponse(response);

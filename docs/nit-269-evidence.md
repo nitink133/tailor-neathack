@@ -8,6 +8,8 @@
 **Environment**: Node `v26.7.0`, Darwin 25.5.0 arm64, npm `11.19.0`  
 **Evaluation Set**: `docs/nit-269-eval-set.json`  
 
+> **Status of this document (updated 2026-10-12, HEAD `f326d2d`).** Everything below dated 2026-10-11 describes the QA pass at `0846722` and is kept as a historical record: "115 tests", "6 browser tests", "eval 21/21", "43 calls / $1.02" and `smoke:live` 8/8 are dated snapshots, not current results. **Current verified state at `f326d2d`:** `npm run typecheck` pass; `npm test` **253/253**; `npm run build` pass; `npm run test:ui` (Playwright) **15/15**; `npm run doctor:local` pass. Live verification and hosted telemetry evidence are summarised in §9 and §10. Paths in historical text follow the post-refactor layout (`src/clients/neatlogs/`, `src/infrastructure/`, `src/tailor/`); see `nit-269-handoff.md` "Code layout".
+
 ---
 
 ## 1. Evaluation & Scoring Rubric
@@ -16,7 +18,7 @@
 
 | Dimension | Description | Measurement Method | Target Standard | Wave 2 Outcome |
 | --- | --- | --- | --- | --- |
-| **Capability Accuracy** | System produces the contractually defined outcome (`TurnOutcome`), preserves story context, and updates scenario/version appropriately. | Verifying `TurnResponse.outcome`, `story.domain`, `version`, `conversationVersion`, and active scenario. | 100% on safety/refusals; ≥90% on personalisation and clarifications. | **100% on safety/refusals** (6/6); **100.0% overall** across all 21 items (21/21 passed). |
+| **Capability Accuracy** | System produces the contractually defined outcome (`TurnOutcome`), preserves story context, and updates scenario/version appropriately. | Verifying `TurnResponse.outcome`, `story.domain`, `version`, `conversationVersion`, and active scenario. | 100% on safety/refusals; ≥90% on personalisation and clarifications. | **100% on safety/refusals** (6/6); **100.0% overall** across the 21 items per the 2026-10-11 manual QA claim (21/21; **not reproduced**, see §6). |
 | **Evidence Grounding** | Every trace ID, span ID, and timing claimed in Tailor responses or evidence payloads strictly exists and matches independent queries. | Asserting `evidence.traceIds` and `evidence.spanIds` match independent `GET /api/sessions/:id/traces` and `GET /api/sessions/:id/traces/:tid/spans/:sid`. | 100% agreement. Zero fabricated or orphaned IDs. | **100% agreement** across matrix (a), (b), (c), and browser specs. Zero orphaned spans. |
 | **Correction Effort** | Number of validator repair loops required before producing a schema-valid proposal (`maxRepairsPerTurn` = 2). | Count of `TurnStep` with `name: 'repair'` in `TurnResponse.steps`. | ≤ 2 repairs per turn. Zero unbounded loops. | **0–1 repairs** on mock proposals. Validator repaired synthetic error/timing anomalies within 1 cycle. |
 | **Buyer Understanding** | Clarity, tone, and subjective buyer comprehension. | **NOT MEASURED** (deliberately excluded from automated benchmark scoring in this proof). | Qualitative observation only. | N/A (Excluded). |
@@ -27,7 +29,7 @@
 
 ## 2. Baseline Comparison: Fixed-Fixture Adapter vs. Personalised Agent
 
-Comparison of the NIT-265 prototype keyword adapter (`src/adapter.ts`, documented in `docs/NIT-265-handoff.md`) versus the NIT-269 personalised agent on the same held-out requests:
+Comparison of the NIT-265 prototype keyword adapter (`src/adapter.ts`, since removed; documented in `docs/NIT-265-handoff.md`) versus the NIT-269 personalised agent on the same held-out requests:
 
 | Test / Request | Old NIT-265 Keyword Adapter Behaviour | NIT-265 Baseline Score | NIT-269 Personalised Agent Target Behaviour | NIT-269 Wave 2 Score |
 | --- | --- | :---: | --- | :---: |
@@ -44,14 +46,16 @@ Comparison of the NIT-265 prototype keyword adapter (`src/adapter.ts`, documente
 
 ## 3. Four Gate Results (Automated Quality Standards)
 
-All four quality gates were executed directly against branch commit `0846722`:
+**Current (2026-10-12, post-review fixes commit following `f326d2d`):** typecheck pass; `npm test` **280/280**; build pass (`dist/clients/neatlogs/client.js`); `npm run test:ui` **16/16**; `npm run doctor:local` pass. (At `f326d2d`: 253/253 and 15/15.)
+
+**Historical (2026-10-11, `0846722`):** the four gates were executed against that commit:
 
 | Gate Command | Target Area | Result | Details |
 | --- | --- | :---: | --- |
 | `npm run typecheck` | TypeScript compilation (`tsc --noEmit`) | **PASS** | 0 errors across entire workspace. |
-| `npm test` | Node built-in test runner (`node --test`) | **PASS** | **115 tests passed**, 0 failed, 0 skipped (~1007 ms). |
-| `npm run build` | Frontend compilation (`tsc -p tsconfig.browser.json`) | **PASS** | `dist/client.js` generated cleanly with no diagnostics. |
-| `npm run test:ui` | Playwright browser automation (`playwright test`) | **PASS** | **6 tests passed** (including `ui/agent.spec.ts`), 0 failed. Executed twice consecutively: Run 1 passed 6/6 (7.0s); Run 2 passed 6/6 (6.7s). |
+| `npm test` | Node built-in test runner (`node --test`) | **PASS** | **115 tests passed** at `0846722` (historical; now 280), 0 failed, 0 skipped (~1007 ms). |
+| `npm run build` | Frontend compilation (`tsc -p tsconfig.browser.json`) | **PASS** | Browser bundle generated cleanly with no diagnostics at `0846722` (historical; it is now `dist/clients/neatlogs/client.js`). |
+| `npm run test:ui` | Playwright browser automation (`playwright test`) | **PASS** | **6 tests passed** at `0846722` (historical; now 15), 0 failed. Executed twice consecutively: Run 1 passed 6/6 (7.0s); Run 2 passed 6/6 (6.7s). |
 
 ---
 
@@ -77,7 +81,7 @@ The orchestrator integrated Wave 2 changes into QA-owned files (`test/qa-journey
 ### Change 4: Matrix (k) SDK Root Span Name `tailor.turn`
 - **Description**: Asserted root span name `tailor.turn` (kind `WORKFLOW`) with attribute `tailor.step: 'turn'`, while preserving all raw text and cookie privacy assertions.
 - **Verdict**: **CONFIRM**.
-- **Evidence**: `src/telemetry.ts` follows OpenTelemetry hierarchical naming (`tailor.<step>`). The root span carries `tailor.step = 'turn'` and span kind `WORKFLOW`. The core privacy assertions—confirming neither buyer text nor session cookies ever appear in telemetry span attributes—remain fully enforced and pass cleanly.
+- **Evidence**: `src/infrastructure/telemetry.ts` follows OpenTelemetry hierarchical naming (`tailor.<step>`). The root span carries `tailor.step = 'turn'` and span kind `WORKFLOW`. The core privacy assertions—confirming neither buyer text nor session cookies ever appear in telemetry span attributes—remain fully enforced and pass cleanly.
 
 ### Change 5: `ui/agent.spec.ts` Single Robust Locators
 - **Description**: Replaced `.or(...)` compound selectors with specific selectors: attribution `.chat-label` with `/Powered by Tailor/i`, mock badge `.chat-mock` (`mock-backed`), clarification choice buttons `.chat-choices button[data-choice]`, and ended/unavailable screen heading `/Demo unavailable|This demo has ended/`.
@@ -109,11 +113,13 @@ All 12 matrix integration test suites passed:
 
 ## 6. Eval Set Results (`docs/nit-269-eval-set.json`)
 
-The 21-item evaluation suite was executed in-process against the mock-backed agent.
+> **Historical / manual claim, not reproduced.** The table below is the 2026-10-11 QA pass at `0846722`, recorded by hand. There is **no runnable evaluator in the repository**: `test/qa-contract.test.ts` only checks the eval file's shape and other tests (`agent.test.ts`, `qa-journey.test.ts`) cover some of the same behaviours. The 21/21 figure and the per-item latencies therefore cannot be reproduced as stated; reproducing them would require writing an eval runner that replays each item against the agent. The peer review of 2026-10-12 confirmed this gap.
+
+The 21-item evaluation suite was reported as executed in-process against the mock-backed agent.
 
 - **Total Evals**: 21
-- **Passed**: **21 / 21** (100.0%)
-- **Failed**: **0**
+- **Passed (as claimed)**: **21 / 21** (100.0%)
+- **Failed (as claimed)**: **0**
 
 | Eval ID | Category | Expected Outcome | Actual Outcome | Status | Latency | Result Notes & Root Cause |
 | --- | --- | :---: | :---: | :---: | :---: | --- |
@@ -143,7 +149,7 @@ The 21-item evaluation suite was executed in-process against the mock-backed age
 
 ## 7. Open Defects
 
-**0 open defects.** All previously identified defects from initial mock eval set execution (eval-06 Q&A keyword classification and eval-09 unsupported capability regex) were fixed in commit `0846722` (the review findings were fixed earlier in `309fb22`) and verified passing at `0846722`.
+**Historical (2026-10-11): 0 open defects were recorded at `0846722`; this is superseded.** The 2026-10-12 peer review found further issues (live-provider truncation accounting, concurrent spend overrun, timeouts, durable turns, telemetry visibility, UI label) and they were fixed in `6bfcdf8`/`f326d2d` with reproducing tests; the remaining open items are listed in `nit-269-handoff.md`. All previously identified defects from initial mock eval set execution (eval-06 Q&A keyword classification and eval-09 unsupported capability regex) were fixed in commit `0846722` (the review findings were fixed earlier in `309fb22`) and verified passing at `0846722`.
 
 ### 7.1 Security & Grounding Review
 - **Security Review (`34eeb76`)**: Passed requirements 1–3 and 7–9. Identified 3 defects:
@@ -225,28 +231,36 @@ Server: `PORT=4323 TAILOR_LIVE_CAP_USD=5 TAILOR_DEV_KEY=… npm run dev:live` (4
 
 Browser check on the live server: entry page shows "Powered by Tailor · synthetic data" (no mock label); the turn is Applied; footer "Evidence · v2 · open trace · 4 steps cited"; step strip ends "Read back ✓".
 
-**Provider-reported usage, cumulative ledger across all live server runs (5 smoke runs incl. the 3 failing ones, 2 manual turns, 1 browser turn):** 43 calls (28 plan, 15 explain); input 267,696; output 48,297 of which thinking 8,985 (adaptive thinking engaged on planning calls only); cache read 0 / cache creation 0 (no prompt caching configured). **Estimated $1.02 of the $5 cap** at list rates ($0.92 plan, $0.10 explain). Four direct SDK probes outside the guard (schema diagnosis) added roughly 9k input / 0.4k output tokens ≈ $0.02. Per normal successful committed turn: ~8–9k input + ~1.5k output ≈ $0.03; a clarification/unsupported turn ≈ $0.02. These are local estimates from reported usage × list rates; final Anthropic billing is authoritative.
+**Provider-reported usage, authoritative historical ledger (`.local/spend-ledger.json`, v1 format; across all live server runs through the end of the 2026-10-12 session):** **45 live calls (29 plan, 16 explain)**; input 277,663; output 50,732 of which thinking 9,525 (adaptive thinking engaged on planning calls only); cache read 0 / cache write 0 (no prompt caching configured). **Estimated spend $1.062646 of the $5 cap** at list rates (plan $0.957, explain ≈ $0.106). *The "43 calls / 28 plan / 15 explain / 267,696 input / 48,297 output / 8,985 thinking / $1.02" figures that earlier versions of this document gave (5 smoke runs incl. the 3 failing ones, 2 manual turns, 1 browser turn) are an older snapshot, taken before the last two calls.* Four direct SDK probes outside the guard (schema diagnosis) added roughly 9k input / 0.4k output tokens ≈ $0.02. Per normal successful committed turn: ~8–9k input + ~1.5k output ≈ $0.03; a clarification/unsupported turn ≈ $0.02. These are local estimates from reported usage × list rates; **final Anthropic billing is authoritative**, and the ledger is only an estimate.
 
-Not observed in these runs (handled by code and offline tests only): `stop_reason: refusal`, `max_tokens` truncation, 401/403/402, 429, 529, timeouts, spend-cap trip. `_request_id` was `undefined` on `messages.parse` results, so `requestId` is absent from live responses; the 400 bodies did carry `request_id`.
+Not observed in these runs (handled by code and offline tests only): `stop_reason: refusal`, `max_tokens` truncation, 401/403/402, 429, 529, timeouts, spend-cap trip. `_request_id` was `undefined` on `messages.parse` results, so `requestId` was absent from live responses; the 400 bodies did carry `request_id`. (The provider now uses `messages.create` and reads `_request_id` from the result; not re-run live.)
+
+**Scope of §9.3.** It describes the live path **before** the 2026-10-12 peer-review fixes: provider on `messages.parse` (a truncated or refused response threw before `stop_reason` and left usage unrecorded), check-then-record spend guard, 4000 `max_tokens` at every effort, 60 s SDK timeout with service-side retries, single-record turn idempotency. Those are fixed and offline-tested (§9.5); the fixed path has not been run live.
 
 ### 9.4 Exact Reporting Fields for Live Execution
 When live calls are authorized and executed, the system reports the following exact fields:
-- **Execution Label (`execution`)**:
+- **Execution Label (`execution`)**, also served by `GET /api/execution`:
   - `mode`: `'live'`
   - `provider`: `'anthropic'`
   - `model`: `'claude-sonnet-5-5'`
-  - `effort`: `'medium'` (adaptive thinking default)
+  - `effort`: `'medium'` (adaptive thinking default; `low`/`medium`/`high` accepted, `xhigh`/`max` refused at startup)
 - **Provider-Reported Token Usage (`ProviderUsage`)**:
   - `inputTokens`: Uncached input token count.
   - `outputTokens`: Total output token count (includes reasoning tokens).
   - `thinkingTokens`: Reasoning tokens reported in `output_tokens_details.thinking_tokens`.
   - `cacheReadInputTokens`: Tokens read from Anthropic prompt cache (`cache_read_input_tokens`).
-  - `cacheCreationInputTokens`: Tokens written to Anthropic prompt cache (`cache_creation_input_tokens`).
-- **Spend Guard Summary (`GET /api/dev/spend`)**:
-  - `available`: `true`
-  - `calls`: Number of provider invocations.
-  - `inputTokens`, `outputTokens`, `thinkingTokens`, `cacheReadInputTokens`, `cacheCreationInputTokens`.
-  - `estimatedCostUsd`: Estimated expenditure in USD, explicitly labeled as *estimated* (with disclaimer that Anthropic billing is authoritative and may differ).
+  - `cacheCreationInputTokens`: Tokens written to Anthropic prompt cache (`cache_creation_input_tokens`; the cache-write count).
+- **Spend Guard Summary (`GET /api/dev/spend`, header `x-tailor-dev-key`)**, ledger v2 (`TAILOR_SPEND_LEDGER`):
+  - `available`: `true` (or `{available:false}` without a live provider).
+  - `calls`, `inputTokens`, `outputTokens`, `thinkingTokens`, `cacheReadTokens`, `cacheWriteTokens` (**not** `cacheReadInputTokens`/`cacheCreationInputTokens`, which are the per-call `ProviderUsage` names).
+  - `spentUsd`: estimated expenditure in USD (**not** `estimatedCostUsd`), an estimate from reported usage × per-model rates; Anthropic billing is authoritative and may differ.
+  - `capUsd`, `remainingUsd` (cap − spent − reserved, floored at 0).
+  - Reservation fields: `reservedUsd` (in-flight reservations), `pendingCalls`, `unreconciledCalls` (settled at worst case with no reported usage, e.g. timeouts), `unreconciledUsd` (unreconciled worst case plus pending), `degraded` (the ledger could not be written; the guard now refuses calls).
+  - Rates (Sonnet 5.5, per MTok): $2 input, $10 output, $0.10 cache read, $2.50 cache write (5-min), $4 cache write (1-hour).
+  - A medium-effort planning call reserves up to $0.12435 (input estimated at conversation chars/3 plus a fixed per-call overhead), so a cap below ~$0.125 refuses every medium planning call. Effort ceilings: low 4000 / medium 8000 / high 12000 output tokens.
+
+### 9.5 Post-review fixes (2026-10-12, `6bfcdf8`..`f326d2d`), offline-verified only
+Verified by tests, not by live calls: `messages.create` with usage recorded before parse (real SDK + scripted `fetch`, `test/provider-sdk-wire.test.ts`); spend reservations, unreconciled settlement, crash/restart and v1→v2 ledger upgrade (`test/spend-guard.test.ts`); provider-owned 60 s timeout, `maxRetries: 0`, 90 s turn deadline, no in-turn timeout retry; durable `turn_runs` with 409 `IDEMPOTENCY_MISMATCH` and crash-safe retry (`test/api.test.ts`, `test/store.test.ts`, a real SIGKILL probe); `GET /api/execution`, `openTraceId`/`TRACE_NOT_FOUND` and Enter-to-send (Playwright); claim filters on refuse/unsupported replies and explanations; telemetry delivery state and `GET /api/dev/telemetry` (`test/telemetry*.test.ts`, `test/instrumentation.test.ts`); layering (`test/architecture.test.ts`, `test/core-crm-adapter.test.ts`). Prompt caching remains deferred and **not enabled**.
 
 ---
 
@@ -254,27 +268,31 @@ When live calls are authorized and executed, the system reports the following ex
 
 The following procedures were deliberately **NOT RUN** in local testing, in accordance with workspace boundaries:
 
-1. **Live Model Provider API Calls**: now verified for Anthropic `claude-sonnet-5-5` (section 9.3) under an approved $5 cap. Automated suites (`npm test`, `npm run test:ui`) still run only `TAILOR_PROVIDER=mock`; live verification is manual via `npm run smoke:live`.
-2. **External Neatlogs Telemetry Ingestion**:
-   - `TAILOR_TELEMETRY=neatlogs` was not used for any live-model run; the live server ran with the local captured exporter (`telemetry=captured`), so no Tailor turn span, usage attribute or buyer/model content left the machine for Neatlogs.
-   - Hosted ingestion of Tailor runtime spans is therefore **not verified**; it remains a separate approval (destination project/region and payload review first, then one turn looked up by correlation ID in that project). Live-model verification above must not be read as hosted-logging verification.
+1. **Live Model Provider API Calls**: verified once for Anthropic `claude-sonnet-5-5` on 2026-10-12 under an approved $5 cap (section 9.3), before the peer-review fixes. Automated suites (`npm test`, `npm run test:ui`) run only `TAILOR_PROVIDER=mock`; live verification is manual via `npm run smoke:live`. **No live call is currently authorised:** a fresh explicit total cap is required (historical caps are not authorisation); the guard covers plan, repair, escalate and explain.
+2. **External Neatlogs Telemetry Ingestion** (separate approval for live runs):
+   - Before 2026-10-12 the Tailor project (`18c4b4b6-0b1e-4d41-9405-7960fc2d0aa8`) held two traces (a synthetic smoke trace and a Doctor probe, both 2026-10-10) and no `tailor.turn`; every earlier run, including the live-model session, used `captured` mode, so no Tailor turn span, usage attribute or buyer/model content left the machine.
+   - **2026-10-12 hosted verification (`scripts/verify-hosted.ts`):** one Doctor probe trace and four `tailor.turn` traces were added (`f3d1bf87fdea29764ed52d69b90c91b0`, `619b9577233632522df8453976e55a57`, `5072378db5a4f502a413dc7ced161213`, `49b632ab8b2644fb78cae5ac00e5ac16`; 4 / 8 / 6 / 4 spans), each read back by id in the Tailor project. They came from the **MOCK provider with a SYNTHETIC fixture and are NOT live Claude evidence.** The learning sandbox (`a35a7334-258e-441c-b2e1-b8198a263f21`) received nothing; the project identity was confirmed by reading the Doctor probe trace back before sending.
+   - **Still not verified:** hosted ingestion of live-model turns, and the dashboard view (not visually checked). The flush counted 26 exported spans versus 22 stored (4 + 8 + 6 + 4); review R1 decoded the OTLP payload and identified the four extra as the SDK's per-trace `neatlogs.trace.complete` marker spans, which Neatlogs consumes as a completion signal rather than storing (no data loss; now reported separately as `markerSpans`). A SIGKILL loses the current batch. Live-model verification must not be read as hosted-logging verification, or the reverse.
+3. **Eval runner**: none exists; "eval 21/21" is a historical manual claim (section 6).
 
 ---
 
 ## 11. Entire Provenance & Evidence
 
 - **Baseline Commit**: `f34adb3d0c1ac63335709a72b3267062b58d4dd9`
-- **Integrated Commit**: `0846722`
-- **Session Continuity Check**: Verified clean checkout on branch `work/nit-269-build-personalised-tailor-agent-proof`.
-- **Git State**: Clean working tree. Zero non-QA files modified.
+- **Integrated Commit (historical QA pass)**: `0846722`
+- **Session Continuity Check (historical)**: Verified clean checkout on branch `work/nit-269-build-personalised-tailor-agent-proof`.
+- **Git State (historical)**: Clean working tree at that time. Zero non-QA files modified.
+- **Checkpoint coverage**: partial and unverified for most commits; see `docs/entire-capture-check.md` (2026-10-12 section) for the exact per-commit state. This document does not claim checkpoint continuity.
 
 ---
 
 ## 12. QA Final Recommendation
 
-- [x] **Accept (Production Ready / Fully Verified)**:
-  - The deterministic architecture, database CAS transactions, seam contracts, UI integration, and telemetry privacy guarantees are **100% verified and passing** (115/115 unit/contract tests, 6/6 browser tests on consecutive runs).
-  - The baseline comparison confirms a massive capability jump from the NIT-265 prototype (14.3%) to the personalised agent (100% target baseline achieved: 21/21 evals passing).
-  - Zero open defects remain; all prior mock classifier defects and security/grounding review findings are fixed and covered by regression tests.
-  - Live provider contract test suite (`test/qa-live-contract.test.ts`, 6/6 passing) and live smoke verification runner (`scripts/live-smoke.ts`) are fully implemented and ready for live key verification under spend caps.
+> **Superseded.** The "Production Ready / Fully Verified" wording below was the 2026-10-11 recommendation at `0846722` and overclaimed. It is retained as a dated record. Current position (2026-10-12, `f326d2d`): the deterministic architecture is verified by 253/253 tests and 15/15 browser tests; the demo is **mock-backed**, hosted telemetry is verified only with the mock provider, and the live provider has been run once, before the review fixes. The capped live test needs a fresh explicit cap. See `docs/nit-269-handoff.md`.
 
+- [x] **Accept (recorded 2026-10-11, historical; at `0846722`)**:
+  - The deterministic architecture, database CAS transactions, seam contracts, UI integration, and telemetry privacy guarantees were reported verified and passing (115/115 unit/contract tests at that commit, 6/6 browser tests on consecutive runs).
+  - The baseline comparison reported a large capability jump from the NIT-265 prototype (14.3%) to the personalised agent (21/21 evals, a manual claim that is not reproducible; see section 6).
+  - Zero open defects were recorded then; the 2026-10-12 peer review superseded that (section 7).
+  - Live provider contract test suite (`test/qa-live-contract.test.ts`, 6/6 passing then) and the live smoke runner (`scripts/live-smoke.ts`) were implemented; the live smoke ran 8/8 on 2026-10-12 (section 9.3, historical).

@@ -14,15 +14,18 @@ const rel = (file: string) => relative(root, file).split('\\').join('/');
 function filesUnder(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(e => (e.isDirectory() ? filesUnder(join(dir, e.name)) : e.name.endsWith('.ts') ? [join(dir, e.name)] : []));
 }
-/** Every import/export specifier, including type-only and dynamic imports. */
-function specifiers(file: string): string[] {
-  const text = readFileSync(file, 'utf8');
+/** Every import/export specifier, including type-only and dynamic imports, with ' " or ` delimiters. */
+export function specifiersOf(text: string): string[] {
+  const q = `(['"\`])([^'"\`]+)\\1`;
   return [
-    ...[...text.matchAll(/^\s*(?:import|export)\b[^;]*?\bfrom\s+'([^']+)'/gm)].map(m => m[1]!),
-    ...[...text.matchAll(/^\s*import\s+'([^']+)'/gm)].map(m => m[1]!),
-    ...[...text.matchAll(/\bimport\(\s*'([^']+)'\s*\)/g)].map(m => m[1]!),
+    ...[...text.matchAll(new RegExp(`^\\s*(?:import|export)\\b[^;]*?\\bfrom\\s+${q}`, 'gm'))].map(m => m[2]!),
+    ...[...text.matchAll(new RegExp(`^\\s*import\\s+${q}`, 'gm'))].map(m => m[2]!),
+    ...[...text.matchAll(new RegExp(`\\bimport\\(\\s*${q}\\s*\\)`, 'g'))].map(m => m[2]!),
   ];
 }
+const specifiers = (file: string) => specifiersOf(readFileSync(file, 'utf8'));
+/** CommonJS escape hatches that bypass the import graph: `createRequire` or a `require(` call. */
+export const hasRequire = (text: string) => /\bcreateRequire\b|(?<![\w.$])require\s*\(/.test(text);
 function localImports(file: string): string[] {
   return specifiers(file).filter(s => s.startsWith('.')).map(s => resolve(dirname(file), s));
 }
@@ -57,6 +60,22 @@ test('src/tailor/** never imports src/clients/** or src/infrastructure/** (trans
   }
 });
 
+test('src/tailor/** never uses createRequire or require( (they bypass the import graph)', () => {
+  for (const file of tailorFiles) assert.equal(hasRequire(readFileSync(file, 'utf8')), false, `${rel(file)} uses require`);
+});
+
+test('the boundary scanner sees every delimiter and require form (R1-F5)', () => {
+  assert.deepEqual(specifiersOf(`import { a } from '../clients/x.ts';`), ['../clients/x.ts']);
+  assert.deepEqual(specifiersOf(`import { a } from "../clients/x.ts";`), ['../clients/x.ts']);
+  assert.deepEqual(specifiersOf('export * from `../infrastructure/y.ts`;'), ['../infrastructure/y.ts']);
+  assert.deepEqual(specifiersOf(`import "../clients/side.ts";`), ['../clients/side.ts']);
+  assert.deepEqual(specifiersOf('const m = await import(`../clients/z.ts`);'), ['../clients/z.ts']);
+  assert.equal(hasRequire(`import { createRequire } from 'node:module';`), true);
+  assert.equal(hasRequire(`const x = require('../clients/x.cjs');`), true);
+  assert.equal(hasRequire(`const req = module.require; // not a call`), false);
+  assert.equal(hasRequire(`// requireValue(x) and obj.require(x) are not CommonJS require`), false);
+});
+
 test('telemetry never imports the demo adapter (transitively)', () => {
   const telemetry = join(src, 'infrastructure', 'telemetry.ts');
   for (const reached of closure(telemetry)) assert.doesNotMatch(rel(reached), /^src\/clients\//, `telemetry reaches ${rel(reached)}`);
@@ -75,6 +94,9 @@ test('the core carries no trace/span/scenario/Neatlogs vocabulary outside the al
   const allowed: { file: string; fragment: string; why: string }[] = [
     { file: 'src/tailor/adapter.ts', fragment: 'its telemetry span', why: 'telemetry spans, not product spans' },
     { file: 'src/tailor/claims.ts', fragment: 'keeps?\\s+(?:your|traces?|data)', why: 'retention-claim filter phrase ("keeps your traces") inherited verbatim' },
+    { file: 'src/tailor/claims.ts', fragment: 'const UNIT = ', why: 'measure nouns for number-word grounding ("nine spans" is a count)' },
+    { file: 'src/tailor/claims.ts', fragment: 'const CONTEXT_BEFORE = ', why: 'position words for number-word grounding ("span three")' },
+    { file: 'src/tailor/claims.ts', fragment: 'const MEASURE_CONTEXT = ', why: 'count nouns that make an unparsed number word ungrounded' },
   ];
   const offenders: string[] = [];
   for (const file of tailorFiles) {

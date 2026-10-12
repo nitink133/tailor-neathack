@@ -113,7 +113,7 @@ The visual authority is the existing public Neatlogs site and authenticated Tail
 
 The public screen uses a silver San Francisco bridge, city and fog photograph beneath centered gray and black statements. The application uses a dense gray-and-white workspace: a narrow icon rail, compact controls, fine dividers, small labels, tabular data and restrained status colors. Trace details preserve the input, steps and output hierarchy, with an optional right graph and bottom timeline.
 
-This document describes the built `/`, `/entry`, `/demo/:id/traces` and `/demo/:id/traces/:trace` routes. Source authority is `public/style.css` and `src/client.ts`; product boundaries and reference evidence are in `PRODUCT.md` and `docs/nit-265-reference.md`. The local finish reviewer accepted the limited scope after the mobile fixture label was resolved. Real desktop pixel parity and real responsive mobile parity remain unverified. Reference desktop crops were normalized across differing frames; no real mobile reference was inspected.
+This document describes the built `/`, `/entry`, `/demo/:id/traces` and `/demo/:id/traces/:trace` routes. Source authority is `public/style.css` and `src/clients/neatlogs/client.ts` (built to `dist/clients/neatlogs/client.js`; before the 2026-10-12 refactor this was `src/client.ts`); product boundaries and reference evidence are in `PRODUCT.md` and `docs/nit-265-reference.md`. The local finish reviewer accepted the limited scope after the mobile fixture label was resolved. Real desktop pixel parity and real responsive mobile parity remain unverified. Reference desktop crops were normalized across differing frames; no real mobile reference was inspected.
 
 ## Colors
 
@@ -167,8 +167,9 @@ Controls and graph roots use 6px corners, JSON blocks 7px, fields and notes 8px,
 - Do retain visible synthetic/local scope, two deterministic fixture identities, processing-versus-outcome semantics and accessible feedback.
 - Do keep span detail inline, graph on the desktop right and timeline on the bottom; preserve the responsive graph placement and horizontal table scrolling.
 - Do describe local review evidence and real-reference parity as separate findings.
+- Do keep chat feedback truthful: Enter sends (Shift+Enter inserts a newline); the composer shows "Asking about: <trace>" while a trace is open and that trace is what the turn explains; a server error reads as unconfirmed ("can’t confirm whether your message was applied") and "Nothing was changed" appears only for 4xx rejections; stock fixtures behind a pending question are tagged "Sample", not "Active".
 - Don't introduce a new Tailor brand, decorative accent palette, card dashboard or visual metaphor into this faithful replica.
-- Don't imply visitor text personalizes traces, or imply live replay, real buyer collection, model execution or real Neatlogs mutation.
+- Don't imply live replay, real buyer collection or real Neatlogs mutation. Since NIT-269 the buyer conversation does personalise the synthetic traces through the server-side agent, so the UI must label the provider honestly: "Mock-backed" (default, deterministic mock), "Live model · <model>" (approval-gated live run) or "Provider status unavailable", always read from the server's `GET /api/execution`, never cached per tab. Never imply a mock turn is a live model, and never show a mock- or live-looking label when the status is unknown.
 - Don't treat the two-trace navigator, fixed graph, substring search or bounded capsule editors as full incumbent feature parity.
 - Don't claim full marketing-page reproduction, animation parity, certified dark-theme parity, desktop pixel parity or verified real mobile parity.
 - Don't treat locally sourced public assets as established redistribution or deployment permission; their current use is this local review replica.

@@ -230,8 +230,11 @@ const accounting = (r: { requestId?: string; stopReason: string; costUsd?: numbe
   ...(r.costUsd !== undefined ? { costUsd: r.costUsd } : {}),
 });
 
+/** What every plan/explain call sends besides the conversation; priced once at creation as the reservation overhead. */
+export const ANTHROPIC_FIXED_PARTS = { plan: { extraSystem: WIRE_FORMAT_NOTES, schema: PLAN_SCHEMA }, explain: { schema: EXPLAIN_SCHEMA } };
+
 export function createAnthropicProvider(options: AnthropicProviderOptions): ModelProvider {
-  const transport = createAnthropicTransport(options);
+  const transport = createAnthropicTransport({ ...options, fixedParts: ANTHROPIC_FIXED_PARTS });
   return {
     name: transport.name,
     model: transport.model,

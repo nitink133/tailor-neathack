@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTelemetry, correlationIdFor, maskSpanData, cleanAttributes } from '../src/infrastructure/telemetry.ts';
+import { createTelemetry, correlationIdFor, maskSpanData, cleanAttributes, telemetryVocabulary } from '../src/infrastructure/telemetry.ts';
 
 const SECRET = 'test-secret-for-correlation';
 const SESSION = '7d1e2f30-4a5b-4c6d-8e9f-0a1b2c3d4e5f';
@@ -9,10 +9,10 @@ const BUYER = 'I am building a travel-booking agent for Acme Travel';
 
 async function runTurn(t: Awaited<ReturnType<typeof createTelemetry>>) {
   const tt = t.forTurn('turn-0001', SESSION);
-  const value = await tt.step('turn', { provider: 'mock', providerMode: 'mock' }, async () => {
+  const value = await tt.step('turn', { provider: 'tailor-mock', providerMode: 'mock' }, async () => {
     await tt.step('load_context', { conversationVersion: 2 }, async () => ({ text: BUYER }));
     await tt.step('retrieve_knowledge', { recordCount: 2, query: BUYER } as any, async () => [{ content: BUYER, id: 'k1' }]);
-    await tt.step('model', { provider: 'mock', model: 'mock-1', prompt: BUYER, cookie: COOKIE } as any, async () => { tt.recordUsage(null, 'mock-1'); return { text: BUYER }; });
+    await tt.step('model', { provider: 'tailor-mock', model: 'claude-sonnet-5-5', prompt: BUYER, cookie: COOKIE } as any, async () => { tt.recordUsage(null, null); return { text: BUYER }; });
     await tt.step('validate', { problemCount: 0 }, async () => ({ ok: true }));
     await tt.step('save', { expectedVersion: 1 }, async () => ({ state: 'committed', version: 2 }));
     tt.event('publish.result', { state: 'committed', version: 2, detail: BUYER } as any);
@@ -61,12 +61,15 @@ test('recordUsage records provider-reported tokens only when given', async () =>
   const t = await createTelemetry({ mode: 'captured', secret: SECRET });
   try {
     const tt = t.forTurn('turn-0002', SESSION);
-    await tt.step('turn', {}, async () => tt.step('model', {}, async () => tt.recordUsage({ inputTokens: 120, outputTokens: 40 }, 'mock-1')));
+    await tt.step('turn', {}, async () => tt.step('model', {}, async () => tt.recordUsage({ inputTokens: 120, outputTokens: 40 }, 'claude-sonnet-5-5')));
     const model = t.captured().find(s => s.name === 'model')!;
     assert.equal(model.attributes['tailor.usage.available'], true);
     assert.equal(model.attributes['tailor.usage.input_tokens'], 120);
     assert.equal(model.attributes['tailor.usage.output_tokens'], 40);
-    assert.equal(model.attributes['tailor.model'], 'mock-1');
+    assert.equal(model.attributes['tailor.model'], 'claude-sonnet-5-5');
+    await tt.step('turn', {}, async () => tt.step('model', {}, async () => tt.recordUsage(null, 'IgnoreRules')));
+    assert.equal(JSON.stringify(t.captured()).includes('IgnoreRules'), false, 'only known model ids are exported');
+    assert.equal(t.diagnostics().droppedAttributes, 1);
   } finally { await t.shutdown(); }
 });
 
@@ -178,14 +181,15 @@ test('key-like and email-like values are dropped and counted even under allowlis
   assert.equal(dropped, 7);
   assert.equal(redacted, 7, 'every credential/email shape is counted as redacted');
   // Ordinary ids are not mistaken for secrets.
-  const ok = cleanAttributes({ turnId: SESSION, requestId: 'req_011CSabc123', correlationId: '0123456789abcdef', toolName: 'publishScenario' });
+  const ok = cleanAttributes({ turnId: 't0123456789abcdef', requestId: 'req_011CSabc123', correlationId: '0123456789abcdef', toolName: 'publishScenario' }, undefined, telemetryVocabulary({ toolNames: ['publishScenario'] }));
   assert.equal(ok.dropped, 0);
+  assert.equal(cleanAttributes({ turnId: SESSION }).dropped, 1, 'a raw (UUID-shaped) turn or session id is never exported');
 
   const t = await createTelemetry({ mode: 'captured', secret: SECRET });
   try {
     const tt = t.forTurn('turn-0011', SESSION);
     await tt.step('turn', {}, async () => {
-      await tt.step('model', { provider: 'mock' }, async () => tt.annotate({ requestId: 'sk-ant-api03-zzzzzzzzzz', stopReason: 'end_turn' }));
+      await tt.step('model', { provider: 'tailor-mock' }, async () => tt.annotate({ requestId: 'sk-ant-api03-zzzzzzzzzz', stopReason: 'end_turn' }));
       tt.event('response', { status: 'priya@example.com', outcome: 'answered' });
     });
     const d = t.diagnostics();
@@ -205,6 +209,7 @@ test('product evidence ids are exported only as keyed hashes; id lists and the d
   const t = await createTelemetry({ mode: 'captured', secret: SECRET });
   try {
     const tt = t.forTurn('turn-0012', SESSION);
+    tt.declare({ recordIds: ['trace-detail', 'alerts'], toolNames: ['publishScenario'] });
     await tt.step('turn', {}, async () => {
       tt.annotate({ evidenceRefs: evidence, sourceIds: 'trace-detail,alerts', issueCodes: 'UNKNOWN_PARENT,TIMING', argKeys: 'story,traces', decision: 'plan→publishScenario v2→readback ok→committed' });
       tt.annotate({ sourceIds: `trace-detail,${BUYER}`, issueCodes: 'lower_case', decision: `plan→${BUYER}<script>` });
@@ -214,7 +219,8 @@ test('product evidence ids are exported only as keyed hashes; id lists and the d
     assert.equal(root.attributes['tailor.source_ids'], 'trace-detail,alerts');
     assert.equal(root.attributes['tailor.issue_codes'], 'UNKNOWN_PARENT,TIMING');
     assert.equal(root.attributes['tailor.decision'], 'plan→publishScenario v2→readback ok→committed', 'free-text overrides were dropped');
-    assert.equal(t.diagnostics().droppedAttributes, 3);
+    assert.equal(root.attributes['tailor.arg_keys'], undefined, 'argument key names are no longer exported');
+    assert.equal(t.diagnostics().droppedAttributes, 4);
     const dump = JSON.stringify(t.captured());
     assert.equal(dump.includes(SESSION), false, 'raw session ids embedded in product ids never leave');
     assert.equal(dump.includes(BUYER), false);
@@ -248,11 +254,11 @@ test('synthetic payloads: off by default; with the option only synthetic turns c
     const leak = on.forTurn('turn-0016', SESSION, { synthetic: true });
     await leak.step('turn', {}, async () => { assert.equal(leak.attachSynthetic({ input: 'mail me at a@b.co', output: 'key sk-ant-api03-abcdefghij' }), false); });
     const roots = on.captured().filter(s => s.name === 'tailor.turn');
-    const byTurn = (id: string) => roots.find(s => s.attributes['tailor.turn_id'] === id)!.attributes;
-    assert.equal(byTurn('turn-0014')['tailor.synthetic_input'], undefined);
-    assert.equal(byTurn('turn-0015')['tailor.synthetic_input'], 'SYNTHETIC build a fictional order bot');
-    assert.equal(String(byTurn('turn-0015')['tailor.synthetic_output']).length, 1000, 'clipped');
-    assert.equal(byTurn('turn-0016')['tailor.synthetic_input'], undefined);
+    const byTurn = (tt: { turnRef: string }) => roots.find(s => s.attributes['tailor.turn_id'] === tt.turnRef)!.attributes;
+    assert.equal(byTurn(real)['tailor.synthetic_input'], undefined);
+    assert.equal(byTurn(syn)['tailor.synthetic_input'], 'SYNTHETIC build a fictional order bot');
+    assert.equal(String(byTurn(syn)['tailor.synthetic_output']).length, 1000, 'clipped');
+    assert.equal(byTurn(leak)['tailor.synthetic_input'], undefined);
     assert.equal(on.diagnostics().redactedValues, 2);
   } finally { await on.shutdown(); }
 });

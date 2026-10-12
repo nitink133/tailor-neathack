@@ -13,7 +13,7 @@ import {
   type TailorMessage, type TurnOutcome, type TurnResult, type TurnStep, type TurnTelemetry, type Clock, type ValidationIssue,
 } from './contract.ts';
 import type { AdapterCopy, AdapterTypes, CoreAction, MutatingTool, MutationResult, ProductAdapter, ReadTool, ToolContext } from './adapter.ts';
-import { createClaimRules, splitSentences } from './claims.ts';
+import { buildCorpus, createClaimRules, splitSentences, type Corpus } from './claims.ts';
 import { resolveTurnText } from './conversation.ts';
 import { userMessage } from './prompts.ts';
 import { clip, cleanNarrative, oneLine } from './text.ts';
@@ -86,14 +86,28 @@ function budgetPorts<P extends object>(ports: P, spend: () => void): P {
   });
 }
 
-/** Backstop for providers that ignore their signal. Aborting the signal is what makes a live provider stop and settle. */
+/** After aborting, how long the backstop waits for the provider to settle (and release its spend reservation). */
+const ABORT_SETTLE_MS = 50;
+
+/**
+ * Backstop for providers that ignore their signal. Aborting the signal is what makes a live provider stop and settle;
+ * the backstop then waits up to ABORT_SETTLE_MS for that settlement before rejecting, so a provider that honours the
+ * signal finishes its accounting before the turn moves on.
+ */
 async function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const running = run(controller.signal);
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => { controller.abort(); reject(new ProviderError('timeout', 'The provider call did not finish in time', { retryable: false })); }, Math.max(0, ms));
+    timer = setTimeout(() => {
+      controller.abort();
+      const fail = () => reject(new ProviderError('timeout', 'The provider call did not finish in time', { retryable: false }));
+      const settle = setTimeout(fail, ABORT_SETTLE_MS);
+      (settle as { unref?: () => void }).unref?.();
+      running.then(() => { clearTimeout(settle); fail(); }, () => { clearTimeout(settle); fail(); });
+    }, Math.max(0, ms));
   });
-  try { return await Promise.race([run(controller.signal), timeout]); }
+  try { return await Promise.race([running, timeout]); }
   finally { if (timer) clearTimeout(timer); }
 }
 
@@ -108,20 +122,32 @@ function problemSummary(problems: ValidationIssue[]): string {
 type Attrs = Record<string, string | number | boolean>;
 type Purpose = 'plan' | 'repair' | 'escalate' | 'explain';
 const PURPOSE: Record<'model' | 'repair' | 'escalate' | 'explain', Purpose> = { model: 'plan', repair: 'repair', escalate: 'escalate', explain: 'explain' };
-const TOOL_NAME = /^[A-Za-z][A-Za-z0-9_]{0,47}$/;
-const ARG_KEY = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
 const ISSUE_CODE = /^[A-Z0-9_]{1,40}$/;
 const RECORD_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
 const DECISION_MAX = 240;
 
-/** Model-authored tool names are reported only when they look like identifiers. */
-const toolToken = (name: string) => (TOOL_NAME.test(name) ? name : 'invalid_name');
-/** Argument shape only: sorted top-level key names and the serialised size. Values never leave the core. */
+/** Refusal reasons the decision trail may carry; anything else the model wrote is reported as `other`. */
+const REFUSE_REASONS = new Set(['injection', 'arbitrary_code', 'cross_session', 'real_mutation', 'off_topic']);
+const ERROR_CLASSES = new Set(['Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError', 'AbortError', 'BudgetError', 'ProviderError']);
+const errorClass = (error: unknown) => (error instanceof Error && ERROR_CLASSES.has(error.name) ? error.name : 'other');
+/** Argument shape only: top-level key count and serialised size. Key names and values never leave the core. */
 function argSummary(args: unknown): Attrs {
   let bytes = 0;
   try { bytes = JSON.stringify(args)?.length ?? 0; } catch { bytes = 0; }
-  const keys = args && typeof args === 'object' && !Array.isArray(args) ? Object.keys(args).filter(k => ARG_KEY.test(k)).sort().slice(0, 16) : [];
-  return { argKeyCount: keys.length, argBytes: bytes, ...(keys.length ? { argKeys: keys.join(',') } : {}) };
+  const count = args && typeof args === 'object' ? Object.keys(args).length : 0;
+  return { argCount: count, argBytes: bytes };
+}
+/** Joins decision tokens; when too long, keeps the first token and as many trailing tokens as fit, never cutting one. */
+function decisionTrail(tokens: readonly string[]): string {
+  const all = tokens.join('→');
+  if (all.length <= DECISION_MAX || tokens.length < 2) return all.slice(0, DECISION_MAX);
+  const tail: string[] = [];
+  let length = tokens[0]!.length + '→...'.length;
+  for (let i = tokens.length - 1; i > 0; i--) {
+    if (length + 1 + tokens[i]!.length > DECISION_MAX) break;
+    tail.unshift(tokens[i]!); length += 1 + tokens[i]!.length;
+  }
+  return [tokens[0]!, '...', ...tail].join('→');
 }
 function issueAttrs(problems: readonly ValidationIssue[]): Attrs {
   const codes = [...new Set(problems.map(p => p.code).filter(c => ISSUE_CODE.test(c)))].slice(0, 10);
@@ -142,11 +168,14 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
   const copy: AdapterCopy = { ...NEUTRAL_COPY, ...adapter.copy };
   const claims = createClaimRules(adapter.productNames);
   const permitted = new Map(Object.entries(adapter.tools));
+  /** Model-authored tool names are reported only when the adapter declared them. */
+  const toolToken = (name: string) => (permitted.has(name) ? name : 'invalid_name');
+  const wording = (text: string) => (adapter.buyerWording ? adapter.buyerWording(text) : text);
 
-  function normaliseClarification(c: Clarification): Clarification | null {
+  function normaliseClarification(c: Clarification, corpus: Corpus): Clarification | null {
     // Clarification text is model-authored and reaches the buyer verbatim: strip invented prices/plans/capabilities first.
-    const question = clip(claims.sanitiseClarificationText(c.question), 300);
-    const labels = c.choices.map(x => clip(claims.sanitiseClarificationText(x.label.trim()), 80));
+    const question = clip(claims.sanitiseClarificationText(c.question, { corpus }), 300);
+    const labels = c.choices.map(x => clip(claims.sanitiseClarificationText(x.label.trim(), { corpus }), 80));
     if (!question || labels.some(l => !l)) return null;
     if (new Set(labels.map(l => l.toLowerCase())).size !== 3) return null;
     return { question, choices: [{ id: 'c1', label: labels[0]! }, { id: 'c2', label: labels[1]! }, { id: 'c3', label: labels[2]! }], allowFreeText: true };
@@ -196,16 +225,24 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
     const decide = (token: string) => { decision.push(token); };
     const drops: Drops = { n: 0 };
     const annotate = (attributes: Attrs) => { try { telemetry.annotate?.(attributes); } catch { /* telemetry never changes a turn */ } };
+    try {
+      telemetry.declare?.({
+        adapterIds: [adapter.id], toolNames: [...permitted.keys()], knowledgeVersions: [knowledge.version],
+        ...(adapter.promptVersion ? { promptVersions: [adapter.promptVersion] } : {}),
+        ...(adapter.recordId ? { recordIds: knowledge.all().map(r => adapter.recordId!(r)) } : {}),
+      });
+    } catch { /* telemetry never changes a turn */ }
     annotate({ adapterId: adapter.id, knowledgeVersion: knowledge.version, ...(adapter.promptVersion ? { promptVersion: adapter.promptVersion } : {}) });
 
     const finish = (outcome: TurnOutcome, message: Message, extra: Partial<Result> = {}): Result =>
-      ({ outcome, messages: [message], steps, execution, ...extra });
+      ({ outcome, messages: [{ ...message, text: wording(message.text) }], steps, execution, ...extra });
     const note = (text: string, status: ChatStatus = 'note', more: Partial<Message> = {}): Message => ({ role: 'tailor', text, status, ...more });
 
-    async function step<V>(name: TurnStep['name'], attributes: Record<string, string | number | boolean>, fn: () => Promise<V>, detail?: (value: V) => string | undefined): Promise<V> {
+    /** One buyer-visible step. `telemetryName` (default `name`) names the telemetry step: the explain model call is recorded as `model`. */
+    async function step<V>(name: TurnStep['name'], attributes: Record<string, string | number | boolean>, fn: () => Promise<V>, detail?: (value: V) => string | undefined, telemetryName: TurnStep['name'] = name): Promise<V> {
       const started = clock.now();
       try {
-        const value = await telemetry.step(name, attributes, fn);
+        const value = await telemetry.step(telemetryName, attributes, fn);
         const d = detail?.(value);
         steps.push({ name, status: 'ok', ...(d ? { detail: d } : {}), durationMs: Math.max(0, clock.now() - started) });
         return value;
@@ -247,7 +284,13 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
       // 1. load_context ------------------------------------------------------------------------------------------------
       const resolved = await step('load_context', { turnCount: session.conversation.length, version: session.version }, async () => resolveTurnText(session, request),
         r => (r.choice ? 'Used your choice' : copy.contextLoaded));
-      const ctx: ToolContext<T> = { session, request, buyerText: resolved.effectiveText, ports, clock, step };
+      const ctx: ToolContext<T> = { session, request, buyerText: resolved.effectiveText, ports, clock, step: (name, attributes, fn, detail) => step(name, attributes, fn, detail) };
+      /** What model prose without read-back evidence may repeat: the buyer's own words and the adapter's saved domain text. */
+      const corpus = buildCorpus([
+        resolved.effectiveText,
+        ...resolved.history.filter(t => t.role === 'buyer').map(t => t.text),
+        adapter.groundingText?.(session) ?? '',
+      ].join('\n'));
       // 2. retrieve_knowledge ------------------------------------------------------------------------------------------
       const records = await step('retrieve_knowledge', {
         maxRecords: LIMITS.maxKnowledgeRecordsPerTurn, adapterId: adapter.id, knowledgeVersion: knowledge.version,
@@ -273,7 +316,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
         const action = adapter.decodeAction(raw);
         if (!action) return null;
         if (action.kind === 'ask') {
-          const c = normaliseClarification(action.clarification);
+          const c = normaliseClarification(action.clarification, corpus);
           return c ? { kind: 'ask', clarification: c } : null;
         }
         if (action.kind === 'tool') {
@@ -288,7 +331,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
         const budgetMs = callBudgetMs();
         if (budgetMs < AGENT_LIMITS.minCallBudgetMs) {
           lastProviderError = new ProviderError('timeout', 'The turn deadline leaves no time for another provider call', { retryable: false });
-          telemetry.event('provider_error', { provider: prov.name, kind: 'timeout', retryable: false });
+          telemetry.event('provider_error', { provider: prov.name, providerErrorKind: 'timeout', retryable: false });
           decide(`${purpose}:no_time`);
           return null;
         }
@@ -310,10 +353,10 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
         } catch (error) {
           if (isProviderError(error)) {
             lastProviderError = error;
-            telemetry.event('provider_error', { provider: prov.name, kind: error.kind, retryable: error.retryable, ...(error.requestId ? { requestId: error.requestId } : {}) });
+            telemetry.event('provider_error', { provider: prov.name, providerErrorKind: error.kind, retryable: error.retryable, ...(error.requestId ? { requestId: error.requestId } : {}) });
             decide(`${purpose}:${error.kind}`);
           } else {
-            telemetry.event('provider_error', { provider: prov.name, kind: error instanceof Error ? error.name : 'unknown' });
+            telemetry.event('provider_error', { provider: prov.name, providerErrorKind: 'unknown', errorClass: errorClass(error) });
             decide(`${purpose}:error`);
           }
           return null;
@@ -347,8 +390,8 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
         case 'answer': return await actOnAnswer(action);
         case 'unsupported': decide('unsupported'); return actOnUnsupported(action);
         case 'refuse':
-          decide(`refuse:${/^[a-z_]{1,24}$/.test(action.reason) ? action.reason : 'other'}`);
-          return finish('refused', note(`${oneLine(claims.stripUngroundedClaims(cleanNarrative(action.text)) || REFUSE_FALLBACK, 400)} Nothing was changed.`));
+          decide(`refuse:${REFUSE_REASONS.has(action.reason) ? action.reason : 'other'}`);
+          return finish('refused', note(`${oneLine(claims.stripUngroundedClaims(cleanNarrative(action.text), { corpus }) || REFUSE_FALLBACK, 400)} Nothing was changed.`));
       }
 
       // ---------------------------------------------------------------------------------------------------------------
@@ -399,7 +442,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
                 decide(`${label}:budget`);
                 return finish('rejected', note(`I ran out of steps for this message before I could save anything. Version ${lastVersion} is still live.`, 'failed'));
               }
-              telemetry.event('publish_threw', { kind: error instanceof Error ? error.name : 'unknown' });
+              telemetry.event('publish_threw', { errorClass: errorClass(error) });
               await telemetry.step('readback', { state: 'uncertain', lastKnownVersion: session.version }, async () => null);
               decide(`${label}:threw`); decide('readback uncertain');
               steps.push({ name: 'save', status: 'failed', detail: 'No confirmation received' }, { name: 'readback', status: 'failed' });
@@ -503,12 +546,13 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
       async function explainFromEvidence(tool: MutatingTool<T>, args: unknown, readback: T['readback'], detail: T['detail'] | null): Promise<{ narrative: string; cited: string[] } | null> {
         const spec = tool.explanation!;
         if (!provider.explain) return null;
-        if (providerCalls >= LIMITS.maxProviderCallsPerTurn) { telemetry.event('explain_unavailable', { kind: 'budget' }); decide('explain:budget'); return null; }
+        if (providerCalls >= LIMITS.maxProviderCallsPerTurn) { telemetry.event('explain_unavailable', { reason: 'budget' }); decide('explain:budget'); return null; }
         const budgetMs = callBudgetMs();
-        if (budgetMs < AGENT_LIMITS.minCallBudgetMs) { telemetry.event('explain_unavailable', { kind: 'timeout' }); decide('explain:no_time'); return null; }
+        if (budgetMs < AGENT_LIMITS.minCallBudgetMs) { telemetry.event('explain_unavailable', { reason: 'no_time' }); decide('explain:no_time'); return null; }
         providerCalls++;
         try {
           const messages = spec.messages({ buyerText: resolved.effectiveText, args, readback, detail });
+          // Buyer-visible step `explain`; telemetry records it as `model` (purpose=explain), apart from the read tool's own `explain` step.
           const response = await step('explain', attemptAttrs(provider, 'explain'), () =>
             withTimeout(signal => provider.explain!({ messages, responseSchema: spec.responseSchema, maxOutputTokens: LIMITS.maxExplanationOutputTokens }, signal), budgetMs)
               .then(r => {
@@ -516,19 +560,18 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
                 attemptSettled(provider, r, spec.decode(r.explanation) ? 'ok' : 'invalid');
                 return r;
               }, error => { attemptFailed(provider, error); throw error; }),
-          () => copy.explainStep);
+          () => copy.explainStep, 'model');
           telemetry.event('provider_latency', { provider: provider.name, latencyMs: response.latencyMs });
           if (response.requestId) telemetry.event('provider_request_id', { provider: provider.name, requestId: response.requestId });
           const explanation = spec.decode(response.explanation);
-          if (!explanation) { telemetry.event('explain_unavailable', { kind: 'malformed' }); decide('explain:invalid'); return null; }
+          if (!explanation) { telemetry.event('explain_unavailable', { reason: 'malformed' }); decide('explain:invalid'); return null; }
           const narrative = adapter.grounding.ground(explanation.text, readback, detail);
           drops.n += Math.max(0, sentenceCount(explanation.text) - sentenceCount(narrative));
-          if (!narrative) { telemetry.event('explain_unavailable', { kind: 'ungrounded' }); decide('explain:ungrounded'); return null; }
+          if (!narrative) { telemetry.event('explain_unavailable', { reason: 'ungrounded' }); decide('explain:ungrounded'); return null; }
           decide('explain');
           return { narrative, cited: citedOnly(explanation.cites, readback, detail, drops) };
         } catch (error) {
-          const kind = isProviderError(error) ? error.kind : error instanceof Error ? error.name : 'unknown';
-          telemetry.event('explain_unavailable', { kind });
+          telemetry.event('explain_unavailable', isProviderError(error) ? { reason: error.kind } : { reason: 'error', errorClass: errorClass(error) });
           decide(`explain:${isProviderError(error) ? error.kind : 'error'}`);
           return null;
         }
@@ -562,18 +605,18 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
         }
         decide(`answer:${cited.length}_sources`);
         // The reply is composed by code from the cited records; provider prose can add at most one filtered lead sentence.
-        return finish('answered', note(adapter.composeAnswer(cited, resolved.effectiveText, a.text)));
+        return finish('answered', note(adapter.composeAnswer(cited, resolved.effectiveText, a.text, knowledge.version)));
       }
 
       function actOnUnsupported(a: Extract<CoreAction, { kind: 'unsupported' }>): Result {
         const record = a.sourceId ? knowledge.get(a.sourceId) : undefined;
         const title = record !== undefined ? adapter.recordTitle(record) : null;
-        const lead = claims.stripUngroundedClaims(cleanNarrative(a.text)) || (title ? `${title} isn’t something this demo can do.` : UNSUPPORTED_FALLBACK);
+        const lead = claims.stripUngroundedClaims(cleanNarrative(a.text), { corpus }) || (title ? `${title} isn’t something this demo can do.` : UNSUPPORTED_FALLBACK);
         const tail = title ? ` (See: ${title}.)` : '';
         return finish('unsupported', note(`${lead}${tail} Nothing was changed.`));
       }
     } catch (error) {
-      telemetry.event('agent_error', { kind: error instanceof Error ? error.name : 'unknown' });
+      telemetry.event('agent_error', { errorClass: errorClass(error) });
       decide('error');
       return finish('provider_unavailable', note('Something went wrong on my side before I could finish, so I haven’t changed anything. Please try again.', 'failed'));
     }
@@ -581,8 +624,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
 
     // Final response summary (telemetry only): outcome, reply size, grounding drops, budgets used and the decision trail.
     if (decision.at(-1) !== result.outcome) decide(result.outcome);
-    let trail = decision.join('→');
-    if (trail.length > DECISION_MAX) trail = `${trail.slice(0, DECISION_MAX - 3)}...`;
+    const trail = decisionTrail(decision);
     const reply = result.messages[0];
     const summary: Attrs = {
       outcome: result.outcome, ...(reply ? { status: reply.status } : {}),

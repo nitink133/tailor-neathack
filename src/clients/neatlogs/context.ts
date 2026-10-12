@@ -6,6 +6,8 @@
 import type { ChatTurn, Json, Span, Story, Trace } from './contracts.ts';
 import { CONTRACT_VERSION, LIMITS, type CapabilityRecord, type SessionSnapshot, type TurnRequest } from './agent-contract.ts';
 import { clip } from '../../tailor/text.ts';
+import { CORE_LIMITS } from '../../tailor/contract.ts';
+import { SYSTEM_PROMPT } from './prompts.ts';
 import { resolveTurnText as resolveCoreTurnText, type ResolvedTurnText as CoreResolvedTurnText } from '../../tailor/conversation.ts';
 
 export { clip };
@@ -117,7 +119,58 @@ export function resolveTurnText(session: SessionSnapshot, request: TurnRequest):
   return resolveCoreTurnText(session, request);
 }
 
+/**
+ * Room the planning call keeps outside the context JSON, inside CORE_LIMITS.maxInputCharsPerCall: provider framing
+ * notes appended to the system prompt, the delimiter lines, and a repair round (the echoed proposal plus the repair
+ * request are appended to the same conversation).
+ */
+export const CONTEXT_RESERVE = { providerNotesChars: 1_500, framingChars: 100, repairChars: 16_000 } as const;
+
+/** Largest context JSON (chars) that keeps a planning call, and one repair round, under the per-call input limit. */
+export function contextBudget(buyerText: string): number {
+  const r = CONTEXT_RESERVE;
+  return CORE_LIMITS.maxInputCharsPerCall - SYSTEM_PROMPT.length - buyerText.length - r.providerNotesChars - r.framingChars - r.repairChars;
+}
+
+const sizeOf = (context: AgentContext) => JSON.stringify(context).length;
+
+/**
+ * Trims a context to `budget` chars, least important first: older recent turns, older buyer statements, active-trace
+ * span payloads, the span lists of the non-active traces, then knowledge text. Counts, ids, versions, the story and
+ * the active trace's span structure are never removed (follow-up edits need them).
+ */
+export function fitContext(context: AgentContext, budget: number): AgentContext {
+  const c: AgentContext = structuredClone(context);
+  const fits = () => sizeOf(c) <= budget;
+  while (!fits() && c.recentTurns.length > 2) c.recentTurns.shift();
+  while (!fits() && c.buyerStatements.length > 1) c.buyerStatements.shift();
+  if (!fits()) for (const t of c.recentTurns) t.text = clip(t.text, 160);
+  if (!fits()) c.buyerStatements = c.buyerStatements.map(b => clip(b, 300));
+  if (!fits() && c.activeTrace) {
+    c.activeTrace.input = '[truncated]'; c.activeTrace.output = '[truncated]';
+    for (const span of c.activeTrace.spans) {
+      if (fits()) break;
+      span.input = '[truncated]'; span.output = '[truncated]';
+    }
+  }
+  if (!fits()) {
+    const activeKey = c.activeScenario;
+    for (const t of c.dataset.traces) {
+      if (fits()) break;
+      if (t.key !== activeKey) { t.spans = []; t.errors = t.errors.slice(0, 2); }
+    }
+  }
+  if (!fits()) c.knowledge = c.knowledge.map(k => ({ ...k, behaviour: clip(k.behaviour, 160), limitations: k.limitations.slice(0, 1) }));
+  if (!fits()) c.recentTurns = [];
+  return c;
+}
+
 export function buildContext(args: { session: SessionSnapshot; resolved: ResolvedTurnText; records: CapabilityRecord[]; knowledgeVersion: string; openTraceId?: string }): AgentContext {
+  const context = assembleContext(args);
+  return fitContext(context, contextBudget(args.resolved.effectiveText));
+}
+
+function assembleContext(args: { session: SessionSnapshot; resolved: ResolvedTurnText; records: CapabilityRecord[]; knowledgeVersion: string; openTraceId?: string }): AgentContext {
   const { session, resolved, records } = args;
   const active = session.dataset.traces.find(t => t.scenario === session.dataset.activeScenario) ?? null;
   const openId = args.openTraceId?.trim();

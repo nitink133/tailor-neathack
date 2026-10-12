@@ -4,6 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { createRequire } from 'node:module';
 import type { Socket } from 'node:net';
 import { gunzipSync } from 'node:zlib';
 import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
@@ -11,18 +13,16 @@ import { createTelemetry, type Telemetry } from '../src/infrastructure/telemetry
 
 const FAKE_KEY = 'nl_fake_test_key';
 const HOST = '127.0.0.1';
-const PORT = 4343;
-const ENDPOINT = `http://${HOST}:${PORT}`;
 const SECRET = 'delivery-test-secret';
 const SESSION = '7d1e2f30-4a5b-4c6d-8e9f-0a1b2c3d4e5f';
 const BUYER = 'I am building a travel-booking agent for Acme Travel';
 
 interface Seen { method: string | undefined; path: string | undefined; contentType: string | undefined; contentEncoding: string | undefined; hasApiKeyHeader: boolean; apiKeyIsFake: boolean; protobuf: Buffer }
-interface Listener { seen: Seen[]; status: number; close(): Promise<void> }
+interface Listener { seen: Seen[]; status: number; endpoint: string; close(): Promise<void> }
 
-/** Dummy OTLP receiver. `status === 0` accepts the request and never answers (hang). */
-async function listen(status: number, port = PORT): Promise<Listener> {
-  const state: Listener = { seen: [], status, close: async () => {} };
+/** Dummy OTLP receiver on an ephemeral port (listen(0)). `status === 0` accepts the request and never answers (hang). */
+async function listen(status: number): Promise<Listener> {
+  const state: Listener = { seen: [], status, endpoint: '', close: async () => {} };
   const sockets = new Set<Socket>();
   const server: Server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -40,22 +40,23 @@ async function listen(status: number, port = PORT): Promise<Listener> {
     res.end();
   });
   server.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
-  await new Promise<void>((resolve) => server.listen(port, HOST, resolve));
+  await new Promise<void>((resolve) => server.listen(0, HOST, resolve));
+  state.endpoint = `http://${HOST}:${(server.address() as AddressInfo).port}`;
   state.close = () => new Promise<void>((resolve) => { for (const s of sockets) s.destroy(); server.close(() => resolve()); });
   return state;
 }
 
-function hostedLike(lines: string[], extra: Record<string, unknown> = {}) {
+function hostedLike(rx: Listener, lines: string[], extra: Record<string, unknown> = {}) {
   // Safety: this suite must never be able to reach the hosted service.
   assert.equal(process.env.NEATLOGS_API_KEY, undefined, 'run with env -u NEATLOGS_API_KEY');
-  assert.ok(ENDPOINT.startsWith('http://127.0.0.1:'));
-  return { mode: 'neatlogs' as const, secret: SECRET, apiKey: FAKE_KEY, endpoint: ENDPOINT, flushIntervalSeconds: 60, log: (l: string) => { lines.push(l); }, ...extra };
+  assert.ok(rx.endpoint.startsWith('http://127.0.0.1:'));
+  return { mode: 'neatlogs' as const, secret: SECRET, apiKey: FAKE_KEY, endpoint: rx.endpoint, flushIntervalSeconds: 60, log: (l: string) => { lines.push(l); }, ...extra };
 }
 
 async function runTurn(t: Telemetry, turnId = 'turn-0001') {
   const tt = t.forTurn(turnId, SESSION);
-  return tt.step('turn', { provider: 'mock', providerMode: 'mock' }, async () => {
-    await tt.step('model', { provider: 'mock', model: 'mock-1', prompt: BUYER } as never, async () => { tt.recordUsage(null, 'mock-1'); return { text: BUYER }; });
+  return tt.step('turn', { provider: 'tailor-mock', providerMode: 'mock' }, async () => {
+    await tt.step('model', { provider: 'tailor-mock', model: 'claude-sonnet-5-5', prompt: BUYER } as never, async () => { tt.recordUsage(null, 'claude-sonnet-5-5'); return { text: BUYER }; });
     return { outcome: 'answered', version: 1, conversationVersion: 1, echo: BUYER };
   });
 }
@@ -64,7 +65,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 test('401 receiver: failures reach diagnostics, flush is NOT ok (also on the empty second flush), state is failing, one log line', async () => {
   const rx = await listen(401);
   const lines: string[] = [];
-  const t = await createTelemetry(hostedLike(lines));
+  const t = await createTelemetry(hostedLike(rx, lines));
   try {
     assert.equal(t.diagnostics().deliveryState, 'unknown', 'nothing delivered yet');
     const value = await runTurn(t);
@@ -100,7 +101,7 @@ test('401 receiver: failures reach diagnostics, flush is NOT ok (also on the emp
 test('200 receiver: flush ok, healthy, gzip OTLP protobuf to /v1/traces with an x-api-key header, no payload leaks', async () => {
   const rx = await listen(200);
   const lines: string[] = [];
-  const t = await createTelemetry(hostedLike(lines));
+  const t = await createTelemetry(hostedLike(rx, lines));
   try {
     await runTurn(t);
     const r = await t.flush();
@@ -134,7 +135,7 @@ test('200 receiver: flush ok, healthy, gzip OTLP protobuf to /v1/traces with an 
 test('background batch failures are surfaced without any flush(); a burst logs once', async () => {
   const rx = await listen(401);
   const lines: string[] = [];
-  const t = await createTelemetry(hostedLike(lines, { flushIntervalSeconds: 0.2 }));
+  const t = await createTelemetry(hostedLike(rx, lines, { flushIntervalSeconds: 0.2 }));
   try {
     await runTurn(t, 'turn-bg-1');
     for (let i = 0; i < 40 && t.diagnostics().exportFailures === 0; i++) await wait(100);
@@ -150,7 +151,7 @@ test('background batch failures are surfaced without any flush(); a burst logs o
 test('recovery after a failure burst is degraded (history), and a new burst logs again', async () => {
   const rx = await listen(401);
   const lines: string[] = [];
-  const t = await createTelemetry(hostedLike(lines));
+  const t = await createTelemetry(hostedLike(rx, lines));
   try {
     await runTurn(t, 'turn-r-1');
     assert.equal((await t.flush()).state, 'failing');
@@ -172,7 +173,7 @@ test('recovery after a failure burst is degraded (history), and a new burst logs
 test('a failing hosted exporter never changes a turn result or error identity', async () => {
   const rx = await listen(401);
   const lines: string[] = [];
-  const t = await createTelemetry(hostedLike(lines, { flushIntervalSeconds: 0.2 }));
+  const t = await createTelemetry(hostedLike(rx, lines, { flushIntervalSeconds: 0.2 }));
   const reference = await createTelemetry({ mode: 'disabled', secret: SECRET });
   try {
     const expected = await runTurn(reference);
@@ -189,7 +190,7 @@ test('a failing hosted exporter never changes a turn result or error identity', 
 test('shutdown is bounded: a receiver that never answers cannot hang it, and the final state is reported', async () => {
   const rx = await listen(0);
   const lines: string[] = [];
-  const t = await createTelemetry(hostedLike(lines, { shutdownTimeoutMs: 400 }));
+  const t = await createTelemetry(hostedLike(rx, lines, { shutdownTimeoutMs: 400 }));
   try {
     await runTurn(t);
     const started = performance.now();
@@ -206,13 +207,12 @@ test('shutdown is bounded: a receiver that never answers cannot hang it, and the
 });
 
 test('shutdown reports the final delivery state to stderr exactly once; diagnostics name the endpoint origin only', async () => {
-  const port = 4351;
-  const rx = await listen(200, port);
+  const rx = await listen(200);
   const lines: string[] = [];
-  const t = await createTelemetry(hostedLike(lines, { endpoint: `http://${HOST}:${port}/` }));
+  const t = await createTelemetry(hostedLike(rx, lines, { endpoint: `${rx.endpoint}/` }));
   try {
     const d = t.diagnostics();
-    assert.equal(d.endpoint, `http://${HOST}:${port}`);
+    assert.equal(d.endpoint, rx.endpoint);
     assert.equal(d.syntheticPayloads, false);
     assert.equal(d.redactedValues, 0);
     await runTurn(t);
@@ -269,4 +269,43 @@ test('recentTurns exposes opaque correlation ids (bounded, no secret or raw sess
     const dump = JSON.stringify(d);
     for (const forbidden of [SECRET, SESSION]) assert.equal(dump.includes(forbidden), false);
   } finally { await t.shutdown(); }
+});
+
+// R1-F1: the SDK adds one internal `neatlogs.trace.complete` marker span per trace. Decode what actually reached a 200
+// receiver (the SDK's own generated OTLP proto root) and check that exportedSpans counts Tailor spans only.
+const otlpRoot = createRequire(import.meta.url)('@opentelemetry/otlp-transformer/build/src/generated/root.js');
+const ExportRequest = otlpRoot.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
+interface WireSpan { name: string; internal: boolean }
+function decodeWire(rx: Listener): WireSpan[] {
+  const out: WireSpan[] = [];
+  for (const seen of rx.seen) {
+    const msg = ExportRequest.decode(seen.protobuf);
+    for (const rs of msg.resourceSpans ?? []) for (const ss of rs.scopeSpans ?? []) for (const sp of ss.spans ?? []) {
+      const internal = (sp.attributes ?? []).some((a: { key: string; value?: { boolValue?: boolean } }) => a.key === 'neatlogs.internal' && a.value?.boolValue === true);
+      out.push({ name: sp.name, internal });
+    }
+  }
+  return out;
+}
+
+test('R1-F1: exportedSpans counts Tailor spans only; SDK marker spans are reported apart (decoded OTLP from a 200 receiver)', async () => {
+  const rx = await listen(200);
+  const lines: string[] = [];
+  const t = await createTelemetry(hostedLike(rx, lines));
+  try {
+    await runTurn(t, 'turn-m-1');
+    await runTurn(t, 'turn-m-2');
+    const r = await t.flush();
+    assert.equal(r.ok, true);
+    const wire = decodeWire(rx);
+    const tailor = wire.filter(w => !w.internal);
+    const markers = wire.filter(w => w.internal);
+    assert.equal(tailor.length, 4, `two turns x (tailor.turn + model): ${wire.map(w => w.name).join(',')}`);
+    const d = t.diagnostics();
+    assert.equal(d.exportedSpans, tailor.length, 'exportedSpans equals the Tailor spans on the wire');
+    assert.equal(r.exported, tailor.length);
+    assert.equal(d.markerSpans, markers.length, 'marker spans are counted separately');
+    assert.equal(markers.length, 2, 'one SDK marker per trace reached the wire');
+    assert.ok(markers.every(m => m.name === 'neatlogs.trace.complete'), markers.map(m => m.name).join(','));
+  } finally { await t.shutdown(); await rx.close(); }
 });

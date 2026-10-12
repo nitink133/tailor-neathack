@@ -64,11 +64,18 @@ export interface SpendSummary extends SpendBucket {
   limits: { perCallMaxOutputTokens: number; perTurnMaxCalls: number };
 }
 
+/** Conservative chars-per-token for reservations (never the average 4: JSON and non-English text tokenise denser). */
+export const WORST_CHARS_PER_TOKEN = 3;
+
 export interface ReservationMeta { kind: string; model: string | null }
 
 export interface SpendGuard {
-  /** Worst-case USD for one call: prompt chars / 4 as input tokens plus the full output allowance, at `model`'s rates. */
-  worstCaseUsd(promptChars: number, maxOutputTokens: number, model?: string | null): number;
+  /**
+   * Worst-case USD for one call at `model`'s rates: ceil(prompt chars / 3) input tokens (dense JSON and non-English
+   * text run below 4 chars per token) plus `overheadTokens` (fixed per-call system/schema/framing tokens, computed
+   * once at provider creation) plus the full output allowance.
+   */
+  worstCaseUsd(promptChars: number, maxOutputTokens: number, model?: string | null, overheadTokens?: number): number;
   /** Books `worstCaseUsd` against the cap and persists it. Throws ProviderError('spend_cap') when it does not fit. */
   reserve(worstCaseUsd: number, meta: ReservationMeta): string;
   /** Replaces the reservation with the reported cost; `null` keeps the worst case and marks it unreconciled. Never throws. */
@@ -214,8 +221,8 @@ export function createSpendGuard(options: SpendGuardOptions): SpendGuard {
   load();
 
   return {
-    worstCaseUsd(promptChars, maxOutputTokens, model) {
-      const inputTokens = Math.ceil(Math.max(0, promptChars) / 4);
+    worstCaseUsd(promptChars, maxOutputTokens, model, overheadTokens = 0) {
+      const inputTokens = Math.ceil(Math.max(0, promptChars) / WORST_CHARS_PER_TOKEN) + Math.max(0, Math.ceil(overheadTokens));
       const outputTokens = Math.min(Math.max(0, maxOutputTokens), perCallMaxOutputTokens);
       return usdOf(ratesFor(model ?? null), { input: inputTokens, output: outputTokens, cacheRead: 0, cacheWrite: 0 });
     },
