@@ -15,7 +15,7 @@ import { buyerWording, composeAnswer } from './answer.ts';
 import { PRODUCT_NAMES } from './claims.ts';
 import { buildContext } from './context.ts';
 import { entryPreflight, proposalAlignment } from './entry-policy.ts';
-import { citedSpanIds, describeCommit, describeTrace, groundNarrative, safeNarrative } from './explain.ts';
+import { citedSpanIds, describeCommit, describeTrace, groundNarrative, qualityDefectNarrative, safeNarrative } from './explain.ts';
 import { explanationMessage, EXPLANATION_SYSTEM_PROMPT, PROMPT_VERSION, repairMessage, SYSTEM_PROMPT } from './prompts.ts';
 import { validateAgentAction, validateEvidenceExplanation } from './provider.ts';
 
@@ -127,8 +127,9 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
       },
       describe(readback, trace, narrative, cited) {
         const { text, evidence } = describeCommit(readback, trace, narrative);
-        // Evidence span ids stay inside the read-back trace: the model's picks (if any survive) replace the default error spans.
-        return { text, evidence: { ...evidence, spanIds: cited.length ? cited : evidence.spanIds } };
+        // A model's valid subset cannot erase the source/check observations used by code-owned quality wording.
+        const spanIds = trace && qualityDefectNarrative(trace) ? [...new Set([...cited, ...evidence.spanIds])] : cited.length ? cited : evidence.spanIds;
+        return { text, evidence: { ...evidence, spanIds } };
       },
       storyOf: (proposal: ScenarioProposal) => sanitiseStory(proposal.story),
     },
@@ -165,7 +166,8 @@ export const neatlogsAdapter: ProductAdapter<NeatlogsTypes> = {
         return { state: 'found', detail: read.trace, version: read.version };
       },
       describe(trace, version, narrative, cited) {
-        const evidence: Evidence = { version, traceIds: [trace.id], spanIds: cited.length ? cited : citedSpanIds(trace) };
+        const required = citedSpanIds(trace);
+        const evidence: Evidence = { version, traceIds: [trace.id], spanIds: qualityDefectNarrative(trace) ? [...new Set([...cited, ...required])] : cited.length ? cited : required };
         return { text: `${describeTrace(trace)}${narrative ? `\n${narrative}` : ''}`, evidence };
       },
     },

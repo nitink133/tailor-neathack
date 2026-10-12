@@ -191,6 +191,21 @@ export function qualityDefectNarrative(trace: { output: Json; spans: readonly Pi
     && sources.some(source => source.kind === 'RETRIEVAL' && source.value!.text === 'The Widget SDK sends updates while connected. Offline behavior is not documented.')) {
     return 'The answer claims offline sync is supported, but the retrieved source says offline behavior is not documented.';
   }
+  // These are recorded verdict fields in synthetic spans, not a new semantic judgment or an executed hosted eval.
+  const checks = sources.filter(source => source.kind === 'GUARDRAIL').map(source => source.value!);
+  if (output.grounded === false && checks.some(check => check.claimFoundInSources === false
+    && Number.isSafeInteger(check.unsupportedClaims) && Number(check.unsupportedClaims) > 0)) {
+    return 'In this synthetic trace, the saved source-grounding check reports an unsupported claim despite its OK execution status; compare the retrieved passages with the final answer rather than treating green execution as proof of correctness.';
+  }
+  if ((output.dueDate === undefined || output.dueDate === null || output.dueDate === '')
+    && sources.some(source => source.kind === 'TOOL' && typeof source.value!.text === 'string'
+      && /\b(?:payment due|due date)\s*:\s*\d{4}-\d{2}-\d{2}\b/i.test(source.value!.text))) {
+    return 'The saved document text records a payment-due date while the final output omits dueDate; an error-free run and a field-presence check do not establish that an extracted value agrees with the source.';
+  }
+  if (output.nextStepIncluded === false && checks.some(check => check.passed === false
+    && Array.isArray(check.missing) && check.missing.includes('repair booking next step'))) {
+    return 'In this synthetic trace, the saved completeness check reports a missing repair booking next step despite its OK execution status; compare the recorded missing requirement with the final answer.';
+  }
   return '';
 }
 
@@ -322,11 +337,22 @@ const rootOf = (trace: Trace): Span | undefined => trace.spans.find(s => s.paren
 
 export function errorSpans(trace: Trace): Span[] { return trace.spans.filter(s => s.status === 'ERROR'); }
 
-/** The error spans' IDs, falling back to the root span so evidence never cites nothing. */
+/** Error evidence, or the observed source/check payloads behind an all-green quality observation. */
 export function citedSpanIds(trace: Trace): string[] {
   const errors = errorSpans(trace).map(s => s.id);
   if (errors.length) return errors;
   const root = rootOf(trace);
+  if (qualityDefectNarrative(trace)) {
+    const observations = trace.spans.filter(span => {
+      if (!span.output || typeof span.output !== 'object' || Array.isArray(span.output)) return false;
+      const value = span.output;
+      return span.kind === 'RETRIEVAL'
+        || span.kind === 'LLM' && typeof value.dueDate === 'string' && !!value.dueDate.trim()
+        || span.kind === 'TOOL' && (typeof value.nextStep === 'string' || typeof value.text === 'string' && /\b(?:payment due|due date)\s*:\s*\d{4}-\d{2}-\d{2}\b/i.test(value.text) || value.repairBookingAvailable === true)
+        || span.kind === 'GUARDRAIL' && (value.claimFoundInSources === false || value.passed === false && Array.isArray(value.missing));
+    });
+    return [...new Set([...(root ? [root.id] : []), ...observations.map(span => span.id)])];
+  }
   return root ? [root.id] : [];
 }
 
