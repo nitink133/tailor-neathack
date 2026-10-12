@@ -1,0 +1,1 @@
+Continue NIT-265 in the existing worktree and branch above. Read AGENTS.md and docs/nit-265-cursor-handoff.md. Verify fresh Cursor Entire capture. Publication is blocked by credentials in the handoff checkpoint; establish an authorized repair before pushing. Do not amend, force-push, merge, deploy or start NIT-269.
