@@ -42,15 +42,16 @@ export function sentencePassesAnswerFilter(raw: string, cited: CapabilityRecord[
 }
 
 /**
- * At most one short lead sentence from the provider. It must pass the claim filter AND every content word (4+ letters)
- * and number in it must appear in the cited records' own text; otherwise it is dropped entirely (the rest of the answer
+ * At most one short lead sentence from the provider. It must be an exact supported source sentence as well as passing
+ * the claim filter; word overlap cannot establish polarity or meaning. The rest of the answer
  * is code-composed from the records). '' when nothing survives or it would only repeat the records.
  */
 export function filteredLead(providerText: string, cited: CapabilityRecord[], body: string): string {
   const first = splitSentences(cleanNarrative(providerText))[0];
   if (!first || first.length > MAX_LEAD_CHARS) return '';
   if (!sentencePassesAnswerFilter(first, cited)) return '';
-  if (!allWordsGroundedIn(first, cited.map(recordText).join(' '))) return '';
+  const sourceSentences = cited.flatMap(r => [r.behaviour, ...r.limitations].flatMap(splitSentences));
+  if (!sourceSentences.some(source => squash(source) === squash(first))) return '';
   if (squash(body).includes(squash(first))) return '';
   return endSentence(first);
 }

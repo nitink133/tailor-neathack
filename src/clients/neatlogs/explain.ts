@@ -207,14 +207,20 @@ function semanticsGrounded(sentence: string, trace: Trace | null, readback: Read
   if (m) return spans[Number(m[1]) - 1]?.status === 'ERROR';
   m = /^(?:this is saved as|this was|saved as) version (\d+)\.$/i.exec(text);
   if (m) return Number(m[1]) === readback?.version;
+  m = /^the run is end-to-end ([\d,.]+) (ms|milliseconds?|s|sec|seconds?) long\.$/i.exec(text);
+  if (m) return same(duration, time(m[1]!, m[2]!));
+  m = /^timing was ([\d,.]+) (ms|milliseconds?|s|sec|seconds?) overall\.$/i.exec(text);
+  if (m) return same(duration, time(m[1]!, m[2]!));
   m = /^(?:the )?(?:run|trace|root) took ([\d,.]+) (ms|milliseconds?|s|sec|seconds?)\.$/i.exec(text);
   if (m) return same(duration, time(m[1]!, m[2]!));
   m = /^it took ([\d,.]+) (ms|milliseconds?|s|sec|seconds?) to fail\.$/i.exec(text);
   if (m) return errors.some(e => same(e.durationMs, time(m![1]!, m![2]!)));
+  m = /^(.+?) is where it broke\.$/i.exec(text);
+  if (m) return target(m[1]!)?.status === 'ERROR';
   m = /^(.+?) was ([\d.]+)% of the run\.$/i.exec(text);
   if (m) { const t = target(m[1]!); return !!t && !!duration && Math.abs(t.durationMs / duration * 100 - Number(m[2])) <= 0.5; }
-  m = /^(?:the )?(.+?) (failed|succeeded|recovered|is marked ERROR|is marked OK)(?: after ([\d,.]+) (ms|milliseconds?|s|sec|seconds?))?\.$/i.exec(text);
-  if (m) { const t = target(m[1]!); return !!t && t.status === (/failed|ERROR/i.test(m[2]!) ? 'ERROR' : 'OK') && (!m[3] || same(t.durationMs, time(m[3], m[4]!))); }
+  m = /^(?:the )?(.+?) (failed|succeeded|recovered|timed out|is marked ERROR|is marked OK)(?: after ([\d,.]+) (ms|milliseconds?|s|sec|seconds?))?\.$/i.exec(text);
+  if (m) { const t = target(m[1]!); return !!t && t.status === (/failed|ERROR|timed out/i.test(m[2]!) ? 'ERROR' : 'OK') && (!/timed out/i.test(m[2]!) || /timed? out|timeout/i.test(t.error ?? '')) && (!m[3] || same(t.durationMs, time(m[3], m[4]!))); }
   m = /^the [“"'](.+?)[”"'] run ended as (.+?)\.$/i.exec(text);
   if (m) return flat(m[1]!) === flat(entry.label) && flat(m[2]!) === flat(entry.outcome);
   return false;

@@ -9,6 +9,16 @@ import { reconcileTurnResult } from '../src/tailor/lifecycle.ts';
 import { createSpendGuard } from '../src/tailor/spend.ts';
 import { createAnthropicTransport } from '../src/tailor/anthropic-transport.ts';
 import { ProviderError } from '../src/tailor/provider-error.ts';
+import { filteredLead } from '../src/clients/neatlogs/answer.ts';
+import { loadKnowledge } from '../src/clients/neatlogs/knowledge.ts';
+
+test('word-overlap cannot admit a negated capability source claim', () => {
+  const record = loadKnowledge().get('retry-timeout-scenarios')!;
+  const first = record.behaviour.split(/(?<=[.!?])\s/)[0]!;
+  assert.ok(first.includes('can save'));
+  assert.equal(filteredLead(first.replace('can save', 'can not save'), [record], 'independent body'), '');
+  assert.equal(filteredLead(first, [record], 'independent body'), first);
+});
 
 test('successful readback rejects false status and unsupported causes without discarding true measured facts', () => {
   const trace = fixtures('regression').traces.find(t => t.scenario === 'recovered')!;

@@ -101,14 +101,15 @@ test('R2-01: "It can detect X" rule — a real step name does not establish an u
   }
 });
 
-test('R2-01: answer lead drops full-width numerals (exact R2 sentences) and keeps a grounded lead in a mixed reply', async () => {
+test('R2-01: answer drops full-width numerals and composes the mixed reply from source facts', async () => {
   for (const lead of [FULLWIDTH_SPANS, 'It retries ３ times', `${LEAK} ${FULLWIDTH_SPANS}`]) {
     const { result } = await run([{ type: 'answer', text: lead, knowledgeIds: ['trace-detail'] }], { text: 'What does trace detail show?' });
     assert.equal(result.outcome, 'answered');
     assert.deepEqual(leaksIn(allText(result)), [], lead);
   }
   const mixed = await run([{ type: 'answer', text: `Failing steps show as ERROR in the trace detail. ${FULLWIDTH_RETRY}`, knowledgeIds: ['trace-detail'] }], { text: 'Can Neatlogs detect failed retries?' });
-  assert.ok(allText(mixed.result).startsWith('Failing steps show as ERROR in the trace detail.'));
+  assert.ok(allText(mixed.result).startsWith('Trace detail and spans: '));
+  assert.match(allText(mixed.result), /Failing steps show as ERROR\./);
   assert.deepEqual(leaksIn(allText(mixed.result)), []);
 });
 
