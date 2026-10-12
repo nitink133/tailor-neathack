@@ -1,3 +1,5 @@
+import { createRoutingService, RoutingError } from '../clients/neatlogs/routing-service.ts';
+import type { RoutingService, StoredRoutingPreview } from '../clients/neatlogs/routing-contract.ts';
 import type { DemoSwitchChoice } from '../tailor/demo-contract.ts';
 import { createEvaluationService, EvaluationError } from '../clients/neatlogs/eval-service.ts';
 import { publicCapabilities } from '../clients/neatlogs/capabilities.ts';
@@ -28,6 +30,7 @@ export interface AppServerOptions {
   /** Defaults to the store's clock so lifecycle and validation share one server clock. */
   clock?: Clock;
   evaluations?: EvaluationService;
+  routing?: RoutingService;
   capabilities?: () => unknown;
   /** Trusted harness only; buyer-authored descriptions cannot opt into exporting payloads. */
   syntheticFixture?: (demoId: string) => boolean;
@@ -79,6 +82,11 @@ export function appServer(store: Store, options: AppServerOptions) {
     list: id => store.listArtifacts<StoredEvaluation>(id, 'evaluations'),
     read: (id, evaluationId) => store.readArtifact<StoredEvaluation>(id, 'evaluations', evaluationId),
     compareAndSet: (id, evaluationId, version, next) => store.compareAndSetArtifact(id, 'evaluations', evaluationId, version, next),
+  }, { now: () => new Date(clock.now()) });
+  const routing = options.routing ?? createRoutingService({
+    list: id => store.listArtifacts<StoredRoutingPreview>(id, 'routing'),
+    read: (id, previewId) => store.readArtifact<StoredRoutingPreview>(id, 'routing', previewId),
+    compareAndSet: (id, previewId, version, next) => store.compareAndSetArtifact(id, 'routing', previewId, version, next),
   }, { now: () => new Date(clock.now()) });
   const execution = (): ExecutionLabel => ({ mode: provider.mode, provider: provider.name, model: provider.model, effort: provider.effort ?? null });
   const withExecution = <T extends object>(data: T): T & ExecutionInfoResponse => ({ ...data, execution: execution() });
@@ -256,6 +264,19 @@ export function appServer(store: Store, options: AppServerOptions) {
           }).catch(() => false) ?? false;
           return send(200, { recorded, receiptState: 'unverified' });
         }
+        const routingRoute = /^\/api\/sessions\/([\w-]+)\/routing(?:\/([\w-]+))?$/.exec(path);
+        if (routingRoute) {
+          const id = routingRoute[1]!; const owner = store.authorize(id, cookieOf(req));
+          store.touch(id); if (store.ownerOf(id)) store.touchBrowser(owner);
+          if (req.method === 'GET') return send(200, routingRoute[2] ? routing.read(store.read(id), routingRoute[2]) : routing.list(store.read(id)));
+          if (req.method === 'POST' && !routingRoute[2]) {
+            if (gate.busy(owner)) throw new Failure(409, 'TURN_IN_FLIGHT', 'Wait for the current turn before previewing routing.');
+            const data = await body(req);
+            if (gate.busy(owner)) throw new Failure(409, 'TURN_IN_FLIGHT', 'Wait for the current turn before previewing routing.');
+            return send(201, routing.create(store.read(id), data));
+          }
+          throw new Failure(405, 'UNSUPPORTED_ACTION', 'Unsupported routing action.');
+        }
         const evalRoute = /^\/api\/sessions\/([\w-]+)\/evaluations(?:\/([\w-]+)(?:\/(reviews))?)?$/.exec(path);
         if (evalRoute) {
           const id = evalRoute[1]!; const owner = store.authorize(id, cookieOf(req));
@@ -355,7 +376,7 @@ export function appServer(store: Store, options: AppServerOptions) {
       else if (path === '/adapter.js') file = '../dist/adapter.js';
       else if (path === '/agent.js') file = '../dist/agent.js';
       else if (path === '/style.css' || /^\/assets\/[a-zA-Z0-9_.-]+$/.test(path)) file = path;
-      else if (!(path==='/' || path==='/entry' || /^\/demo\/[^/]+\/(?:traces(?:\/[^/]+)?|(?:evals|evaluations)(?:\/[^/]+)?)$/.test(path))) throw new Failure(404,'NOT_FOUND','Page not found.');
+      else if (!(path==='/' || path==='/entry' || /^\/demo\/[^/]+\/(?:traces(?:\/[^/]+)?|(?:evals|evaluations|routing|alerts)(?:\/[^/]+)?)$/.test(path))) throw new Failure(404,'NOT_FOUND','Page not found.');
       const full = file.startsWith('../dist/') ? resolve('dist', file.slice('../dist/'.length)) : resolve('public',file.slice(1));
       let content: Buffer;
       try { content = await readFile(full); }
@@ -363,7 +384,7 @@ export function appServer(store: Store, options: AppServerOptions) {
       const types:Record<string,string> = {'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.woff2':'font/woff2','.webp':'image/webp'};
       res.writeHead(200,{'content-type':types[extname(full)] ?? 'application/octet-stream'}); res.end(req.method==='HEAD' ? undefined : content);
     } catch(e) {
-      const failure = e instanceof Failure || e instanceof EvaluationError ? e : new Failure(500,'SERVER_FAILURE','Local request failed. Retry; previous accepted session state is retained.');
+      const failure = e instanceof Failure || e instanceof EvaluationError || e instanceof RoutingError ? e : new Failure(500,'SERVER_FAILURE','Local request failed. Retry; previous accepted session state is retained.');
       if (['SESSION_EXPIRED', 'NOT_FOUND'].includes(failure.code) && cookieOf(req)) {
         try { store.browserForCookie(cookieOf(req)); } catch { res.setHeader('Set-Cookie', 'tailor=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); }
       }

@@ -77,6 +77,7 @@ export async function entryPreflight(input: { session: SessionSnapshot; request:
   if (!input.buyerText.trim()) return policyPreflight({ outcome: 'clarify', reason: 'ambiguous' });
   const veto = requestBoundary(input.buyerText);
   if (veto) return veto.reason === 'injection' ? policyPreflight({ outcome: 'deny_instruction_override', reason: 'instruction_override' }) : { kind: 'refuse', ...veto, text: `${veto.text} Nothing was changed.` };
+  if(/\bupdate me\b/i.test(input.buyerText))return {kind:'ask',reason:'needs_context',clarification:{question:'Do you mean an alert rule for a signal, personal notification preferences, or evaluation updates? I haven’t verified a feature named Update me, and this demo won’t send notifications.',choices:[{id:'c1',label:'Explain Neatlogs alert routing'},{id:'c2',label:'Explain personal notification preferences'},{id:'c3',label:'Explain evaluation assignments and updates'}],allowFreeText:true}};
   const project = (result: AdapterPreflightResult): AdapterPreflightResult => result.kind === 'ask' && result.policy?.reason === 'ambiguous' && /\b(?:fail\w*|workflow|agent)\b/i.test(input.buyerText)
     ? { ...result, clarification: FAILURE_QUESTION } : result;
   if (!input.provider.classifyPolicy) {
@@ -129,14 +130,14 @@ const decision = (outcome: PolicyDecision['outcome'], reason: PolicyDecision['re
 const normalize = (text: string) => text.normalize('NFKC').replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/[’‘]/g, "'").toLowerCase();
 const WORKFLOW = /\b(?:agents?|workflows?|bots?|assistants?|pipelines?|copilots?|chatbots?|agentic)\b|एजेंट|वर्कफ़्लो|कार्यप्रवाह/i;
 const PRODUCT = /\bneatlogs\b|नीटलॉग्स/i;
-const PRODUCT_TOPICS = /\b(?:traces?|spans?|detections?|observability|telemetry|evals?|evaluations?|replay|integrations?|sdks?|pricing|prices?|costs?|plans?|retention|alerts?|capabilities|product)\b|ट्रेस|कीमत|मूल्यांकन/i;
+const PRODUCT_TOPICS = /\b(?:traces?|spans?|detections?|observability|telemetry|evals?|evaluations?|replay|integrations?|sdks?|pricing|prices?|costs?|plans?|retention|alerts?|routing|route|right people|update me|capabilities|product)\b|ट्रेस|कीमत|मूल्यांकन/i;
 const QUESTION = /\?|^(?:what|how|why|does|do|can|could|will|is|are|which|tell me about|explain|kya|kaise)\b|\b(?:how|why|explain how|tell me about|kaise)\b|कैसे|क्या/i;
-const DEMO_ACTION = /\b(?:show|simulate|model|demonstrate|build|create|generate|change|edit|add|remove|drop|compare|explain|illustrate|switch|start over|make|let)\b|दिखा|बनाओ/i;
+const DEMO_ACTION = /\b(?:show|preview|simulate|model|demonstrate|build|create|generate|change|edit|add|remove|drop|compare|explain|illustrate|switch|start over|make|let)\b|दिखा|बनाओ/i;
 const DEMO_SUBJECT = /\b(?:api|tool|guardrail|retriev\w*|execution|scenario|demo|sessions?|steps?|attempts?)\b/i;
 const FAILURE = /\b(?:fail\w*|errors?|timeouts?|timed? out|retry|retries|latency|slow|garbage|malformed|guardrail|payout|double.book|blocked|successful|success|recover\w*)\b/i;
 const FOLLOWUP = /^(?:make|add|change|remove|drop|keep|explain|compare|show|let|have|acquire|try|now|what|why|walk|summarize|summarise)\b/i;
 const UNRELATED_ACTION = /\b(?:write|compose|draft|calculate|solve|translate|summarize|summarise|research|find|book|buy|order|teach|implement|debug|fix|execute|run)\b/i;
-const CAPABILITY_REQUEST = /\b(?:set ?up|configure|enable|connect|integrate|install|run|replay)\b[^.!?]{0,70}\b(?:slack|alerts?|webhooks?|evals?|evaluations?|integrations?|replay|sso|sdk)\b/i;
+const CAPABILITY_REQUEST = /\b(?:set ?up|configure|enable|connect|integrate|install|run|replay)\b[^.!?]{0,70}\b(?:slack|alerts?|webhooks?|evals?|evaluations?|integrations?|routing|replay|sso|sdk)\b/i;
 
 /** Heuristic offline substitute, NOT validated live model accuracy. Default-deny general work, not a blacklist of hobbies. */
 export function classifyOfflinePolicy(input: PolicyInput): PolicyDecision {

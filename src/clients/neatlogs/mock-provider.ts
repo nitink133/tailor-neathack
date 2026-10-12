@@ -27,7 +27,11 @@ export function createMockProvider(): ModelProvider {
       if (!found) return action;
       // Explicitly heuristic mock selection, using only rendered-capability targets.
       const text = found.text;
-      const targets: import('./agent-contract.ts').GuidanceSelection[] = /slow|latency|duration|timing/i.test(text)
+      const targets: import('./agent-contract.ts').GuidanceSelection[] = /\b(?:routing|route|alerts?|right people)\b/i.test(text)
+        ? [{ targetId: 'alerts.overview' }]
+        : /\b(?:evals?|evaluations?|rubric|review form)\b/i.test(text)
+        ? [{ targetId: 'evals.overview' }]
+        : /slow|latency|duration|timing/i.test(text)
         ? [{ targetId: 'trace.slowest-span' }, { targetId: 'trace.model-call' }]
         : action.type === 'propose'
         ? [{ targetId: 'trace.overview' }, { targetId: 'trace.output' }]
@@ -213,10 +217,11 @@ function decide(request: ProviderRequest): AgentAction {
   const refusal = refusalFor(text);
   if (refusal) return refusal;
 
+  if(/\b(?:show|simulate|preview)\b/i.test(text)&&/\b(?:routing|route|alerts?|right people)\b/i.test(text)&&!/\b(?:real|production|live|connect|send|notify)\b/i.test(text))return {type:'answer',text:'Preview alert routing on saved synthetic signals.',knowledgeIds:['synthetic-alert-routing']};
   const { spec, domainRaw } = parseSpec(text);
   const withoutDomain = domainRaw ? text.replace(domainRaw, ' ') : text;
-  if (/\b(?:create|build|make|start|run)\b[^.]{0,50}\b(?:evaluation|eval|review)\b/i.test(text) && !NEW_WORKFLOW.test(text)) {
-    return { type: 'unsupported', capabilityId: 'synthetic-evaluation-review', text: 'Use the local Evals page to create a review form and save buyer answers or explicitly simulated scores. I can explain those controls here; a hosted AI evaluator is not running.' };
+  if (/\b(?:create|build|make|start|run)\b[^.]{0,50}\b(?:evaluation|eval|review)\b/i.test(text) && !NEW_WORKFLOW.test(text) && !/\b(?:hosted|production|AI|judge|benchmark|export)\b/i.test(text)) {
+    return { type: 'answer', knowledgeIds: ['synthetic-evaluation-review'], text: 'Use the local Evals page to create a review form over saved synthetic traces.' };
   }
   const qualityKind = /\b(?:retriev\w*|ground\w*|source|documentation)\b/i.test(text) && /\b(?:absent|invent\w*|unsupported|hallucin\w*|wrong|false|claims?)\b/i.test(text) ? 'retrieval'
     : /\b(?:extract\w*|invoice)\b/i.test(text) && /\b(?:omit\w*|miss\w*|due date|completeness)\b/i.test(text) ? 'extraction'

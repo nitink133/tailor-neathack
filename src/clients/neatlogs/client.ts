@@ -3,7 +3,8 @@ import { isCurrentGuidance, sanitiseStoredGuidance } from './guidance.ts';
 import type { ChatTurn, DemoSession, Json, Span, Trace, TraceList } from './contracts.ts';
 import type { ExecutionInfoResponse, ExecutionLabel, TurnOutcome, TurnRequest, TurnResponse, TurnStep } from './agent-contract.ts';
 import type { BrowserSession } from '../../tailor/demo-contract.ts';
-import type { EvaluationDetail, EvaluationList, EvaluationQuestion, ReviewEvaluationRequest } from './eval-contract.ts';
+import type { EvaluationCheck, EvaluationDetail, EvaluationList, EvaluationQuestion, ReviewEvaluationRequest } from './eval-contract.ts';
+import type { RoutingDetail, RoutingList } from './routing-contract.ts';
 import { entrySavedState, entrySuggestions, suggestionBatch } from './entry-state.ts';
 import { replyBlocks, type ReplyTextBlock } from './reply-format.ts';
 import { turnSummary } from './turn-summary.ts';
@@ -44,6 +45,11 @@ let evaluation: EvaluationDetail | undefined;
 let evaluationTab: 'Overview' | 'Questions' | 'Results' = 'Overview';
 const evaluationTabKey = (id: string) => `tailor-eval-tab:${id}`;
 let evalBusy = false;
+let routingList: RoutingList | undefined;
+let routingDetail: RoutingDetail | undefined;
+let routingBusy=false;
+let routingStep=0;
+const routingDrafts=new Map<string,Record<string,string|string[]>>();
 let turnNote = '';
 let entryNotice = '';
 let ended = false;
@@ -89,8 +95,8 @@ function restoreGuidanceHighlight() {
   };
   if (!guidanceCurrent(a.suggestion,current)) { unavailable('stale'); return; }
   const g=a.suggestion;
-  if (location.pathname !== `${base(current.id)}/${g.binding.traceId}`) { clearGuidance('navigation',false); return; }
-  const target = g.binding.spanId ? [...root.querySelectorAll<HTMLElement>('[data-span-id]')].find(el=>el.dataset.spanId===g.binding.spanId) : root.querySelector<HTMLElement>(g.targetId==='trace.output'?'.root-output':'.steps');
+  if (location.pathname !== (g.targetId==='alerts.overview'?routingBase(current.id):g.targetId==='evals.overview'?evalBase(current.id):`${base(current.id)}/${g.binding.traceId}`)) { clearGuidance('navigation',false); return; }
+  const target = g.binding.spanId ? [...root.querySelectorAll<HTMLElement>('[data-span-id]')].find(el=>el.dataset.spanId===g.binding.spanId) : root.querySelector<HTMLElement>(g.targetId==='alerts.overview'?'.routing-create':g.targetId==='evals.overview'?'.eval-create':g.targetId==='trace.output'?'.root-output':'.steps');
   if(target && target.getClientRects().length) target.classList.add('contextual-guide-target');
   else unavailable('missing');
 }
@@ -103,17 +109,17 @@ async function showGuidance(messageId: string, suggestionId: string) {
   if(!guidanceCurrent(g,s)) {fail(g.binding.version!==s.version || g.binding.scenario!==s.dataset.activeScenario?'stale':'missing');return;}
   const trace=s.dataset.traces.find(t=>t.id===g.binding.traceId && t.sessionId===s.id);
   const span=g.binding.spanId?trace?.spans.find(x=>x.id===g.binding.spanId):undefined;
-  const allowed=['trace.overview','trace.slowest-span','trace.model-call','trace.output'];
+  const allowed=['trace.overview','trace.slowest-span','trace.model-call','trace.output','evals.overview','alerts.overview'];
   if(!trace || !allowed.includes(g.targetId) || (g.binding.spanId && !span) || (g.targetId==='trace.model-call' && span?.kind!=='LLM') || (['trace.slowest-span','trace.model-call'].includes(g.targetId) && !span)) {fail('missing');return;}
   const original=openTrace(s);
   if(g.binding.openTraceId && original && original.id!==g.binding.openTraceId && original.id!==g.binding.traceId) {fail('stale');return;}
   chatOpen=true;sessionStorage.removeItem(chatKey(s.id));
   repaint();
   if(span) {expanded.add(span.id);for(const id of selectedSpanAncestors(trace,span.id))collapsedRoots.delete(id);}
-  const rendered=await navigate(`${traceLink(trace)}${span?'?span='+encodeURIComponent(span.id):''}`);
+  const rendered=await navigate(g.targetId==='alerts.overview'?routingBase(s.id):g.targetId==='evals.overview'?evalBase(s.id):`${traceLink(trace)}${span?'?span='+encodeURIComponent(span.id):''}`);
   if(attempt!==guidanceAttempt)return;
   if(!rendered || !current || !guidanceCurrent(g,current)) {fail('stale');return;}
-  const target=span?[...root.querySelectorAll<HTMLElement>('[data-span-id]')].find(el=>el.dataset.spanId===span.id):root.querySelector<HTMLElement>(g.targetId==='trace.output'?'.root-output':'.steps');
+  const target=span?[...root.querySelectorAll<HTMLElement>('[data-span-id]')].find(el=>el.dataset.spanId===span.id):root.querySelector<HTMLElement>(g.targetId==='alerts.overview'?'.routing-create':g.targetId==='evals.overview'?'.eval-create':g.targetId==='trace.output'?'.root-output':'.steps');
   if(!target || !target.isConnected || !target.getClientRects().length) {fail('missing');return;}
   activeGuidance={messageId,suggestion:g,state:'shown'};repaint();restoreGuidanceHighlight();
   const shown=root.querySelector<HTMLElement>('.contextual-guide-target');
@@ -130,6 +136,7 @@ async function showGuidance(messageId: string, suggestionId: string) {
 const link = (path: string,label: string,cls='')=>`<a data-nav href="${esc(path)}" class="${cls}">${label}</a>`;
 const base = (id: string) => `/demo/${id}/traces`;
 const traceLink = (t: Trace) => `${base(t.sessionId)}/${t.id}`;
+const routingBase=(id:string)=>`/demo/${id}/alerts`;
 const evalBase = (id: string) => `/demo/${id}/evals`;
 const evalLink = (id: string, evaluationId: string) => `${evalBase(id)}/${evaluationId}`;
 type PublicCapabilities = { version: string; verifiedOn: string; starters: { id: string; capabilityId: string; title: string; prompt: string }[]; capabilities: { id: string; title: string; scope: 'official_product'|'clone_only'; support: string; surfaces: string[]; limitations: string[]; hostedAvailability: string }[] };
@@ -395,7 +402,7 @@ function shell(s: DemoSession,content: string) {
   const collapsed = `${['message','tree','home','tool'].map(quiet).join('')}${link(base(s.id), icon('list'), 'rail-button selected')}${['search','bell'].map(quiet).join('')}`;
   const activeDemo = browserSession?.demos.find(d => d.id === s.id);
   const demoPicker = browserSession?.demos.length ? `<details class="demo-picker"><summary aria-label="Choose demo">${esc(activeDemo?.label ?? 'Your demos')}</summary><nav aria-label="Your demos">${browserSession.demos.map(d => `<button type="button" data-select-demo="${esc(d.id)}" ${d.id === s.id ? 'aria-current="page"' : ''}>${esc(d.label)} <small>v${d.version}</small></button>`).join('')}</nav></details>` : '';
-  const expanded = `<div class="rail-switch"><button type="button" data-unavailable>console</button><button type="button" data-chat-open>chats</button></div>${demoPicker}<div class="rail-project"><span>Fictional demo</span></div>${labeled('rocket','setup','<em>1/2</em>')}<nav class="rail-menu" aria-label="Project">${labeled('home','home')}${labeled('bell','incidents')}${traces}${labeled('tool','detections')}${labeled('bell','alerts')}<a data-nav href="${esc(evalBase(s.id))}" class="rail-button${location.pathname.includes('/evals')?' selected':''}">${icon('check')}<span class="rail-label">evals</span></a>${labeled('tree','analytics')}${labeled('search','search')}${labeled('tool','experiments','<em>beta</em>')}</nav>`;
+  const expanded = `<div class="rail-switch"><button type="button" data-unavailable>console</button><button type="button" data-chat-open>chats</button></div>${demoPicker}<div class="rail-project"><span>Fictional demo</span></div>${labeled('rocket','setup','<em>1/2</em>')}<nav class="rail-menu" aria-label="Project">${labeled('home','home')}${labeled('bell','incidents')}${traces}${labeled('tool','detections')}${link(routingBase(s.id),`${icon('bell')}<span class="rail-label">alerts</span>`,'rail-button')}<a data-nav href="${esc(evalBase(s.id))}" class="rail-button${location.pathname.includes('/evals')?' selected':''}">${icon('check')}<span class="rail-label">evals</span></a>${labeled('tree','analytics')}${labeled('search','search')}${labeled('tool','experiments','<em>beta</em>')}</nav>`;
   const opener = chatOpen ? '' : `<div class="chat-reopen"><button type="button" data-chat-open>Open conversation</button><button type="button" data-end-demo class="end-demo">End demo</button></div>`;
   return `<aside class="rail${railOpen?' is-labeled':''}"><div class="rail-header"><a data-nav href="/" class="mark" aria-label="Landing page">n</a><button type="button" class="rail-toggle" data-rail aria-expanded="${railOpen}" aria-label="${railOpen?'Collapse sidebar':'Expand sidebar'}">${icon(railOpen?'back':'chevron')}</button></div><div class="rail-collapsed-only">${collapsed}</div>${railOpen?expanded:''}<div class="rail-bottom"><button data-theme aria-label="Toggle local theme">${icon('sun')}</button></div></aside><div class="workspace">${opener}${content}</div>${chatOpen ? chatPanel(s) : ''}`;
 }
@@ -576,12 +583,16 @@ function evalInput(q: EvaluationQuestion, traceId: string) {
 function evalQuestionRow(q: EvaluationQuestion, index: number) {
   return `<div class="eval-question-config" data-question-row data-question-index="${index}"><label>Question<input name="q-label:${index}" maxlength="120" required value="${esc(q.label)}"></label><label>Answer type<select name="q-type:${index}" data-q-type><option value="rating" ${q.type==='rating'?'selected':''}>Rating</option><option value="yes_no" ${q.type==='yes_no'?'selected':''}>Yes / no</option><option value="choice" ${q.type==='choice'?'selected':''}>Choice</option><option value="text" ${q.type==='text'?'selected':''}>Free text</option></select></label><label data-q-options ${q.type==='choice'?'':'hidden'}>Choice options<input name="q-options:${index}" maxlength="200" value="${esc(q.options?.join(', ') ?? '')}" placeholder="Two or more comma-separated choices"></label><label>Reviewer<select name="reviewer:${index}" aria-label="Reviewer for question ${index+1}"><option value="buyer" ${q.reviewer==='buyer'?'selected':''}>You</option><option value="simulated_judge" ${q.reviewer==='simulated_judge'?'selected':''}>Simulated reviewer</option></select></label><label class="eval-required"><input type="checkbox" name="required:${index}" ${q.required?'checked':''}> Required</label>${q.type==='rating'?`<input type="hidden" name="q-min:${index}" value="${q.min??1}"><input type="hidden" name="q-max:${index}" value="${q.max??5}">`:''}<button type="button" data-remove-question aria-label="Remove question ${index+1}">Remove</button></div>`;
 }
+function evaluationCheckTable(e: EvaluationDetail['evaluation']): string {
+  if(!e.checkResults?.length)return '<p>No deterministic checks were selected. Review responses below are human or illustrative simulated values.</p>';
+  return `<h2>Executed sample checks</h2><p>Executed locally against saved synthetic trace snapshot v${e.datasetVersion}. A pass proves only the listed rule; it does not prove answer quality.</p><table><thead><tr><th>Trace</th><th>Check</th><th>Result</th><th>Observed evidence</th></tr></thead><tbody>${e.checkResults.map(r=>`<tr><td>${esc(e.traceSnapshot.find(t=>t.id===r.traceId)?.label??r.traceId)}</td><td>${esc(e.checks?.find(c=>c.key===r.checkKey)?.label??r.checkKey)}</td><td>${r.status==='unavailable'?'Unavailable':r.passed?'Pass':'Fail'}</td><td>${esc(r.explanation)}<small>${esc(JSON.stringify(r.observed))}</small></td></tr>`).join('')}</tbody></table>`;
+}
 function evalHeader(title: string) { return `<h1>${esc(title)}</h1>`; }
 function evaluationsPage(s: DemoSession, data: EvaluationList) {
   evaluations=data; evaluation=undefined;
   const rows=data.evaluations.map(({evaluation:e,stale})=>`<tr><td>${link(evalLink(s.id,e.id),esc(e.name))}${stale?'<small>Saved trace snapshot</small>':''}</td><td>${e.traceIds.length} traces</td><td>${e.questions.map(q=>q.reviewer==='buyer'?'Your review':'Simulated score').filter((x,i,a)=>a.indexOf(x)===i).join(' · ')}</td><td>${e.state==='completed'?'Complete':'In progress'} · ${e.responses.length} saved answers</td></tr>`).join('');
   const defaults=syntheticReviewQuestions();
-  root.innerHTML=shell(s,`<main class="eval-page"><header class="list-header"><h1>${icon('check')}Evals</h1><span class="eval-local-label">Docs-grounded reconstruction · synthetic · local demo</span></header><p class="eval-provenance">Synthetic evaluation · local demo · no AI evaluator ran</p><section class="eval-create"><h2>New evaluation</h2><p>Select saved traces and choose who answers each question.</p><form id="create-eval-form"><label>Name<input name="name" maxlength="100" required value="Workflow review"></label><label>Description<input name="description" maxlength="300" placeholder="Optional"></label><fieldset><legend>Saved traces</legend>${s.dataset.traces.map((t,i)=>`<label><input type="checkbox" name="traceId" value="${esc(t.id)}" ${i===0?'checked':''}> ${esc(t.label)}</label>`).join('')}</fieldset><fieldset id="eval-question-editor"><legend>Questions</legend>${defaults.map(evalQuestionRow).join('')}<button type="button" data-add-question>Add question</button></fieldset><button type="submit" ${evalBusy?'disabled':''}>Create evaluation</button><small>Assign each question to you or a simulated reviewer. Simulated review is deterministic demo data; no AI evaluator runs.</small></form></section><section class="eval-list"><h2>Saved evaluations</h2><table><thead><tr><th>Name</th><th>Trace set</th><th>Reviewers</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="4">No evaluations yet.</td></tr>'}</tbody></table></section></main>${notice(s)}`);
+  root.innerHTML=shell(s,`<main class="eval-page"><header class="list-header"><h1>${icon('check')}Evals</h1><span class="eval-local-label">Docs-grounded reconstruction · synthetic · local demo</span></header><p class="eval-provenance">Synthetic evaluation · local demo · no AI evaluator ran</p><section class="eval-create"><h2>New evaluation</h2><p>Start with the outcome your agent must achieve. Select saved traces, add one question per requirement, and include good, failing and ambiguous examples. A trace without errors can still give a poor answer.</p><form id="create-eval-form"><label>Name<input name="name" maxlength="100" required value="Workflow review"></label><label>Description<input name="description" maxlength="300" placeholder="Optional"></label><fieldset><legend>Saved traces</legend>${s.dataset.traces.map((t,i)=>`<label><input type="checkbox" name="traceId" value="${esc(t.id)}" ${i===0?'checked':''}> ${esc(t.label)}</label>`).join('')}</fieldset><fieldset id="eval-question-editor"><legend>Questions</legend>${defaults.map(evalQuestionRow).join('')}<button type="button" data-add-question>Add question</button></fieldset><fieldset><legend>Deterministic sample checks</legend><label><input type="checkbox" name="check-no-error"> No execution errors</label><label><input type="checkbox" name="check-latency"> Maximum request duration (ms)<input type="number" name="check-max-ms" min="0" max="600000" value="1000"></label><label><input type="checkbox" name="check-fields"> Required output fields<input name="check-fields-list" maxlength="200" placeholder="e.g. answer, citations"></label><small>These checks execute on the saved synthetic snapshot. They do not judge truth, tone or task resolution. Use human review for those requirements.</small></fieldset><button type="submit" ${evalBusy?'disabled':''}>Create evaluation</button><small>Assign each question to you or a simulated reviewer. Simulated review is deterministic demo data; no AI evaluator runs.</small></form></section><section class="eval-list"><h2>Saved evaluations</h2><table><thead><tr><th>Name</th><th>Trace set</th><th>Reviewers</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="4">No evaluations yet.</td></tr>'}</tbody></table></section></main>${notice(s)}`);
 }
 function evaluationPage(s: DemoSession, result: EvaluationDetail) {
   evaluation=result; evaluations=undefined;
@@ -597,7 +608,7 @@ function evaluationPage(s: DemoSession, result: EvaluationDetail) {
   if(evaluationTab==='Results') {
     const aggs=e.aggregates.map(a=>{const q=e.questions.find(x=>x.key===a.questionKey);const val=a.value!==null?(q?.type==='yes_no'?`${Math.round(a.value*100)}% yes`:String(a.value)):a.answeredCount>0?(q?.type==='text'?`${a.answeredCount} text response${a.answeredCount===1?'':'s'} · no numeric score`:`${a.answeredCount} response${a.answeredCount===1?'':'s'} saved · no numeric score`):'No saved responses';return `<tr><td>${esc(q?.label??a.questionKey)}</td><td>${a.answeredCount} / ${a.totalCount}</td><td>${esc(val)}</td><td>${a.source==='simulated_judge'?'Simulated score — no AI evaluator ran':a.source==='buyer'?'Your review':'Mixed sources'}</td></tr>`}).join('');
     const responses=e.responses.map(r=>{const q=e.questions.find(x=>x.key===r.questionKey),t=e.traceSnapshot.find(x=>x.id===r.traceId);return `<tr><td>${t?link(traceLink(t),esc(t.label)):esc(r.traceId)}</td><td>${esc(q?.label??r.questionKey)}</td><td>${esc(String(r.value))}</td><td>${r.source==='simulated_judge'?'Simulated score — no AI evaluator ran':'Your review'}</td></tr>`}).join('');
-    panel=`<section class="eval-results"><h2>Per-question summary</h2><table><thead><tr><th>Question</th><th>Answered</th><th>Result</th><th>Source</th></tr></thead><tbody>${aggs||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table><h2>Saved responses</h2><table><thead><tr><th>Trace</th><th>Question</th><th>Response</th><th>Source</th></tr></thead><tbody>${responses||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table></section>`;
+    panel=`<section class="eval-results">${evaluationCheckTable(e)}<h2>Per-question summary</h2><table><thead><tr><th>Question</th><th>Answered</th><th>Result</th><th>Source</th></tr></thead><tbody>${aggs||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table><h2>Saved responses</h2><table><thead><tr><th>Trace</th><th>Question</th><th>Response</th><th>Source</th></tr></thead><tbody>${responses||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table></section>`;
   }
   root.innerHTML=shell(s,`<main class="eval-page"><header class="eval-detail-header">${link(evalBase(s.id),'← Evals')}<div>${evalHeader(e.name)}<p>${esc(e.description||'Review of saved synthetic traces')}</p></div><span class="eval-local-label">Docs-grounded reconstruction</span></header><p class="eval-provenance">Synthetic evaluation · local demo · no AI evaluator ran</p>${result.stale?'<p role="status" class="eval-stale">Saved trace snapshot · the current dataset has changed.</p>':''}<nav class="eval-tabs" aria-label="Evaluation detail">${tabs}</nav>${panel}</main>${notice(s)}`);
 }
@@ -618,7 +629,11 @@ async function createEvaluation(form: HTMLFormElement) {
     if(type==='choice')q.options=String(f.get(`q-options:${index}`)??'').split(',').map(x=>x.trim()).filter(Boolean);
     return q;
   });
-  try { const result=await request<EvaluationDetail>(`/api/sessions/${current.id}/evaluations`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientOperationId:crypto.randomUUID(),datasetVersion:current.version,name:String(f.get('name')??''),description:String(f.get('description')??''),traceIds,questions})},true); evaluationTab='Overview'; await navigate(evalLink(current.id,result.evaluation.id)); }
+  const checks:EvaluationCheck[]=[];
+  if(f.has('check-no-error'))checks.push({key:'no-error',label:'No execution errors',kind:'no_error'});
+  if(f.has('check-latency'))checks.push({key:'latency',label:'Request duration limit',kind:'latency',maxDurationMs:Number(f.get('check-max-ms'))});
+  if(f.has('check-fields'))checks.push({key:'required-fields',label:'Required output fields',kind:'required_output_fields',fields:String(f.get('check-fields-list')??'').split(',').map(x=>x.trim()).filter(Boolean)});
+  try { const result=await request<EvaluationDetail>(`/api/sessions/${current.id}/evaluations`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientOperationId:crypto.randomUUID(),datasetVersion:current.version,name:String(f.get('name')??''),description:String(f.get('description')??''),traceIds,questions,checks})},true); evaluationTab='Overview'; await navigate(evalLink(current.id,result.evaluation.id)); }
   catch(e){toast(plain((e as Error).message));} finally{evalBusy=false;}
 }
 async function saveEvaluationReview(form: HTMLFormElement) {
@@ -628,6 +643,34 @@ async function saveEvaluationReview(form: HTMLFormElement) {
   evalBusy=true;
   try{evaluation=await request<EvaluationDetail>(`/api/sessions/${current.id}/evaluations/${e.id}/reviews`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientOperationId:crypto.randomUUID(),datasetVersion:e.datasetVersion,expectedVersion:e.version,responses})},true);evaluationTab='Results';sessionStorage.setItem(evaluationTabKey(e.id),evaluationTab);evaluationPage(current,evaluation);}
   catch(error){toast(plain((error as Error).message));}finally{evalBusy=false;}
+}
+function routingDraft(s:DemoSession):Record<string,string|string[]> {
+  let draft=routingDrafts.get(s.id);
+  if(!draft){draft={name:'Synthetic signal review',type:'per_event',threshold:'1',severity:'warning',cooldown:'60000',recipient:'Engineering on-call',destination:'in_app',traceIds:s.dataset.traces.map(t=>t.id)};routingDrafts.set(s.id,draft);}
+  return draft;
+}
+function routingPage(s:DemoSession){
+  const d=routingDraft(s),steps=['Type','Condition','Details','Response','Confirm'];
+  const selected=(key:string,value:string)=>d[key]===value?'selected':'';
+  let panel='';
+  if(routingDetail){const p=routingDetail.preview;panel=`<section class="routing-create"><h2>${esc(p.name)}</h2><p role="status">${p.conditionMet?'Simulated delivery preview · no notification sent':'Condition not met · no notification sent'}</p>${routingDetail.stale?'<p class="eval-stale">Saved trace snapshot · current traces changed.</p>':''}<dl><dt>Fictional owner</dt><dd>${esc(p.recipient)}</dd><dt>Destination</dt><dd>${esc(p.destination)}</dd><dt>Severity / cooldown</dt><dd>${esc(p.severity)} / ${p.cooldownMs} ms</dd><dt>Source</dt><dd>Deterministic match against saved synthetic trace snapshot v${p.datasetVersion}</dd></dl><h3>Action context</h3>${p.matches.length?p.matches.map(m=>`<article><strong>${esc(p.traceSnapshot.find(t=>t.id===m.traceId)?.label??m.traceId)}</strong><p>${esc(m.context)}</p><small>${m.spanIds.length} matching saved spans · ${esc(m.owner)}</small></article>`).join(''):'<p>No matching saved signals.</p>'}${link(routingBase(s.id),'← Alerts')}</section>`;}
+  else{
+    if(routingStep===0)panel=`<h2>What should trigger this alert?</h2><label>Type<select name="type"><option value="per_event" ${selected('type','per_event')}>Per event</option><option value="threshold" ${selected('type','threshold')}>Threshold</option></select></label><p>This preview supports saved execution errors. Metric threshold, compound and ingestion health rules are documented product features; they are outside this local preview.</p>`;
+    if(routingStep===1)panel=`<h2>Which signals should we match?</h2><fieldset><legend>Saved synthetic traces</legend>${s.dataset.traces.map(t=>`<label><input type="checkbox" name="traceId" value="${esc(t.id)}" ${(d.traceIds as string[]).includes(t.id)?'checked':''}> ${esc(t.label)}</label>`).join('')}</fieldset>${d.type==='threshold'?`<p>Counts only failure outcomes; recovered and escalation outcomes do not count.</p><label>Failed trace threshold<input type="number" name="threshold" min="1" max="4" value="${esc(d.threshold)}"></label>`:'<p>Match each trace containing an ERROR span. Successful retries can still contain an error signal.</p>'}`;
+    if(routingStep===2)panel=`<h2>Add details</h2><label>Name<input name="name" maxlength="120" value="${esc(d.name)}" required></label><label>Severity<select name="severity"><option value="warning" ${selected('severity','warning')}>Warning</option><option value="critical" ${selected('severity','critical')}>Critical</option></select></label><label>Cooldown (ms)<input name="cooldown" type="number" min="0" max="600000" value="${esc(d.cooldown)}"></label><p>Cooldown is recorded for discussion. This one-shot preview does not schedule or throttle future deliveries.</p>`;
+    if(routingStep===3)panel=`<h2>How should we tell you?</h2><p>Choose where this alert would be delivered. All destinations below are simulated; no integration is connected.</p><label>Fictional owner<select name="recipient">${['Engineering on-call','Quality reviewer','Product owner'].map(x=>`<option ${selected('recipient',x)}>${x}</option>`).join('')}</select></label><label>Destination<select name="destination"><option value="in_app" ${selected('destination','in_app')}>In-app (simulated)</option><option value="email" ${selected('destination','email')}>Email (simulated)</option><option value="slack" ${selected('destination','slack')}>Slack (simulated)</option></select></label><p>In Neatlogs, email preferences and connected Slack destinations affect delivery. This demo never asks for a real address or contact.</p>`;
+    if(routingStep===4)panel=`<h2>Confirm synthetic preview</h2><p>${esc(d.name)} · ${esc(d.type)} · ${esc(d.severity)}</p><p>${(d.traceIds as string[]).length} saved traces → ${esc(d.recipient)} via ${esc(d.destination)}.</p><p>Evaluate the condition locally, save its evidence and preview the action context. No real alert rule or message will be created.</p>`;
+    panel=`<section class="eval-create routing-create"><nav class="eval-tabs" aria-label="Alert preview steps">${steps.map((x,i)=>`<span ${i===routingStep?'aria-current="step"':''}>${i+1}. ${x}</span>`).join('')}</nav><form id="routing-form">${panel}<div>${routingStep?'<button type="button" data-routing-back>Back</button>':''}<button type="submit" ${routingBusy?'disabled':''}>${routingStep===4?'Save simulated preview':'Next'}</button></div></form></section><section class="eval-list"><h2>Saved previews</h2>${routingList?.previews.map(r=>link(`${routingBase(s.id)}/${r.preview.id}`,esc(r.preview.name))).join('<br>')||'<p>No previews yet.</p>'}</section>`;
+  }
+  root.innerHTML=shell(s,`<main class="eval-page"><header class="list-header"><h1>${icon('bell')}alerts</h1><span class="eval-local-label">Synthetic routing preview</span></header><p class="eval-provenance">Local demo · no real contact, alert rule or outbound message</p>${panel}</main>${notice(s)}`);
+}
+function saveRoutingDraft(form:HTMLFormElement){if(!current)return;const d=routingDraft(current),f=new FormData(form);for(const key of ['name','type','threshold','severity','cooldown','recipient','destination'])if(f.has(key))d[key]=String(f.get(key));if(routingStep===1)d.traceIds=f.getAll('traceId').map(String);}
+async function submitRouting(form:HTMLFormElement){
+  if(!current||routingBusy)return;saveRoutingDraft(form);const s=current,d=routingDraft(s);
+  if(routingStep===1&&!(d.traceIds as string[]).length){toast('Select at least one saved trace.');return;}
+  if(routingStep<4){routingStep++;routingPage(s);return;}
+  routingBusy=true;
+  try{const result=await request<RoutingDetail>(`/api/sessions/${s.id}/routing`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientOperationId:crypto.randomUUID(),datasetVersion:s.version,name:d.name,traceIds:d.traceIds,rule:d.type==='per_event'?{type:'per_event'}:{type:'threshold',failedTraceThreshold:Number(d.threshold)},recipient:d.recipient,destination:d.destination,severity:d.severity,cooldownMs:Number(d.cooldown)})},true);await navigate(`${routingBase(s.id)}/${result.preview.id}`);}catch(error){toast(plain((error as Error).message));}finally{routingBusy=false;}
 }
 async function render(preserveEntry = false): Promise<boolean> {
   stopEntryRotation();
@@ -646,7 +689,7 @@ async function render(preserveEntry = false): Promise<boolean> {
   document.documentElement.classList.remove('chat-dock');
   if (!keepEntry) root.innerHTML=activeGuidance && current ? shell(current,'<main class="loading" role="status">Loading the relevant area…</main>') : '<main class="loading" role="status">Loading synthetic traces…</main>';
   try {
-    const route = /^\/demo\/([^/]+)\/(traces|evals)(?:\/([^/]+))?$/.exec(location.pathname);
+    const route = /^\/demo\/([^/]+)\/(traces|evals|alerts)(?:\/([^/]+))?$/.exec(location.pathname);
     if (!route) throw new Error('NOT_FOUND: Page not found.');
     const s = await request<DemoSession>(`/api/sessions/${route[1]}`);
     if (run!==generation) return false; current=s; chatOpen = sessionStorage.getItem(chatKey(s.id)) !== '1';
@@ -655,7 +698,11 @@ async function render(preserveEntry = false): Promise<boolean> {
     restorePending(s);
     restoreSteps(s);
     if(awaitingPersonalisedDemo(s) && route[2]==='evals'){preparationWorkspace(s);return run===generation;}
-    if (route[2] === 'evals') {
+    if(route[2]==='alerts'){
+      if(route[3]){routingDetail=await request<RoutingDetail>(`/api/sessions/${s.id}/routing/${route[3]}`);routingList=undefined;}
+      else{routingList=await request<RoutingList>(`/api/sessions/${s.id}/routing`);routingDetail=undefined;routingStep=0;}
+      routingPage(s);
+    } else if (route[2] === 'evals') {
       evaluationTab = route[3] ? (sessionStorage.getItem(evaluationTabKey(route[3])) as typeof evaluationTab | null) ?? 'Overview' : 'Overview';
       if (route[3]) evaluationPage(s, await request<EvaluationDetail>(`/api/sessions/${s.id}/evaluations/${route[3]}`));
       else evaluationsPage(s, await request<EvaluationList>(`/api/sessions/${s.id}/evaluations`));
@@ -730,6 +777,8 @@ function stamp(role: ChatTurn['role'], text: string, status: ChatTurn['status'])
 function repaint() {
   if (ended) return;
   if (!current || location.pathname === '/entry' || location.pathname === '/') { entry(); return; }
+  if(location.pathname.includes('/alerts')){routingPage(current);return;}
+  if (location.pathname.includes('/evals')) { if(evaluation)evaluationPage(current,evaluation);else if(evaluations)evaluationsPage(current,evaluations);else void render(); return; }
   if (/\/traces\/[^/]+$/.test(location.pathname)) {
     const trace = current.dataset.traces.find(t => location.pathname.endsWith(`/${t.id}`));
     if (trace) detail(current, trace); else navigate(base(current.id));
@@ -1065,6 +1114,7 @@ document.addEventListener('click', event => {
 }, true);
 document.addEventListener('click',async event=>{
   const el=(event.target as Element).closest<HTMLElement>('a,button'); if (!el || el.hasAttribute('data-clear-filter')) return;
+  if(el.hasAttribute('data-routing-back')&&current){const form=root.querySelector<HTMLFormElement>('#routing-form');if(form)saveRoutingDraft(form);routingStep=Math.max(0,routingStep-1);routingPage(current);return;}
   if(el.hasAttribute('data-guidance-id')) { event.preventDefault();await showGuidance(el.dataset.guidanceMessage!,el.dataset.guidanceId!);return; }
   if(el.hasAttribute('data-guidance-dismiss')) {clearGuidance();return;}
   const traceHelp = el.closest<HTMLElement>('.trace-help');
@@ -1149,6 +1199,7 @@ function toast(message:string) { document.querySelector('.toast')?.remove();cons
 document.addEventListener('submit',async event=>{
   const form=event.target as HTMLFormElement; event.preventDefault();
   if (form.id==='chat-form') { void sendChat(String(new FormData(form).get('message') ?? '')); return; }
+  if(form.id==='routing-form'){void submitRouting(form);return;}
   if (form.id==='create-eval-form') { void createEvaluation(form); return; }
   if (form.id==='review-eval-form') { void saveEvaluationReview(form); return; }
   if (current && (form.id==='filters'||form.id==='search-form')) {

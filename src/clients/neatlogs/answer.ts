@@ -90,7 +90,7 @@ function demonstrationLine(r: CapabilityRecord): string {
 function planLine(r: CapabilityRecord): string {
   const p = r.planAvailability;
   if (p.status === 'unknown') return `Plan availability for ${r.title}: unknown. ${clip(p.note, 200)}`.trim();
-  return `${r.title} is listed for: ${p.plans.join(', ') || 'no plans recorded'}.${p.note ? ` ${clip(p.note, 160)}` : ''}`;
+  return `${r.title} is listed for: ${p.plans.join(', ') || 'no plans recorded'}.${p.note ? ` ${wholeSentences(p.note, 160)}` : ''}`;
 }
 
 /**

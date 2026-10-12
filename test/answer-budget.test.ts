@@ -14,7 +14,8 @@ test('broad evaluation answer fits the buyer reply ceiling with complete grounde
   assert.match(answer, /Human reviewers/);
   assert.match(answer, /Sources:/);
   assert.match(answer, /knowledge version/);
-  assert.match(answer, /Plan availability.*unknown\.$/);
+  assert.match(answer, /(?:Plan availability.*unknown\.|is listed for:)/);
+  assert.match(answer, /(?:entitlement|access|Plan availability)/);
   assert.doesNotMatch(answer, /guarantees perfect|for free|…/);
   for (const paragraph of answer.split('\n').filter(x => x && !/^\d+\./.test(x))) assert.match(paragraph, /[.!?]$/, paragraph);
 });

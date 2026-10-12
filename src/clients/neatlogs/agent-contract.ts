@@ -222,7 +222,7 @@ export interface AgentService {
 // Model provider abstraction. Mock first; live provider/model IDs stay unset until approved.
 // ---------------------------------------------------------------------------
 export interface GuidanceSelection {
-  targetId: 'trace.overview' | 'trace.slowest-span' | 'trace.model-call' | 'trace.output';
+  targetId: 'trace.overview' | 'trace.slowest-span' | 'trace.model-call' | 'trace.output' | 'evals.overview' | 'alerts.overview';
   /** Saved id only; omit to use the current authorised trace. */
   traceId?: string;
 }

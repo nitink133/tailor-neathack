@@ -1,13 +1,15 @@
 {
-  "version": "2026-10-12.1",
+  "version": "2026-10-12.2",
   "contractVersion": "2026-10-11.1",
-  "recordCount": 25,
-  "generatedBy": "NIT-270 knowledge lane",
+  "recordCount": 28,
+  "generatedBy": "Neatlogs evals and routing research lane",
   "notes": [
     "Official-product claims were checked against fetched first-party pages on 2026-10-11.",
     "Clone-only claims are grounded in repository contracts and the dated NIT-265 reference.",
-    "Pricing and capability-to-plan availability remain unknown because the dedicated pricing URL was not fetched successfully.",
     "Capability map now separates product limitations, clone support and hosted runtime uncertainty; first-party eval/API evidence refreshed 2026-10-12.",
-    "Synthetic evals use local review/simulated provenance and prove no hosted access."
+    "Synthetic evals use local review/simulated provenance and prove no hosted access.",
+    "Native eval and alert setup plus personal notification settings inspected read-only on 2026-10-12; hosted dispatch and delivery were not tested.",
+    "Published human/AI eval plan positioning verified from homepage pricing; account-specific entitlement remains unverified.",
+    "Update me is ambiguous buyer wording: no named product action verified; distinguish alerts, per-question evaluator assignment and personal updates."
   ]
 }

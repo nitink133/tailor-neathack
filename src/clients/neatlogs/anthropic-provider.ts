@@ -115,7 +115,7 @@ const GUIDANCE_SCHEMA = {
   type: ['array', 'null'],
   description: 'Optional contextual destinations selected with this answer; zero to three relevant targets only. Null for ask/refuse/unsupported. Never invent destinations.',
   // Keep the already-large scenario grammar small. Saved IDs are resolved by the adapter, never needed on the wire.
-  items: { type: 'string', enum: ['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output'] },
+  items: { type: 'string', enum: ['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output', 'evals.overview', 'alerts.overview'] },
 } as const;
 export const AGENT_ACTION_SCHEMA = {
   type: 'object',
