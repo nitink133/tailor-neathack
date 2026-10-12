@@ -7,6 +7,12 @@ import { Store } from './infrastructure/store.ts';
 import { appServer, startSweeper } from './infrastructure/server.ts';
 import { createTelemetry } from './infrastructure/telemetry.ts';
 import { readConfig } from './infrastructure/config.ts';
+import { verifyRuntimeProject } from './infrastructure/telemetry-project.ts';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import * as adapterModule from './clients/neatlogs/adapter.ts';
+import { CONTRACT_VERSION } from './clients/neatlogs/agent-contract.ts';
+import { POLICY_VERSION } from './tailor/policy.ts';
 import { createAgentService } from './clients/neatlogs/service.ts';
 import { createProvider } from './clients/neatlogs/provider.ts';
 import { loadKnowledge } from './clients/neatlogs/knowledge.ts';
@@ -20,12 +26,20 @@ function fail(message: string): never {
 
 const config = readConfig(process.env, fail);
 const { spend, ledgerPath } = config;
+if (config.telemetryProject) {
+  try { await verifyRuntimeProject(config.telemetryProject); } catch { fail('The telemetry key project could not be verified. No exporter was initialized.'); }
+}
+let codeVersion = 'code-version-unavailable';
+try { codeVersion = execFileSync('git', ['-C', fileURLToPath(new URL('../', import.meta.url)), 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* explicit unknown, never a fabricated revision */ }
+const adapterVersion = typeof (adapterModule as unknown as Record<string, unknown>).NEATLOGS_ADAPTER_VERSION === 'string'
+  ? (adapterModule as unknown as Record<string, string>).NEATLOGS_ADAPTER_VERSION : 'adapter-version-unavailable';
 
 const clock = systemClock;
 const store = new Store(config.dataPath, { clock });
 const telemetry = await createTelemetry({
   mode: config.telemetryMode,
   secret: store.secret,
+  versions: { codeVersion, adapterVersion, contractVersion: CONTRACT_VERSION, contextSchemaVersion: 1, policyVersion: POLICY_VERSION },
   ...(config.neatlogs ?? {}),
 });
 const knowledge = loadKnowledge();

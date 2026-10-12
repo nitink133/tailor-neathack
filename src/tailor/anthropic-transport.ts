@@ -269,7 +269,7 @@ export function createAnthropicTransport(options: AnthropicTransportOptions): An
       system: mapped.system,
       messages: mapped.messages,
       thinking: { type: 'adaptive' },
-      output_config: { effort, format: { type: 'json_schema', schema: args.schema } },
+      output_config: { effort: args.kind === 'guard' ? 'low' : effort, format: { type: 'json_schema', schema: args.schema } },
     };
     const controller = new AbortController();
     const timedOut = () => new ProviderError('timeout', 'The model call did not finish within the per-call time limit', { retryable: false });

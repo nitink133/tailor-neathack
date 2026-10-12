@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import type { TelemetryMode } from './telemetry.ts';
 import { maxOutputTokensFor, type ProviderConfig } from '../clients/neatlogs/provider.ts';
 import { createSpendGuard, hasRatesFor, type SpendGuard } from '../tailor/spend.ts';
+import { TAILOR_RUNTIME_PROJECT, HOSTED_INGEST_ORIGIN, type ProjectProbeConfig } from './telemetry-project.ts';
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 type Effort = (typeof EFFORTS)[number];
@@ -14,6 +15,7 @@ export interface ServerConfig {
   ledgerPath: string;
   telemetryMode: TelemetryMode;
   neatlogs?: { apiKey: string | undefined; endpoint: string | undefined };
+  telemetryProject?: ProjectProbeConfig;
   devKey: string | undefined;
   providerConfig: ProviderConfig;
   spend?: SpendGuard;
@@ -36,6 +38,15 @@ export function readConfig(env: NodeJS.ProcessEnv, fail: (message: string) => ne
   }
   if (telemetryMode === 'neatlogs' && !env.NEATLOGS_API_KEY) {
     fail('TAILOR_TELEMETRY=neatlogs needs NEATLOGS_API_KEY in the environment (external ingestion is a separate approval).');
+  }
+  let telemetryProject: ProjectProbeConfig | undefined;
+  if (telemetryMode === 'neatlogs') {
+    if (env.TAILOR_NEATLOGS_PROJECT_ID !== TAILOR_RUNTIME_PROJECT) fail('Set TAILOR_NEATLOGS_PROJECT_ID to the approved Tailor runtime project before enabling ingestion.');
+    const probeTraceId = env.TAILOR_NEATLOGS_PROBE_TRACE_ID ?? '';
+    if (!/^[0-9a-f]{32}$/.test(probeTraceId)) fail('TAILOR_NEATLOGS_PROBE_TRACE_ID must identify a previously approved Doctor trace; startup verifies its project before ingestion.');
+    const endpoint = env.NEATLOGS_ENDPOINT?.trim() || HOSTED_INGEST_ORIGIN;
+    try { if (new URL(endpoint).origin !== HOSTED_INGEST_ORIGIN) fail('NEATLOGS_ENDPOINT must use the verified hosted origin.'); } catch { fail('NEATLOGS_ENDPOINT is not a valid verified endpoint.'); }
+    telemetryProject = { apiKey: env.NEATLOGS_API_KEY!, endpoint, projectId: TAILOR_RUNTIME_PROJECT, probeTraceId };
   }
 
   let spend: SpendGuard | undefined;
@@ -62,5 +73,6 @@ export function readConfig(env: NodeJS.ProcessEnv, fail: (message: string) => ne
     port, dataPath, ledgerPath, telemetryMode, devKey: env.TAILOR_DEV_KEY, providerConfig,
     ...(telemetryMode === 'neatlogs' ? { neatlogs: { apiKey: env.NEATLOGS_API_KEY, endpoint: env.NEATLOGS_ENDPOINT?.trim() || undefined } } : {}),
     ...(spend ? { spend } : {}),
+    ...(telemetryProject ? { telemetryProject } : {}),
   };
 }

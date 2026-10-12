@@ -343,7 +343,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
         session, request, history: resolved.history, buyerText: resolved.effectiveText, choice: resolved.choice, question: resolved.question,
         records, knowledgeVersion: knowledge.version,
       });
-        annotate({ contextBytes: Buffer.byteLength(JSON.stringify(value), 'utf8') });
+        annotate({ contextBytes: Buffer.byteLength(JSON.stringify(value), 'utf8'), ...(adapter.contextMetrics?.(value) ?? {}) });
         return value;
       });
       const messages: ProviderMessage[] = [
@@ -473,6 +473,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
             : [];
           if (verdict.length) result = { state: 'rejected', problems: verdict, version: lastVersion };
           else {
+            if (input.signal?.aborted) { telemetry.evidence?.interrupt('cancelled'); return finish('provider_unavailable', note('This request was cancelled before saving. Please try again.', 'failed')); }
             executions++;
             const before = lastVersion;
             try {
@@ -662,6 +663,7 @@ export function createTailorCore<T extends AdapterTypes>(adapter: ProductAdapter
         return finish('unsupported', note(`${lead}${tail} Nothing was changed.`));
       }
     } catch (error) {
+      if (input.signal?.aborted) telemetry.evidence?.interrupt('cancelled');
       telemetry.event('agent_error', { errorClass: errorClass(error) });
       decide('error');
       return finish('provider_unavailable', note('Something went wrong on my side before I could finish, so I haven’t changed anything. Please try again.', 'failed'));
