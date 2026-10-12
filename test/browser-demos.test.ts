@@ -5,6 +5,10 @@ import { harness, tempStore, op, type Harness } from './helpers/backend.ts';
 import { travelProposalV1 } from '../src/clients/neatlogs/examples/travel-booking.ts';
 import type { DemoSwitchChoice } from '../src/tailor/demo-contract.ts';
 import { Store, Failure } from '../src/infrastructure/store.ts';
+import { qualityWorkflowProposal } from '../src/clients/neatlogs/eval-fixtures.ts';
+import { createAgentService } from '../src/clients/neatlogs/service.ts';
+import { loadKnowledge } from '../src/clients/neatlogs/knowledge.ts';
+import { travelProposalV2 } from '../src/clients/neatlogs/examples/travel-booking.ts';
 import { CORE_LIMITS } from '../src/tailor/contract.ts';
 
 const turn = (text: string) => ({ text, clientTurnId: randomUUID() });
@@ -213,5 +217,81 @@ test('crash after separate publication recovers the same child and original cont
     assert.equal(reopened.read(resolved.demoId).conversation[0]!.text, 'Switch to insurance claims');
     assert.deepEqual(reopened.recoverRun(id, clientTurnId), recovered);
     reopened.close();
+  } finally { t.cleanup(); }
+});
+
+test('bootstrap precedes first creation so a lost creation response retries with authenticated ownership', async () => {
+  const h = await harness();
+  try {
+    const bootstrap = await h.call('/api/browser-session', 'POST');
+    assert.equal(bootstrap.status, 200); assert.deepEqual(bootstrap.data.demos, []);
+    const operation = randomUUID(); const data = { description: 'Fictional first workflow' };
+    // Discard every creation response byte and its Set-Cookie; retain only the cookie already acknowledged by bootstrap.
+    const lost = await fetch(`http://127.0.0.1:${h.port}/api/browser-session/demos`, { method: 'POST',
+      headers: { cookie: bootstrap.cookie, 'content-type': 'application/json', 'idempotency-key': operation }, body: JSON.stringify(data) });
+    await lost.arrayBuffer();
+    const replay = await h.call('/api/browser-session/demos', 'POST', data, bootstrap.cookie, { 'idempotency-key': operation });
+    assert.equal(replay.status, 201);
+    const browser = await h.call('/api/browser-session', 'GET', undefined, bootstrap.cookie);
+    assert.equal(browser.data.id, bootstrap.data.id); assert.equal(browser.data.demos.length, 1);
+    assert.equal(browser.data.demos[0].id, replay.data.id);
+    const stranger = await h.call('/api/browser-session', 'POST');
+    const wrongOwner = await h.call('/api/browser-session/demos', 'POST', data, stranger.cookie, { 'idempotency-key': operation });
+    assert.equal(wrongOwner.status, 409, 'operation possession never transfers ownership');
+    assert.equal((await h.call('/api/browser-session', 'POST', undefined, bootstrap.cookie)).data.id, bootstrap.data.id, 'bootstrap reuses an authenticated owner');
+  } finally { await h.close(); }
+});
+
+test('material edit-mode domain replacement asks before publication, including forged Story identity', async () => {
+  for (const forged of [false, true]) {
+    const h = await harness();
+    try {
+      const created = await established(h); const id = created.data.id; const before = h.store.read(id);
+      const proposal = { ...qualityWorkflowProposal('extraction', before.version), mode: 'edit' as const,
+        removeTraceKeys: before.dataset.traces.map(t => t.scenario),
+      };
+      if (forged) proposal.story.domain = before.story!.domain;
+      const core = createAgentService();
+      h.agent.script = input => core.handleTurn({ ...input, knowledge: loadKnowledge(), provider: { name: 'tailor-mock', mode: 'mock', model: null,
+        async complete() { return { action: { type: 'propose', proposal, explanation: 'Created a fictional extraction example.' }, usage: null, latencyMs: 0 }; },
+      } });
+      const asked = await h.call(`/api/sessions/${id}/turns`, 'POST', turn('Show an invoice extraction workflow that omits the due date'), created.cookie);
+      assert.equal(asked.data.outcome, 'clarification'); assert.equal(asked.data.clarification.kind, 'demo_switch');
+      assert.deepEqual(h.store.read(id).dataset, before.dataset); assert.deepEqual(h.store.read(id).story, before.story);
+      assert.equal(h.store.publish(id, proposal).state, 'rejected', 'the direct publication seam enforces the same normalized-state decision');
+      const choice = await h.call(`/api/sessions/${id}/turns`, 'POST', { ...turn('Start separate demo'), choiceId: 'start_separate', confirmationRef: asked.data.clarification.referenceId }, created.cookie);
+      assert.equal(choice.data.outcome, 'committed'); assert.notEqual(choice.data.demoId, id);
+      assert.deepEqual(h.store.read(id).dataset, before.dataset);
+      assert.match(h.store.read(choice.data.demoId).dataset.traces[0]!.name, /extraction/i);
+    } finally { await h.close(); }
+  }
+});
+
+test('small same-workflow edits remain direct and do not ask a material switch question', () => {
+  const t = tempStore();
+  try {
+    const created = t.store.createOwned(null, 'Fictional travel agent', undefined, op());
+    assert.equal(t.store.publish(created.session.id, travelProposalV1).state, 'committed');
+    const edit = structuredClone(travelProposalV2);
+    assert.deepEqual(t.store.prepareScenario(created.session.id, edit, 'Make the retry fail too'), { state: 'ready' });
+    assert.equal(t.store.publish(created.session.id, edit).state, 'committed');
+    assert.equal(t.store.read(created.session.id).dataset.traces.length, 2);
+  } finally { t.cleanup(); }
+});
+
+test('reusing trace keys, domain and root names cannot disguise a complete payload-shape replacement', () => {
+  const t = tempStore();
+  try {
+    const created = t.store.createOwned(null, 'Fictional travel agent', undefined, op());
+    assert.equal(t.store.publish(created.session.id, travelProposalV1).state, 'committed');
+    const saved = t.store.read(created.session.id); const original = saved.dataset.traces[0]!;
+    const proposal = qualityWorkflowProposal('extraction', saved.version);
+    proposal.mode = 'edit'; proposal.story.domain = saved.story!.domain;
+    proposal.traces[0]!.key = original.scenario; proposal.activeScenario = original.scenario;
+    proposal.traces[0]!.name = original.name;
+    proposal.traces[0]!.spans.find(s => s.parentKey === null)!.name = original.spans.find(s => s.parentId === null)!.name;
+    assert.equal(t.store.prepareScenario(saved.id, proposal, 'Switch the workflow').state, 'confirmation_required');
+    assert.equal(t.store.publish(saved.id, proposal).state, 'rejected');
+    assert.deepEqual(t.store.read(saved.id).dataset, saved.dataset);
   } finally { t.cleanup(); }
 });

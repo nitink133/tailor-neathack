@@ -165,6 +165,11 @@ export function appServer(store: Store, options: AppServerOptions) {
       if (path.startsWith('/api/')) {
         const setBrowserCookie = (id: string) => res.setHeader('Set-Cookie', `tailor=${store.browserCookie(id)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${COOKIE_MAX_AGE_S}`);
         if (path === '/api/capabilities' && req.method === 'GET') return send(200, (options.capabilities ?? publicCapabilities)());
+        if (path === '/api/browser-session' && req.method === 'POST') {
+          const existing = store.browserForCookie(cookieOf(req), true);
+          const browser = existing ? store.browserSession(existing) : store.createBrowserSession();
+          setBrowserCookie(browser.id); return send(200, browser);
+        }
         if (path === '/api/browser-session' && req.method === 'GET') {
           const owner = store.browserForCookie(cookieOf(req), true);
           if (!owner) throw new Failure(404, 'NOT_FOUND', 'This browser has no saved demos yet.');
@@ -176,6 +181,7 @@ export function appServer(store: Store, options: AppServerOptions) {
           if (!owner) throw new Failure(404, 'NOT_FOUND', 'This browser has no saved demos yet.');
           if (gate.busy(owner)) throw new Failure(409, 'TURN_IN_FLIGHT', 'Wait for the current turn before switching demos.');
           const data = await body(req);
+          if (gate.busy(owner)) throw new Failure(409, 'TURN_IN_FLIGHT', 'Wait for the current turn before switching demos.');
           const selected = store.selectDemo(owner, data?.demoId, data?.expectedVersion); setBrowserCookie(owner);
           return send(200, selected);
         }
@@ -227,6 +233,7 @@ export function appServer(store: Store, options: AppServerOptions) {
           if (req.method === 'POST') {
             if (gate.busy(owner)) throw new Failure(409, 'TURN_IN_FLIGHT', 'Wait for the current turn before reviewing this demo.');
             const data = await body(req);
+            if (gate.busy(owner)) throw new Failure(409, 'TURN_IN_FLIGHT', 'Wait for the current turn before reviewing this demo.');
             const latest = store.read(id);
             if (!evaluationId) return send(201, evaluations.create(latest, data));
             if (evalRoute[3]) return send(200, evaluations.review(latest, evaluationId, data));
