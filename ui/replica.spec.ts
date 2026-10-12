@@ -15,7 +15,7 @@ async function session(page:Pg):Promise<DemoSession>{return await (await page.re
 const countText=(n:number)=>`1 – ${n} of ${n}`;
 const errSpans=(t:DemoSession['dataset']['traces'][number])=>t.spans.filter(x=>x.status==='ERROR');
 test('every generated scenario agrees across API, trace tree, timeline, navigation, direct links, reload and session boundaries',async({page,browser})=>{
-  await page.goto('/');await expect(page.getByRole('heading',{level:1})).toContainText('See where your agent workflow can fail.');
+  await page.goto('/');await expect(page.getByRole('heading',{level:1})).toContainText('Your agent is already running.');
   await expect(page.locator('.hack')).toHaveCSS('background-color','rgb(2, 141, 194)');
   await expect(page.locator('.hack')).toHaveCSS('height','32px');
   await expect(page.locator('.hack-date')).toHaveText('Oct 10–12');
@@ -25,7 +25,7 @@ test('every generated scenario agrees across API, trace tree, timeline, navigati
   await expect(page.locator('.nav-rule')).toBeVisible();
   expect(await page.locator('.public-nav .wordmark').evaluate(el=>getComputedStyle(el).fontFamily)).toContain('GeistMono');
   expect(await page.evaluate(()=>document.documentElement.scrollHeight<=document.documentElement.clientHeight+1)).toBe(true);
-  await expect(page.locator('.hero-copy')).toContainText('fictional workflow');
+  await expect(page.locator('.hero-copy')).toContainText('neatlogs finds what’s failing');
   await page.getByRole('link',{name:'Explore the demo ↗'}).first().click();
   await expect(page.getByRole('heading',{name:'See your agent in action'})).toBeVisible();
   await page.getByLabel('Ask anything').fill(BUILD);await page.getByRole('button',{name:'Send message'}).click();

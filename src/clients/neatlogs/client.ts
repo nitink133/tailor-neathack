@@ -303,7 +303,7 @@ function showEnded() {
   entryPreparation = undefined;
   ended = true; generation++; controller?.abort();
   clearLocalState();
-  document.documentElement.classList.remove('chat-dock', 'rail-open');
+  document.documentElement.classList.remove('chat-dock', 'rail-open','native-fidelity-preview');
   root.innerHTML = `<main class="ended" role="alert"><h1>This demo has ended</h1><p>Your conversation and demo data were deleted. Nothing from this session is kept.</p>${link('/entry','Start a new demo','solid')}</main>`;
 }
 /** Friendly page for a demo this browser cannot open (ended, expired in another tab, or someone else's). No raw codes. */
@@ -314,7 +314,7 @@ function showUnavailable() {
   entryViewTransition = undefined;
   document.documentElement.classList.remove('entry-view-transition');
   entryPreparation = undefined;
-  document.documentElement.classList.remove('chat-dock', 'rail-open');
+  document.documentElement.classList.remove('chat-dock', 'rail-open','native-fidelity-preview');
   root.innerHTML = `<main class="ended request-error"><h1>Demo unavailable</h1><p role="alert">This demo isn’t available in this browser. It may have ended or expired, or it was started somewhere else.</p>${link('/entry','Start a new demo','solid')}</main>`;
 }
 function showEvaluationUnavailable(s: DemoSession) {
@@ -607,17 +607,17 @@ function chatPanel(s: DemoSession) {
   return `<aside class="chat-panel${activeGuidance||activeEvaluationPreview?' has-contextual-guidance':''}" aria-label="Playground"><header><span class="contextual-tailor-mark" aria-hidden="true">✳</span><div class="playground-heading"><strong>Tailor</strong><span class="contextual-tailor-subtitle">${scripted?'Scripted saved-evaluation preview':'Explore this product with me'}</span></div><span class="chat-actions"><button type="button" data-end-demo class="end-demo">End demo</button><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></span></header><div class="chat-thread">${scripted || (turns.length?chatThread(turns, s):`<p class="chat-empty">Describe the agent you’re building, or ask me to explain the open trace.</p>`)}${scripted?'':progress()}</div><footer class="contextual-conversation-footer">${scripted?`<p class="eval-preview-recovery">Scripted example: the question and answer are fixed. ${link(evalLink(s.id,evaluationPreview!.evaluationId),'Return to saved review')}</p>`:examples(s)}${composer(chatBusy||!!scripted, openTrace(s))}${payloadCaptureStatus(s)}<div class="contextual-powered">Powered by Tailor <span>Synthetic data · ${esc(execChip())}</span></div></footer></aside>`;
 }
 function landing() {
-  document.documentElement.classList.remove('chat-dock', 'rail-open');
+  document.documentElement.classList.remove('chat-dock', 'rail-open','native-fidelity-preview');
   const item = (n: string) => n === 'Manifesto'
     ? `<button data-unavailable class="nav-current"><i class="nav-dot" aria-hidden="true"></i>${n}</button>`
     : n === 'Product' ? `<button data-unavailable class="nav-caret">${n}</button>`
     : n === 'Docs' ? `<button data-unavailable class="nav-out">${n}</button>`
     : `<button data-unavailable>${n}</button>`;
-  root.innerHTML = `<div class="landing"><div class="hack"><span class="hack-date">Oct 10–12</span> Join neatHack · $19,000 in prizes & credits ↗</div><header class="public-nav">${link('/','neatlogs','wordmark')}<nav>${['Manifesto','Product','Pricing','Docs','Blog','Changelog','Careers'].map(item).join('')}<span class="nav-rule" aria-hidden="true"></span>${link('/entry','Explore the demo ↗','solid')}</nav></header><main class="hero"><picture><source media="(max-width:600px)" srcset="/assets/portrait.webp"><img src="/assets/landscape.webp" alt="San Francisco skyline and bridge in silver fog"></picture><div class="hero-copy"><h1><span>See where your agent workflow can fail.</span><br>Explore it with Tailor</h1><p>Describe a fictional workflow, inspect its synthetic traces, and ask Tailor to explain or change the demo.</p><div class="hero-actions">${link('/entry','Explore the demo ↗','outline')}</div></div></main><footer class="landing-foot">Tailor proof of concept · fictional workflows and synthetic traces. ${link('/entry','Start a demo')}</footer></div>`;
+  root.innerHTML = `<div class="landing"><div class="hack"><span class="hack-date">Oct 10–12</span> Join neatHack · $19,000 in prizes & credits ↗</div><header class="public-nav">${link('/','neatlogs','wordmark')}<nav>${['Manifesto','Product','Pricing','Docs','Blog','Changelog','Careers'].map(item).join('')}<span class="nav-rule" aria-hidden="true"></span>${link('/entry','Explore the demo ↗','solid')}</nav></header><main class="hero"><picture><source media="(max-width:600px)" srcset="/assets/portrait.webp"><img src="/assets/landscape.webp" alt="San Francisco skyline and bridge in silver fog"></picture><div class="hero-copy"><h1><span>Your agent is already running.</span><br>That’s not the same as working</h1><p>neatlogs finds what’s failing, works out why, and hands you a fix.</p><div class="hero-actions"><button class="setup" data-unavailable><span class="setup-border" aria-hidden="true"><span class="setup-comet"></span></span><span class="agent-symbols" aria-hidden="true"><img src="/assets/claude-color.svg" alt="" title="Claude Code"><img src="/assets/codex-symbol.svg" alt="" title="Codex"><img src="/assets/cursor-symbol.svg" alt="" title="Cursor"></span><span class="setup-label">Copy setup prompt</span><svg class="setup-copy" viewBox="0 0 256 256" aria-hidden="true"><path d="M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96H160Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z"/></svg></button>${link('/entry','Explore the demo ↗','outline')}</div></div></main><footer class="landing-foot">Tailor proof of concept · fictional workflows and synthetic traces. ${link('/entry','Start a demo')}</footer></div>`;
 }
 function entry() {
   stopEntryRotation();
-  document.documentElement.classList.remove('chat-dock', 'rail-open');
+  document.documentElement.classList.remove('chat-dock', 'rail-open','native-fidelity-preview');
   void loadExecution();
   void loadCapabilities();
   const turns = draft;
@@ -1294,7 +1294,9 @@ document.addEventListener('scroll', event => {
   if (event.target === document || (event.target instanceof Element && event.target.matches('.filter-scroll, .workspace, .table-scroll'))) closeTracePopovers();
 }, true);
 window.addEventListener('resize', closeTracePopovers);
+document.addEventListener('pointerdown',()=>document.documentElement.classList.remove('keyboard-navigation'),true);
 document.addEventListener('keydown', event => {
+  if(event.key==='Tab')document.documentElement.classList.add('keyboard-navigation');
   if(isRoutingPreview()&&nativeRoutingOpen&&event.key==='Tab'){
     const dialog=root.querySelector<HTMLElement>('.routing-sheet');const controls=dialog?[...dialog.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),summary')].filter(el=>el.getClientRects().length):[];
     if(controls.length&&((event.shiftKey&&document.activeElement===controls[0])||(!event.shiftKey&&document.activeElement===controls.at(-1)))){event.preventDefault();controls[event.shiftKey?controls.length-1:0]?.focus();}
