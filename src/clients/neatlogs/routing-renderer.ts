@@ -1,3 +1,4 @@
+import { ROUTING_ICONS } from './routing-icons.ts';
 import type { DemoSession } from './contracts.ts';
 import type { RoutingDetail, RoutingList } from './routing-contract.ts';
 
@@ -13,7 +14,7 @@ export interface RoutingRenderInput {
 }
 const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const steps = ['Type', 'Condition', 'Details', 'Response', 'Confirm'];
-const glyph = (kind: string) => `<svg viewBox="0 0 24 24" aria-hidden="true">${({threshold:'<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8 15l4-6 4 3M8 9h8v7"/>',event:'<path d="M13 3L5 14h6l-1 7 9-12h-6z"/>',metric:'<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M6 14l4-5 4 4 4-5"/>',compound:'<path d="M5 6h4v4H5zM15 6h4v4h-4zM10 16h4v4h-4zM7 10v3h10v-3M12 13v3"/>',health:'<path d="M4 19l1-4a8 8 0 112-12 8 8 0 11-3 16zM8 9h8M8 13h5"/>',app:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M9 21h6M12 17v4"/>',mail:'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 7l9 6 9-6"/>',slack:'<path d="M4 19l1-4a8 8 0 112-12 8 8 0 11-3 16zM8 9h8M8 13h5"/>',webhook:'<circle cx="12" cy="5" r="3"/><circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M10 7l-4 7M14 7l4 7M8 17h8"/>'} as Record<string,string>)[kind] ?? ''}</svg>`;
+const glyph = (kind: string) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ROUTING_ICONS[kind] ?? ''}</svg>`;
 const heading = (step: number, title: string, description: string) => `<header class="routing-stage-heading"><div class="routing-eyebrow">STEP ${step + 1} OF 5 · ${steps[step]?.toUpperCase()}</div><h1 tabindex="-1" data-routing-focus>${title}</h1><p>${description}</p></header>`;
 const row = (label: string, value: string) => `<div><dt>${label}</dt><dd>${value}</dd></div>`;
 
