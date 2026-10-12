@@ -28,4 +28,6 @@ test('beginner and guarantee answers address the question without admitting prov
  assert.match(evalGuarantee,/does not establish/);
  const setup=composeAnswer(r(['official-evaluations']),'Then explain what setup would be needed and what evidence would prove it ran.','It ran successfully.',k.version);
  assert.match(setup,/actual evaluator execution record/);assert.match(setup,/has not run a hosted AI evaluator/);assert.doesNotMatch(setup,/It ran successfully/);assert.ok(setup.length<=2000);
+ const checks=composeAnswer(r(['official-ai-evaluators']),'Compare an execution-success check with a required-due-date check. Is either enough to prove accuracy?','Both prove accuracy.',k.version);
+ assert.match(checks,/Neither execution success nor required-field presence proves accuracy/);assert.match(checks,/compare the extracted due date/);assert.doesNotMatch(checks,/Both prove accuracy/);assert.ok(checks.length<=2000);
 });

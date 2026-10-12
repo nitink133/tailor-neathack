@@ -160,6 +160,9 @@ function codeReviewFit(cited: CapabilityRecord[], question: string, knowledgeVer
 function evaluationAdviceFit(cited: CapabilityRecord[], question: string, knowledgeVersion?: string): string | null {
   const records = cited.filter(r => ['official-evaluations', 'official-human-review', 'official-ai-evaluators', 'synthetic-evaluation-review'].includes(r.id)).slice(0, 2);
   if (!records.length) return null;
+  if (/\bchecks?\b/i.test(question) && /\b(?:accuracy|accurate|correctness)\b/i.test(question) && /\b(?:execution|field|required|due[ -]date)\b/i.test(question)) {
+    return buyerWording(['Neither execution success nor required-field presence proves accuracy.', 'An execution-success check asks whether the recorded steps completed without an execution error. A required-field check asks whether the output contains the required field. A present value can still disagree with the source, and a successful run can still omit it.', 'For a proposed invoice review, compare the extracted due date with the date in the approved source document, including how absent or ambiguous dates should be handled. This is a suggested criterion, not an executed accuracy verdict.', 'This demo has not run a hosted AI judge or measured evaluator accuracy.', sourceLine(records, knowledgeVersion), ...records.map(planLine)].join('\n\n'));
+  }
   const calibration = /\bcalibrat\w*\b/i.test(question) && /\b(?:reviewer|judge|human|AI)\b/i.test(question);
   const criteria = /\b(?:eval\w*|review\w*|judge|person|human)\b/i.test(question)
     && /\b(?:quality|useful|question|evidence|research|criteria|automated|check|standard)\b/i.test(question);
