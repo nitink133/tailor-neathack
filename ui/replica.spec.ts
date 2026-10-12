@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 // (real backend + mock provider). Trace content now comes from the mock agent, so assertions derive from the API
 // response instead of fixed fixtures. Entry is a conversation: POST /api/sessions, then POST /turns.
 const ed=process.env.TAILOR_SCREENSHOT_DIR ?? 'test-results/evidence';
-mkdirSync(ed,{recursive:true});
+mkdirSync(ed,{recursive:true});mkdirSync('.local',{recursive:true});
 const BUILD='I\'m building a travel-booking agent. Show me a booking API timeout followed by a successful retry.';
 const EDIT='Make the retry fail too.';
 type Pg=import('@playwright/test').Page;
@@ -143,9 +143,16 @@ test('entry makes the synthetic scope clear and keeps suggestions editable',asyn
   await first.click();
   const composer=page.getByLabel('Ask anything');await expect(composer).toHaveValue(prompt!);await expect(composer).toBeFocused();
   expect(creates).toBe(0);expect(await page.evaluate(()=>sessionStorage.getItem('creation-operation'))).toBeNull();
-  await composer.fill(`${prompt} Use one fictional retry.`);
+  await composer.fill(prompt!);
   await page.getByRole('button',{name:'Send message'}).click();await expect(page).toHaveURL(/\/demo\/[^/]+\/traces$/);
   expect(creates).toBe(1);expect(ownerCalls).toEqual(['bootstrap','create']);await expect(page.locator('.chat-panel')).toContainText('Powered by Tailor');
+  await expect(page.locator('.chat-panel [data-status=applied]').first()).toBeVisible();
+  await expect(page.locator('.chat-examples')).toContainText('Explain this trace');
+  await expect(page.locator('.chat-examples')).not.toContainText('Make the retry fail too');
+  const conversationBefore=await session(page).then(x=>x.conversation.length);
+  await page.locator('.chat-examples [data-example="Explain this trace"]').click();
+  await expect(page.locator('.chat-panel textarea')).toHaveValue('Explain this trace');
+  expect((await session(page)).conversation.length).toBe(conversationBefore);
 });
 
 test('clarification offers exactly three choices and accepts an editable free-text answer',async({page})=>{
@@ -161,7 +168,9 @@ test('clarification offers exactly three choices and accepts an editable free-te
 
 test('evaluation overview, questions, saved results and simulated provenance',async({page})=>{
   await enter(page);const s:DemoSession=await session(page);const first=s.dataset.traces[0]!;
-  await page.goto(`/demo/${s.id}/evals`);await expect(page.getByRole('heading',{name:'Evals'})).toBeVisible();
+  await page.getByRole('button',{name:'Expand sidebar'}).click();
+  await page.locator('.rail-menu').getByRole('link',{name:'evals'}).click();
+  await expect(page).toHaveURL(`/demo/${s.id}/evals`);await expect(page.getByRole('heading',{name:'Evals'})).toBeVisible();
   await expect(page.locator('.eval-provenance').first()).toContainText('no AI evaluator ran');
   await expect(page.locator('.eval-local-label')).toContainText('Docs-grounded reconstruction');
   await page.getByRole('button',{name:'Add question'}).click();
@@ -178,10 +187,12 @@ test('evaluation overview, questions, saved results and simulated provenance',as
   await expect(page.getByRole('button',{name:'Results'})).toHaveAttribute('aria-pressed','true');
   await expect(page.locator('.eval-results')).toContainText('Your review');
   await expect(page.locator('.eval-results')).toContainText('Simulated score — no AI evaluator ran');
+  await expect(page.locator('.eval-results')).toContainText('1 text response · no numeric score');
   const detailPath=page.url();await page.reload();await expect(page).toHaveURL(detailPath);
   await expect(page.locator('.eval-results')).toContainText('Keep the explanation concise.');
   await expect(page.locator('.eval-results')).toContainText('Was the escalation necessary?');
   await expect(page.locator('.eval-provenance')).toContainText('Synthetic evaluation · local demo');
+  await page.screenshot({path:'.local/review-evals.png',fullPage:true});
 });
 
 test('buyer conversation: clarify, build, edit, explain, answer; a failed send retries without duplicating; End demo clears the session',async({page})=>{

@@ -278,17 +278,18 @@ function composer(busy: boolean, asking?: Trace) {
 function starterButtons() {
   return (capabilities?.starters ?? []).slice(0, 3).map(x => `<button type="button" data-example="${esc(x.prompt)}" data-capability-id="${esc(x.capabilityId)}">${esc(x.title || x.prompt)}</button>`).join('');
 }
-function examples(starting: boolean) {
-  return starting
-    ? `<div class="chat-examples" data-starter-list aria-label="Capability-backed starter prompts">${starterButtons()}</div>`
-    : `<div class="chat-examples" aria-label="Suggested prompts"><button type="button" data-example="Explain this trace">Explain this trace</button><button type="button" data-example="Make the retry fail too">Make the retry fail too</button></div>`;
+function starterExamples() { return `<div class="chat-examples" data-starter-list aria-label="Capability-backed starter prompts">${starterButtons()}</div>`; }
+function examples(s: DemoSession | boolean) {
+  if (typeof s === 'boolean' || s.story === null) return starterExamples();
+  const hasRetry = s.dataset.traces.some(t => t.spans.some(span => /retry|backoff|attempt[_ -]?(?:[2-9]|\d{2,})\b/i.test(span.name)));
+  return `<div class="chat-examples" aria-label="Suggested prompts"><button type="button" data-example="Explain this trace">Explain this trace</button>${hasRetry ? '<button type="button" data-example="Make the retry fail too">Make the retry fail too</button>' : ''}</div>`;
 }
 function honestLines() {
   return `<p class="chat-label">Powered by Tailor · synthetic data</p><p class="chat-label ${execClass()}" data-exec-line>${esc(execLine())}</p>`;
 }
 function chatPanel(s: DemoSession) {
   const turns = turnsOf(s);
-  return `<aside class="chat-panel" aria-label="Conversation"><header><strong>chats</strong><span class="chat-actions"><button type="button" data-end-demo class="end-demo">End demo</button><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></span></header>${honestLines()}<div class="chat-thread">${turns.length?chatThread(turns, s):`<p class="chat-empty">Describe the agent you’re building, or ask me to explain the open trace.</p>`}</div>${progress()}${examples(s.story === null)}${composer(chatBusy, openTrace(s))}</aside>`;
+  return `<aside class="chat-panel" aria-label="Conversation"><header><strong>chats</strong><span class="chat-actions"><button type="button" data-end-demo class="end-demo">End demo</button><button type="button" data-chat-collapse aria-label="Collapse conversation">${icon('close')}</button></span></header>${honestLines()}<div class="chat-thread">${turns.length?chatThread(turns, s):`<p class="chat-empty">Describe the agent you’re building, or ask me to explain the open trace.</p>`}</div>${progress()}${examples(s)}${composer(chatBusy, openTrace(s))}</aside>`;
 }
 function landing() {
   document.documentElement.classList.remove('chat-dock', 'rail-open');
@@ -366,7 +367,7 @@ function evaluationPage(s: DemoSession, result: EvaluationDetail) {
     panel=`<section class="eval-questions"><h2>Your review</h2><form id="review-eval-form">${qs.length?e.traceSnapshot.map(t=>`<fieldset><legend>${esc(t.label)}</legend>${qs.map(q=>`<label class="eval-answer"><span>${esc(q.label)}</span>${evalInput(q,t.id)}</label>`).join('')}</fieldset>`).join(''):'<p>No questions are assigned to you.</p>'}${sims.length?`<div class="eval-simulation-note"><strong>Simulated reviewer · no AI evaluator ran</strong><table><thead><tr><th>Trace</th><th>Question</th><th>Saved value</th><th>Source</th></tr></thead><tbody>${simRows||`<tr><td colspan="4">${sims.length} simulated question${sims.length===1?'':'s'}; no saved score yet.</td></tr>`}</tbody></table></div>`:''}<button type="submit" ${evalBusy||!qs.length?'disabled':''}>Save review</button></form></section>`;
   }
   if(evaluationTab==='Results') {
-    const aggs=e.aggregates.map(a=>{const q=e.questions.find(x=>x.key===a.questionKey);const val=a.value===null?'No saved responses':q?.type==='yes_no'?`${Math.round(a.value*100)}% yes`:String(a.value);return `<tr><td>${esc(q?.label??a.questionKey)}</td><td>${a.answeredCount} / ${a.totalCount}</td><td>${esc(val)}</td><td>${a.source==='simulated_judge'?'Simulated score — no AI evaluator ran':a.source==='buyer'?'Your review':'Mixed sources'}</td></tr>`}).join('');
+    const aggs=e.aggregates.map(a=>{const q=e.questions.find(x=>x.key===a.questionKey);const val=a.value!==null?(q?.type==='yes_no'?`${Math.round(a.value*100)}% yes`:String(a.value)):a.answeredCount>0?(q?.type==='text'?`${a.answeredCount} text response${a.answeredCount===1?'':'s'} · no numeric score`:`${a.answeredCount} response${a.answeredCount===1?'':'s'} saved · no numeric score`):'No saved responses';return `<tr><td>${esc(q?.label??a.questionKey)}</td><td>${a.answeredCount} / ${a.totalCount}</td><td>${esc(val)}</td><td>${a.source==='simulated_judge'?'Simulated score — no AI evaluator ran':a.source==='buyer'?'Your review':'Mixed sources'}</td></tr>`}).join('');
     const responses=e.responses.map(r=>{const q=e.questions.find(x=>x.key===r.questionKey),t=e.traceSnapshot.find(x=>x.id===r.traceId);return `<tr><td>${t?link(traceLink(t),esc(t.label)):esc(r.traceId)}</td><td>${esc(q?.label??r.questionKey)}</td><td>${esc(String(r.value))}</td><td>${r.source==='simulated_judge'?'Simulated score — no AI evaluator ran':'Your review'}</td></tr>`}).join('');
     panel=`<section class="eval-results"><h2>Per-question summary</h2><table><thead><tr><th>Question</th><th>Answered</th><th>Result</th><th>Source</th></tr></thead><tbody>${aggs||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table><h2>Saved responses</h2><table><thead><tr><th>Trace</th><th>Question</th><th>Response</th><th>Source</th></tr></thead><tbody>${responses||'<tr><td colspan="4">No saved responses yet.</td></tr>'}</tbody></table></section>`;
   }

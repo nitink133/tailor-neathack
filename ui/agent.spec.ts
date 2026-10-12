@@ -428,6 +428,7 @@ test('material workflow switches wait for confirmation; keep, adapt and separate
 
 test('a fast repeat click sends one edit; direct trace explanations retain their saved citation',async({page})=>{
   const s=await buildTravel(page),first=s.dataset.traces[0]!;
+  await expect(page.locator('.chat-examples')).toContainText('Make the retry fail too');
   let posts=0;await page.route('**/api/sessions/**/turns',async route=>{posts++;await new Promise(r=>setTimeout(r,250));await route.continue();});
   await send(page,'Make the retry fail too.');
   await expect(page.locator('.chat-panel button[type=submit]')).toBeDisabled();
