@@ -196,27 +196,95 @@ function paintSavedDemos() {
 }
 function paintStarters() {
   const target = document.querySelector<HTMLElement>('[data-starter-list]');
-  if (target) target.innerHTML = target.classList.contains('entry-suggestions') ? entrySuggestionButtons() : starterButtons();
+  if (target) {
+    const entry = target.classList.contains('entry-suggestions');
+    if (entry) stopEntryRotation();
+    target.innerHTML = entry ? entrySuggestionButtons() : starterButtons();
+    if (entry) startEntryRotation();
+  }
 }
 function entrySuggestionButtons() {
-  return suggestionBatch(entrySuggestions(capabilities), entrySuggestionBatch).map(x => `<button type="button" data-example="${esc(x.prompt)}" data-capability-id="${esc(x.capabilityId)}">${x.lead ? `<span class="suggestion-lead">${esc(x.lead)}</span> ` : ''}${esc(x.text)}</button>`).join('');
+  return suggestionBatch(entrySuggestions(capabilities), entrySuggestionBatch).map(x => `<div class="suggestion-row"><button type="button" data-example="${esc(x.prompt)}" data-capability-id="${esc(x.capabilityId)}">${x.lead ? `<span class="suggestion-lead">${esc(x.lead)}</span> ` : ''}${esc(x.text)}</button></div>`).join('');
 }
 function startEntryRotation() {
   const target = document.querySelector<HTMLElement>('.entry-suggestions');
   const stage = target?.closest<HTMLElement>('.chat-stage');
   if (!target || !stage) return;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let visible = true;
+  let phaseTimer: number | undefined;
+  let animations: Animation[] = [];
+  let stopped = false;
+  let pressed = false;
+  const settle = () => {
+    if (phaseTimer !== undefined) window.clearTimeout(phaseTimer);
+    phaseTimer = undefined;
+    animations.forEach(animation => animation.cancel());
+    animations = [];
+    delete target.dataset.rotating;
+  };
+  const blocked = () => stopped || pressed || !target.isConnected || location.pathname !== '/entry' ||
+    reducedMotion.matches || document.hidden || !visible || stage.matches(':hover') ||
+    stage.contains(document.activeElement) || chatBusy ||
+    !!stage.querySelector<HTMLTextAreaElement>('textarea[name="message"]')?.value.trim();
+  const animateRows = (enter: boolean) => {
+    const rows = target.querySelectorAll<HTMLElement>('.suggestion-row');
+    for (const [index,row] of rows.entries()) {
+      if (typeof row.animate !== 'function') continue;
+      animations.push(row.animate(enter ? [
+        { transform:'translateY(20px)', opacity:0, filter:'blur(4px)' },
+        { transform:'translateY(0)', opacity:1, filter:'blur(0px)' },
+      ] : [
+        { transform:'translateY(0)', opacity:1, filter:'blur(0px)' },
+        { transform:'translateY(-20px)', opacity:0, filter:'blur(4px)' },
+      ], {duration:enter?380:240,delay:index*(enter?45:35),easing:'cubic-bezier(0.16,1,0.3,1)',fill:'both'}));
+    }
+  };
   const timer = window.setInterval(() => {
     if (!target.isConnected || location.pathname !== '/entry') { stopEntryRotation(); return; }
-    // Keep suggestions still while reading, editing or using the keyboard. Reduced
-    // motion also opts out of automatic content changes, not just animation.
-    if (reducedMotion.matches || document.hidden || stage.matches(':hover') || stage.contains(document.activeElement) || chatBusy) return;
-    const input = stage.querySelector<HTMLTextAreaElement>('textarea[name="message"]');
-    if (input?.value.trim() || entrySuggestions(capabilities).length <= 3) return;
-    entrySuggestionBatch++;
-    target.innerHTML = entrySuggestionButtons();
-  }, 8000);
-  stopEntryRotation = () => { window.clearInterval(timer); stopEntryRotation = () => {}; };
+    if (blocked() || target.dataset.rotating || entrySuggestions(capabilities).length <= 3) return;
+    target.dataset.rotating = 'out';
+    animateRows(false);
+    phaseTimer = window.setTimeout(() => {
+      if (blocked()) { settle(); return; }
+      settle();
+      entrySuggestionBatch++;
+      target.innerHTML = entrySuggestionButtons();
+      target.dataset.rotating = 'in';
+      animateRows(true);
+      phaseTimer = window.setTimeout(settle,470);
+    },310);
+  },8000);
+  // Interrupt immediately so a clicked/focused question never changes beneath the user.
+  stage.addEventListener('mouseenter',settle);
+  stage.addEventListener('focusin',settle);
+  stage.addEventListener('input',settle);
+  const pointerPressed = () => { pressed = true; settle(); };
+  const pointerReleased = () => { pressed = false; };
+  stage.addEventListener('pointerdown',pointerPressed);
+  window.addEventListener('pointerup',pointerReleased);
+  window.addEventListener('pointercancel',pointerReleased);
+  const preferenceChanged = () => { if (reducedMotion.matches) settle(); };
+  const visibilityChanged = () => { if (document.hidden) settle(); };
+  reducedMotion.addEventListener('change',preferenceChanged);
+  document.addEventListener('visibilitychange',visibilityChanged);
+  const observer = new IntersectionObserver(entries => { visible = entries.some(entry => entry.isIntersecting); if (!visible) settle(); });
+  observer.observe(target);
+  stopEntryRotation = () => {
+    stopped = true;
+    window.clearInterval(timer);
+    settle();
+    observer.disconnect();
+    stage.removeEventListener('mouseenter',settle);
+    stage.removeEventListener('focusin',settle);
+    stage.removeEventListener('input',settle);
+    stage.removeEventListener('pointerdown',pointerPressed);
+    window.removeEventListener('pointerup',pointerReleased);
+    window.removeEventListener('pointercancel',pointerReleased);
+    reducedMotion.removeEventListener('change',preferenceChanged);
+    document.removeEventListener('visibilitychange',visibilityChanged);
+    stopEntryRotation = () => {};
+  };
 }
 const sameExecution = (a: ExecutionLabel | undefined, b: ExecutionLabel | undefined) =>
   !!a && !!b && a.mode === b.mode && a.provider === b.provider && (a.model ?? null) === (b.model ?? null) && (a.effort ?? null) === (b.effort ?? null);

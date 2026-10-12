@@ -50,6 +50,7 @@ test('suggestions rotate without submitting and remain stable during keyboard ed
   await expect(suggestions).toHaveCount(3);
   const first=await suggestions.allTextContents();
   await page.clock.fastForward(8100);
+  await page.clock.runFor(900);
   await expect.poll(()=>suggestions.allTextContents()).not.toEqual(first);
   const second=await suggestions.allTextContents();
   await suggestions.first().focus();
@@ -87,6 +88,7 @@ test('restoring entry restarts one rotation and navigation stops stale updates',
   expect(await suggestions.allTextContents()).toEqual(first);
   await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));
   await page.clock.fastForward(8100);
+  await page.clock.runFor(900);
   await expect.poll(()=>suggestions.allTextContents()).not.toEqual(first);
   await page.getByRole('link',{name:'← Back to landing'}).click();
   await page.clock.fastForward(16000);
