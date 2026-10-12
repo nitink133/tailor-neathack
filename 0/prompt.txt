@@ -1,0 +1,39 @@
+Pause live testing and perform an evidence-based peer review of the current Tailor implementation. Do not restart the build or assume earlier passing tests prove the latest changes are correct.
+Use Fable 5.1 as orchestrator and explicitly launch parallel review subagents. Assign strong reasoning models to security, provider correctness and independent verification; use faster capable models for inventories and test coverage. Report the actual available models and assignments. Reviewers should challenge the implementation independently, not just summarise its handoff.
+BASELINE
+Read AGENTS.md, the project-local Entire skill, NIT-269 and its children, plus the latest handoff/evidence documents. Identify the exact current branch, commit and uncommitted changes. Review a stable snapshot without overwriting active work. Preserve all existing changes.
+PARALLEL REVIEW LANES
+1. Live Claude provider
+   Verify the actual SDK/model ID and thinking configuration against official documentation. Review structured outputs, tool schemas, refusal/truncation handling, timeouts, rate limits, bounded retries and error propagation. Confirm live mode cannot silently fall back to mock replies. Check that explanations use saved evidence and cannot invent pricing or capabilities.
+2. Tools, state and security
+   Review session ownership, isolation, personalised-data validation, transactional updates, version/concurrency checks, idempotency and source validation. Verify the 60-minute idle/4-hour maximum lifetime and End demo deletion. Check prompt-injection resistance and ensure buyer content cannot expand tool permissions or expose another session.
+3. Neatlogs runtime logging
+   The Tailor project currently appears empty to me. Trace the complete path from agent turn → spans → exporter → configured destination. Determine whether production export is implemented and enabled, or whether events only enter a local captured exporter. Check project/region/endpoint selection, batching, flushing, shutdown handling, retries and swallowed errors. Inspect configuration presence without printing secrets. Distinguish fictional replica traces from actual Tailor execution telemetry. Don’t infer the cause from an empty dashboard alone.
+Use existing evidence or read-only dashboard access where available. Do not send new logs, make model calls or change credentials/settings during this audit. Report the exact reason hosted delivery is unverified and the smallest safe verification step.
+4. Budget, privacy and reliability
+   Check the spend guard, concurrency reservations, actual usage reconciliation, thinking-token accounting and limits on input, output and tool iterations. Verify secrets and raw buyer/model content are redacted before telemetry export. Check what happens when a save succeeds but readback fails; the UI must not falsely claim nothing changed. Review transcript limits and recovery after interrupted turns.
+5. Buyer UI and independent QA
+   Test the local mock-backed flow and review existing tests for blind spots. Check chat entry, Powered by Tailor attribution, three-choice clarification with free text, personalised scenario changes, trace/span explanations, navigation/reload and End demo. Confirm visible provider status is accurate and internal engineering jargon isn’t presented as product behaviour. Use an independent reviewer to reproduce important findings.
+COORDINATION
+Use disjoint review ownership and separate finding files, then consolidate duplicates. Share browser reference captures rather than letting multiple agents control the same tab. Keep the implementation unchanged during this first pass. Local offline tests and temporary test artifacts are allowed; don’t install new dependencies or alter production data.
+ENTIRE
+Audit actual checkpoint evidence separately from Git commits and Analytics totals. Check whether the previously reported Cursor transcript-path mismatch remains. A commit trailer alone does not prove a stored or synced checkpoint. Don’t fabricate trailers, import transcripts or change hooks as part of this review.
+DELIVERABLE
+Write one concise peer-review report with:
+- Exact reviewed revision and working-tree state.
+- Prioritised findings with file/line references, reproduction steps, impact and recommended correction.
+- Tests actually rerun versus historical reports or untested claims.
+- A readiness verdict: ready for a capped live test, or blocked, with exact reasons.
+- Separate status for live Claude inference, hosted Tailor Neatlogs traces and Entire checkpoints.
+- A minimal parallel fix plan with file ownership and acceptance tests.
+Do not mark missing live evidence as a demonstrated code defect, and do not call untested behaviour correct. No paid API calls, new telemetry exports, credential changes, fixes, main merges or deployment. Present the findings for my review before implementing corrections or starting the end-to-end live test.
+
+Also assign a separate subagent to audit Entire checkpoint coverage. Read AGENTS.md and the project-local Entire skill first. Use Fable 5.1 as orchestrator if available, with other available models matched to task complexity; report any substitution.
+1. Record the repository, worktree, branch, HEAD and current reviewer session ID. Verify the reviewer’s actual Entire session association and lifecycle evidence. Hook discovery alone is insufficient. If reviewer capture is unavailable, report it before proceeding under the project’s capture gate.
+2. Inspect all implementation commits since the agreed base, covering both the mock-backed implementation and live Claude integration. For each commit, identify its session/checkpoint linkage, local checkpoint ref and matching remote ref. A trailer alone is not proof of a stored or synced checkpoint.
+3. Check the reported gaps for commits 97f377b and 8dd4b9d, plus earlier implementation gaps. Treat the handoff as a claim to verify, not proof. Resolve abbreviated SHAs against the repository.
+4. Where dashboard access is already available, verify session transcript and checkpoint visibility. Report Git/ref evidence separately from dashboard evidence. The known Analytics totals discrepancy should not block the review if underlying evidence is intact.
+5. Distinguish live capture, historical import and missing coverage. Do not claim this new review session retroactively records earlier implementation work.
+6. Return a compact coverage table: commit, session, checkpoint, local ref, remote match, dashboard verified, gap/action needed. Never expose transcript secrets.
+7. Audit only. Do not amend commits, manufacture trailers, import transcripts, alter hooks or credentials, push refs, or repair capture automatically. Propose the smallest repair for each verified gap and request approval before changing anything.
+In the overall review, also verify that every paid model-call path uses the spending guard, including schema probes and retries. Check whether Tailor telemetry uses a local captured exporter or actually sends to hosted Neatlogs. An empty hosted project does not prove ingestion failed if export was never enabled. Do not run paid calls or export new telemetry during this audit.
