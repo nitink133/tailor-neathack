@@ -15,6 +15,7 @@ import { parseAgentAction } from './provider.ts';
 import { classifyOfflinePolicy, explicitWorkflowIdentity, inputFromPolicyRequest } from './entry-policy.ts';
 import type { PolicyRequest, PolicyResponse } from '../../tailor/policy.ts';
 import { qualityWorkflowProposal } from './eval-fixtures.ts';
+import { qualityDefectNarrative } from './explain.ts';
 import { requestBoundary } from './request-boundaries.ts';
 
 export function createMockProvider(): ModelProvider {
@@ -223,7 +224,12 @@ function decide(request: ProviderRequest): AgentAction {
     : /\b(?:support|customer)\b/i.test(text) && /\b(?:unresolved|doesn't resolve|does not resolve|polite|unhelpful)\b/i.test(text) ? 'support' : null;
   if (qualityKind && classification.outcome === 'allow_demo_action') {
     const proposal = qualityWorkflowProposal(qualityKind, ctx.datasetVersion);
-    if (spec.domain) proposal.story.domain = spec.domain;
+    const requested = explicitWorkflowIdentity(text) ?? (ctx.story ? explicitWorkflowIdentity(`My ${ctx.story.domain}`) : null);
+    const fixtureIdentity = `${proposal.story.domain} ${proposal.traces[0]!.name}`.toLowerCase();
+    if (requested && requested.terms.some(term => !fixtureIdentity.includes(term))) {
+      const example = qualityKind === 'support' ? 'parcel support' : qualityKind === 'extraction' ? 'invoice extraction' : 'Widget documentation';
+      return { type: 'unsupported', text: `I cannot personalize the fixed fictional ${example} fixture to your requested workflow. I have not replaced the current demo.` };
+    }
     return { type: 'propose', proposal, explanation: 'The synthetic run completes without an execution error while its output misses the buyer’s quality requirement.' };
   }
 
@@ -329,6 +335,8 @@ function answerFor(ctx: AgentContext, text: string, strict = false): AgentAction
 }
 
 function explainNarrative(trace: ActiveTraceDetail): string {
+  const quality = qualityDefectNarrative(trace);
+  if (quality) return quality;
   const failed = trace.spans.filter(s => s.status === 'ERROR');
   if (!failed.length) return `In plain words: this run completed without a failing step and ended as ${trace.outcome}.`;
   return `In plain words: ${failed.length === 1 ? 'one step' : `${failed.length} steps`} failed (${failed.map(s => s.name).join(', ')}) and the run ended as ${trace.outcome}.`;
