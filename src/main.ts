@@ -6,6 +6,7 @@
 import { createWebsiteServer } from '../marketing/server.mjs';
 import { isAbsolute } from 'node:path';
 import { existsSync } from 'node:fs';
+import { seedSpendLedger } from './infrastructure/ledger-bootstrap.ts';
 import { Store } from './infrastructure/store.ts';
 import { appServer, startSweeper } from './infrastructure/server.ts';
 import { createTelemetry } from './infrastructure/telemetry.ts';
@@ -35,6 +36,7 @@ if (publicOrigin) {
 }
 if (process.env.NODE_ENV === 'production' && !publicOrigin) fail('Production requires TAILOR_PUBLIC_ORIGIN (an exact HTTPS origin).');
 if (publicOrigin && process.env.TAILOR_SYNTHETIC_REVIEW_IDS?.trim()) fail('Public deployment cannot enable synthetic payload capture.');
+try { const seed = seedSpendLedger(process.env); if (seed) console.log(`Cumulative ledger seed verified: sha256=${seed.sha256}; existing=${seed.alreadyPresent}`); } catch (error) { fail((error as Error).message); }
 if (publicOrigin && process.env.TAILOR_PROVIDER === 'anthropic' && !existsSync(process.env.TAILOR_SPEND_LEDGER!)) fail('Public live startup requires the existing cumulative spend ledger. Refusing a new budget.');
 const config = readConfig(process.env, fail);
 const { spend, ledgerPath } = config;
