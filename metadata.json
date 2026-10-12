@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4Q4TC8P2WBTY1VE9171XHJX",
+  "strategy": "manual-commit",
+  "branch": "codex/tailor-20261012-review-fixes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/tailor-traces-review.md",
+    "docs/tailor-traces-review/traces-detail-guide-mobile.png",
+    "public/style.css",
+    "ui/replica.spec.ts",
+    "ui/traces-review.spec.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 16263,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4384128,
+    "output_tokens": 4812,
+    "api_call_count": 15,
+    "subagent_tokens_complete": false
+  }
+}
