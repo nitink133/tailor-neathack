@@ -40,3 +40,10 @@ test('snapshot-only threshold and cooldown limits remain visible',()=>{
   assert.match(html,/name="threshold"[^>]*max="4"/);
   assert.match(html,/value="600000"/);
 });
+
+test('saved preview presents evidence immediately without the introductory hero',()=>{
+  const html=renderRoutingPanel({session,draft,step:4,detail:{stale:false,preview:{name:'Saved routing',conditionMet:false,recipient:'Quality reviewer',destination:'in_app',severity:'warning',cooldownMs:0,datasetVersion:1,matches:[],traceSnapshot:[]} as any}});
+  assert.match(html,/routing-readback/);
+  assert.match(html,/Condition not met/);
+  assert.doesNotMatch(html,/routing-introduction|routing-saved|role="dialog"/);
+});
