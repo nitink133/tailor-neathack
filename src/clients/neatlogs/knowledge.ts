@@ -95,6 +95,24 @@ function validateRecord(value: unknown, index: number): asserts value is Capabil
   requireString(value.demonstration.evidence, `${path}.demonstration.evidence`);
   requireStringArray(value.demonstration.cloneSurfaces, `${path}.demonstration.cloneSurfaces`);
   requireStringArray(value.demonstration.tools, `${path}.demonstration.tools`);
+
+  requireStringArray(value.productLimitations, `${path}.productLimitations`);
+  if (!isObject(value.cloneSupport) || !['executable', 'explain_only', 'not_implemented', 'refused'].includes(String(value.cloneSupport.state))) {
+    throw new Error(`Malformed capabilities.json: ${path}.cloneSupport is invalid`);
+  }
+  for (const field of ['tools', 'uiSurfaces', 'evidence'] as const) requireStringArray(value.cloneSupport[field], `${path}.cloneSupport.${field}`);
+  if (!isObject(value.hostedAvailability) || !['unknown', 'documented_gated'].includes(String(value.hostedAvailability.state))) {
+    throw new Error(`Malformed capabilities.json: ${path}.hostedAvailability is invalid`);
+  }
+  if (!Array.isArray(value.hostedAvailability.sources)) throw new Error(`Malformed capabilities.json: ${path}.hostedAvailability.sources is invalid`);
+  value.hostedAvailability.sources.forEach((source, i) => validateSource(source, `${path}.hostedAvailability.sources[${i}]`));
+  if (value.hostedAvailability.state === 'documented_gated') {
+    requireString(value.hostedAvailability.operationGate, `${path}.hostedAvailability.operationGate`);
+    if (!value.hostedAvailability.sources.some(source => isObject(source) && typeof source.url === 'string' && officialSourcePattern.test(source.url))) {
+      throw new Error(`Malformed capabilities.json: ${path}.hostedAvailability needs official gate evidence`);
+    }
+  }
+
 }
 
 function validateVersion(value: unknown): VersionFile {

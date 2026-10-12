@@ -5,13 +5,90 @@
     "scope": "clone_only",
     "buyerProblem": "I need to see where a booking API timed out, whether a retry helped, and when the agent escalated.",
     "behaviour": "The replica can save synthetic traces with timed-out tool spans, bounded retries or backoff, later success or repeated failure, and an explicit degraded, failure, or escalation outcome.",
-    "limitations": ["All data is synthetic and session-local.", "The replica does not execute a real booking API or retry policy."],
-    "prerequisites": ["An active Tailor demo session", "A scenario proposal within the frozen validation limits"],
-    "planAvailability": {"status": "unknown", "note": "Clone capability; ordinary Neatlogs plan availability does not apply."},
-    "sources": [{"url": "repo:docs/nit-269-contract.md", "verifiedOn": "2026-10-11", "claim": "The clone contract includes a booking timeout followed by successful retry and an editable repeated-failure escalation variant."}],
-    "exampleQuestions": ["Show a booking API timeout then retry", "What happens after a 429 rate limit?", "Make the second attempt fail too", "Add backoff before retrying", "Where does this exception escalate?"],
-    "demonstration": {"level": "modifiable", "evidence": "A validated proposal can change retry attempts, timings, errors, detections, and outcomes, then read the saved trace back.", "cloneSurfaces": ["conversation", "trace list", "trace detail", "timeline", "graph"], "tools": ["validateProposal", "publishScenario", "readTraces", "readTrace"]},
-    "topics": ["timeout", "retry", "retries", "backoff", "429", "rate limit", "error", "exception", "failure", "escalation", "outcome", "tool call", "latency", "duration", "booking api"]
+    "limitations": [
+      "All data is synthetic and session-local.",
+      "The replica does not execute a real booking API or retry policy."
+    ],
+    "prerequisites": [
+      "An active Tailor demo session",
+      "A scenario proposal within the frozen validation limits"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Clone capability; ordinary Neatlogs plan availability does not apply."
+    },
+    "sources": [
+      {
+        "url": "repo:docs/nit-269-contract.md",
+        "verifiedOn": "2026-10-11",
+        "claim": "The clone contract includes a booking timeout followed by successful retry and an editable repeated-failure escalation variant."
+      }
+    ],
+    "exampleQuestions": [
+      "Show a booking API timeout then retry",
+      "What happens after a 429 rate limit?",
+      "Make the second attempt fail too",
+      "Add backoff before retrying",
+      "Where does this exception escalate?"
+    ],
+    "demonstration": {
+      "level": "modifiable",
+      "evidence": "A validated proposal can change retry attempts, timings, errors, detections, and outcomes, then read the saved trace back.",
+      "cloneSurfaces": [
+        "conversation",
+        "trace list",
+        "trace detail",
+        "timeline",
+        "graph"
+      ],
+      "tools": [
+        "validateProposal",
+        "publishScenario",
+        "readTraces",
+        "readTrace"
+      ]
+    },
+    "topics": [
+      "timeout",
+      "retry",
+      "retries",
+      "backoff",
+      "429",
+      "rate limit",
+      "error",
+      "exception",
+      "failure",
+      "escalation",
+      "outcome",
+      "tool call",
+      "latency",
+      "duration",
+      "booking api"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "validateProposal",
+        "publishScenario",
+        "readTraces",
+        "readTrace"
+      ],
+      "uiSurfaces": [
+        "conversation",
+        "trace list",
+        "trace detail",
+        "timeline",
+        "graph"
+      ],
+      "evidence": [
+        "A validated proposal can change retry attempts, timings, errors, detections, and outcomes, then read the saved trace back."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": []
+    }
   },
   {
     "id": "saved-trace-inspection",
@@ -19,13 +96,82 @@
     "scope": "clone_only",
     "buyerProblem": "I need to inspect each step, input, output, error, and duration instead of guessing why a run failed.",
     "behaviour": "The replica reads a trace list and individual traces with parent-linked spans, kinds, statuses, inputs, outputs, errors, tags, detections, and coherent timing.",
-    "limitations": ["Only the current authorized synthetic session is readable.", "Span content is bounded by the clone contract."],
-    "prerequisites": ["An active Tailor demo session", "At least one saved synthetic trace"],
-    "planAvailability": {"status": "unknown", "note": "Clone capability; ordinary Neatlogs plan availability does not apply."},
-    "sources": [{"url": "repo:docs/nit-269-contract.md", "verifiedOn": "2026-10-11", "claim": "Session tools expose trace-list and trace-detail reads over validated session data."}],
-    "exampleQuestions": ["Which step failed?", "Show me the tool call input and output", "How long did each span take?", "Where was the exception raised?", "What did the final step return?"],
-    "demonstration": {"level": "demonstrable", "evidence": "Trace detail renders parent-linked spans with status, I/O, errors, and duration from saved data.", "cloneSurfaces": ["trace list", "trace detail", "timeline", "graph"], "tools": ["readTraces", "readTrace"]},
-    "topics": ["trace", "span", "step", "tool call", "input", "output", "error", "exception", "failure", "latency", "duration", "timeline", "graph"]
+    "limitations": [
+      "Only the current authorized synthetic session is readable.",
+      "Span content is bounded by the clone contract."
+    ],
+    "prerequisites": [
+      "An active Tailor demo session",
+      "At least one saved synthetic trace"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Clone capability; ordinary Neatlogs plan availability does not apply."
+    },
+    "sources": [
+      {
+        "url": "repo:docs/nit-269-contract.md",
+        "verifiedOn": "2026-10-11",
+        "claim": "Session tools expose trace-list and trace-detail reads over validated session data."
+      }
+    ],
+    "exampleQuestions": [
+      "Which step failed?",
+      "Show me the tool call input and output",
+      "How long did each span take?",
+      "Where was the exception raised?",
+      "What did the final step return?"
+    ],
+    "demonstration": {
+      "level": "demonstrable",
+      "evidence": "Trace detail renders parent-linked spans with status, I/O, errors, and duration from saved data.",
+      "cloneSurfaces": [
+        "trace list",
+        "trace detail",
+        "timeline",
+        "graph"
+      ],
+      "tools": [
+        "readTraces",
+        "readTrace"
+      ]
+    },
+    "topics": [
+      "trace",
+      "span",
+      "step",
+      "tool call",
+      "input",
+      "output",
+      "error",
+      "exception",
+      "failure",
+      "latency",
+      "duration",
+      "timeline",
+      "graph"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "readTraces",
+        "readTrace"
+      ],
+      "uiSurfaces": [
+        "trace list",
+        "trace detail",
+        "timeline",
+        "graph"
+      ],
+      "evidence": [
+        "Trace detail renders parent-linked spans with status, I/O, errors, and duration from saved data."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": []
+    }
   },
   {
     "id": "trace-search-and-filters",
@@ -33,13 +179,84 @@
     "scope": "clone_only",
     "buyerProblem": "I cannot find the slow or failed run among all the agent activity.",
     "behaviour": "The replica supports case-insensitive substring search plus scenario, detection, tag, minimum-latency, and maximum-latency filters over the current session.",
-    "limitations": ["Search is substring matching, not ranked semantic search.", "Advanced metadata, date, user, session, workflow, and eval filters are outside this clone."],
-    "prerequisites": ["An active Tailor demo session", "Saved traces in that session"],
-    "planAvailability": {"status": "unknown", "note": "Clone capability; ordinary Neatlogs plan availability does not apply."},
-    "sources": [{"url": "repo:README.md", "verifiedOn": "2026-10-11", "claim": "The local trace endpoint supports q, scenario, detection, tag, minMs, and maxMs filters."}],
-    "exampleQuestions": ["Find traces mentioning timeout", "Only show failures over 45 milliseconds", "Filter by the retry tag", "Search for this output value", "Show runs with a detection"],
-    "demonstration": {"level": "demonstrable", "evidence": "The trace list updates from saved session records and shows filtered and total counts.", "cloneSurfaces": ["trace list", "search box", "latency filter", "tag filter", "detection filter"], "tools": ["readTraces", "UI search", "UI filters"]},
-    "topics": ["filter", "search", "tag", "detection", "latency", "duration", "error", "failure", "trace", "list", "query"]
+    "limitations": [
+      "Search is substring matching, not ranked semantic search.",
+      "Advanced metadata, date, user, session, workflow, and eval filters are outside this clone."
+    ],
+    "prerequisites": [
+      "An active Tailor demo session",
+      "Saved traces in that session"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Clone capability; ordinary Neatlogs plan availability does not apply."
+    },
+    "sources": [
+      {
+        "url": "repo:README.md",
+        "verifiedOn": "2026-10-11",
+        "claim": "The local trace endpoint supports q, scenario, detection, tag, minMs, and maxMs filters."
+      }
+    ],
+    "exampleQuestions": [
+      "Find traces mentioning timeout",
+      "Only show failures over 45 milliseconds",
+      "Filter by the retry tag",
+      "Search for this output value",
+      "Show runs with a detection"
+    ],
+    "demonstration": {
+      "level": "demonstrable",
+      "evidence": "The trace list updates from saved session records and shows filtered and total counts.",
+      "cloneSurfaces": [
+        "trace list",
+        "search box",
+        "latency filter",
+        "tag filter",
+        "detection filter"
+      ],
+      "tools": [
+        "readTraces",
+        "UI search",
+        "UI filters"
+      ]
+    },
+    "topics": [
+      "filter",
+      "search",
+      "tag",
+      "detection",
+      "latency",
+      "duration",
+      "error",
+      "failure",
+      "trace",
+      "list",
+      "query"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "readTraces",
+        "UI search",
+        "UI filters"
+      ],
+      "uiSurfaces": [
+        "trace list",
+        "search box",
+        "latency filter",
+        "tag filter",
+        "detection filter"
+      ],
+      "evidence": [
+        "The trace list updates from saved session records and shows filtered and total counts."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": []
+    }
   },
   {
     "id": "trace-graph-and-timeline",
@@ -47,13 +264,77 @@
     "scope": "clone_only",
     "buyerProblem": "I need a visual map of which step called which and where the run spent its time.",
     "behaviour": "The replica projects the same saved spans into a parent-child graph and a horizontal timeline with error styling and explicit durations.",
-    "limitations": ["The graph is fixed rather than draggable.", "The timeline is a compact local reconstruction, not full Neatlogs replay."],
-    "prerequisites": ["A saved trace with valid parent links and timings"],
-    "planAvailability": {"status": "unknown", "note": "Clone capability; ordinary Neatlogs plan availability does not apply."},
-    "sources": [{"url": "repo:docs/nit-265-reference.md", "verifiedOn": "2026-10-11", "claim": "The replica provides graph and timeline projections derived from coherent saved offsets and parent links."}],
-    "exampleQuestions": ["Draw the call graph", "Which span was slowest?", "Were these steps sequential?", "Show the failed step on the timeline"],
-    "demonstration": {"level": "demonstrable", "evidence": "Graph and timeline views are derived from the same canonical trace detail.", "cloneSurfaces": ["graph", "timeline", "span detail"], "tools": ["readTrace", "UI graph", "UI timeline"]},
-    "topics": ["graph", "timeline", "span", "step", "latency", "duration", "error", "failure", "parent", "child"]
+    "limitations": [
+      "The graph is fixed rather than draggable.",
+      "The timeline is a compact local reconstruction, not full Neatlogs replay."
+    ],
+    "prerequisites": [
+      "A saved trace with valid parent links and timings"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Clone capability; ordinary Neatlogs plan availability does not apply."
+    },
+    "sources": [
+      {
+        "url": "repo:docs/nit-265-reference.md",
+        "verifiedOn": "2026-10-11",
+        "claim": "The replica provides graph and timeline projections derived from coherent saved offsets and parent links."
+      }
+    ],
+    "exampleQuestions": [
+      "Draw the call graph",
+      "Which span was slowest?",
+      "Were these steps sequential?",
+      "Show the failed step on the timeline"
+    ],
+    "demonstration": {
+      "level": "demonstrable",
+      "evidence": "Graph and timeline views are derived from the same canonical trace detail.",
+      "cloneSurfaces": [
+        "graph",
+        "timeline",
+        "span detail"
+      ],
+      "tools": [
+        "readTrace",
+        "UI graph",
+        "UI timeline"
+      ]
+    },
+    "topics": [
+      "graph",
+      "timeline",
+      "span",
+      "step",
+      "latency",
+      "duration",
+      "error",
+      "failure",
+      "parent",
+      "child"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "readTrace",
+        "UI graph",
+        "UI timeline"
+      ],
+      "uiSurfaces": [
+        "graph",
+        "timeline",
+        "span detail"
+      ],
+      "evidence": [
+        "Graph and timeline views are derived from the same canonical trace detail."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": []
+    }
   },
   {
     "id": "synthetic-session-isolation",
@@ -61,13 +342,73 @@
     "scope": "clone_only",
     "buyerProblem": "I want to explore observability without touching production data or another visitor's demo.",
     "behaviour": "Each authorized demo session owns synthetic traces and conversation state; SessionTools have no session-id parameter for the model to redirect.",
-    "limitations": ["This is not proof of authenticated Neatlogs ingestion.", "Ending or expiring the session deletes its local data."],
-    "prerequisites": ["A Tailor session created by the local server"],
-    "planAvailability": {"status": "unknown", "note": "Clone capability; ordinary Neatlogs plan availability does not apply."},
-    "sources": [{"url": "repo:docs/nit-269-contract.md", "verifiedOn": "2026-10-11", "claim": "The model-facing tools are bound server-side to one authorized session and synthetic data has bounded lifecycle rules."}],
-    "exampleQuestions": ["Is this real customer data?", "Can another visitor see my traces?", "Does this modify my Neatlogs project?", "What happens when I end the demo?"],
-    "demonstration": {"level": "demonstrable", "evidence": "The UI labels synthetic data and every read is scoped to the current authorized session.", "cloneSurfaces": ["synthetic notice", "conversation", "trace list"], "tools": ["readTraces", "readTrace"]},
-    "topics": ["synthetic", "session", "user", "privacy", "isolation", "demo", "trace", "local"]
+    "limitations": [
+      "This is not proof of authenticated Neatlogs ingestion.",
+      "Ending or expiring the session deletes its local data."
+    ],
+    "prerequisites": [
+      "A Tailor session created by the local server"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Clone capability; ordinary Neatlogs plan availability does not apply."
+    },
+    "sources": [
+      {
+        "url": "repo:docs/nit-269-contract.md",
+        "verifiedOn": "2026-10-11",
+        "claim": "The model-facing tools are bound server-side to one authorized session and synthetic data has bounded lifecycle rules."
+      }
+    ],
+    "exampleQuestions": [
+      "Is this real customer data?",
+      "Can another visitor see my traces?",
+      "Does this modify my Neatlogs project?",
+      "What happens when I end the demo?"
+    ],
+    "demonstration": {
+      "level": "demonstrable",
+      "evidence": "The UI labels synthetic data and every read is scoped to the current authorized session.",
+      "cloneSurfaces": [
+        "synthetic notice",
+        "conversation",
+        "trace list"
+      ],
+      "tools": [
+        "readTraces",
+        "readTrace"
+      ]
+    },
+    "topics": [
+      "synthetic",
+      "session",
+      "user",
+      "privacy",
+      "isolation",
+      "demo",
+      "trace",
+      "local"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "readTraces",
+        "readTrace"
+      ],
+      "uiSurfaces": [
+        "synthetic notice",
+        "conversation",
+        "trace list"
+      ],
+      "evidence": [
+        "The UI labels synthetic data and every read is scoped to the current authorized session."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": []
+    }
   },
   {
     "id": "transactional-versioned-readback",
@@ -75,13 +416,80 @@
     "scope": "clone_only",
     "buyerProblem": "I need confidence that a scenario was really saved, not merely described by the assistant.",
     "behaviour": "Scenario publication validates an expected version, writes atomically, and only claims success after an independent list-and-detail readback.",
-    "limitations": ["Readback uncertainty is reported rather than silently treated as success.", "Versions apply only to the local synthetic dataset."],
-    "prerequisites": ["A valid scenario proposal", "The current dataset version"],
-    "planAvailability": {"status": "unknown", "note": "Clone capability; ordinary Neatlogs plan availability does not apply."},
-    "sources": [{"url": "repo:docs/nit-269-contract.md", "verifiedOn": "2026-10-11", "claim": "The frozen contract distinguishes committed, conflict, save-failed, and readback-uncertain outcomes and requires independent evidence before a success claim."}],
-    "exampleQuestions": ["Was that actually saved?", "What version am I viewing?", "What if two changes race?", "Can a partial scenario leak through?", "How do you prove the update stuck?"],
-    "demonstration": {"level": "demonstrable", "evidence": "Committed responses include authoritative version, trace IDs, span IDs, counts, durations, and errors from readback.", "cloneSurfaces": ["version notice", "conversation evidence", "trace list"], "tools": ["validateProposal", "publishScenario", "readTraces", "readTrace"]},
-    "topics": ["version", "readback", "transaction", "atomic", "conflict", "save", "evidence", "trace", "session"]
+    "limitations": [
+      "Readback uncertainty is reported rather than silently treated as success.",
+      "Versions apply only to the local synthetic dataset."
+    ],
+    "prerequisites": [
+      "A valid scenario proposal",
+      "The current dataset version"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Clone capability; ordinary Neatlogs plan availability does not apply."
+    },
+    "sources": [
+      {
+        "url": "repo:docs/nit-269-contract.md",
+        "verifiedOn": "2026-10-11",
+        "claim": "The frozen contract distinguishes committed, conflict, save-failed, and readback-uncertain outcomes and requires independent evidence before a success claim."
+      }
+    ],
+    "exampleQuestions": [
+      "Was that actually saved?",
+      "What version am I viewing?",
+      "What if two changes race?",
+      "Can a partial scenario leak through?",
+      "How do you prove the update stuck?"
+    ],
+    "demonstration": {
+      "level": "demonstrable",
+      "evidence": "Committed responses include authoritative version, trace IDs, span IDs, counts, durations, and errors from readback.",
+      "cloneSurfaces": [
+        "version notice",
+        "conversation evidence",
+        "trace list"
+      ],
+      "tools": [
+        "validateProposal",
+        "publishScenario",
+        "readTraces",
+        "readTrace"
+      ]
+    },
+    "topics": [
+      "version",
+      "readback",
+      "transaction",
+      "atomic",
+      "conflict",
+      "save",
+      "evidence",
+      "trace",
+      "session"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "validateProposal",
+        "publishScenario",
+        "readTraces",
+        "readTrace"
+      ],
+      "uiSurfaces": [
+        "version notice",
+        "conversation evidence",
+        "trace list"
+      ],
+      "evidence": [
+        "Committed responses include authoritative version, trace IDs, span IDs, counts, durations, and errors from readback."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": []
+    }
   },
   {
     "id": "two-regression-samples",
@@ -89,13 +497,76 @@
     "scope": "clone_only",
     "buyerProblem": "I need stable examples to compare recovered and exhausted failure paths.",
     "behaviour": "The replica starts from two deterministic order-lookup traces: one recovers after an error and one exhausts attempts and safely escalates.",
-    "limitations": ["The samples are fixtures, not a production catalogue.", "Visitor text does not generate or alter these baseline fixtures."],
-    "prerequisites": ["A newly created Tailor demo session"],
-    "planAvailability": {"status": "unknown", "note": "Clone capability; ordinary Neatlogs plan availability does not apply."},
-    "sources": [{"url": "repo:docs/nit-265-reference.md", "verifiedOn": "2026-10-11", "claim": "The replica has two controlled order-lookup fixtures covering recovery and exhausted escalation."}],
-    "exampleQuestions": ["What are the two sample runs?", "Show recovered versus exhausted", "Why is Ready not the same as success?", "Which fixture has two errors?"],
-    "demonstration": {"level": "demonstrable", "evidence": "Both samples appear in the trace list and open into deterministic detail, graph, and timeline views.", "cloneSurfaces": ["trace list", "trace detail", "graph", "timeline"], "tools": ["readTraces", "readTrace"]},
-    "topics": ["regression", "sample", "fixture", "recovered", "exhausted", "error", "failure", "escalation", "trace"]
+    "limitations": [
+      "The samples are fixtures, not a production catalogue.",
+      "Visitor text does not generate or alter these baseline fixtures."
+    ],
+    "prerequisites": [
+      "A newly created Tailor demo session"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Clone capability; ordinary Neatlogs plan availability does not apply."
+    },
+    "sources": [
+      {
+        "url": "repo:docs/nit-265-reference.md",
+        "verifiedOn": "2026-10-11",
+        "claim": "The replica has two controlled order-lookup fixtures covering recovery and exhausted escalation."
+      }
+    ],
+    "exampleQuestions": [
+      "What are the two sample runs?",
+      "Show recovered versus exhausted",
+      "Why is Ready not the same as success?",
+      "Which fixture has two errors?"
+    ],
+    "demonstration": {
+      "level": "demonstrable",
+      "evidence": "Both samples appear in the trace list and open into deterministic detail, graph, and timeline views.",
+      "cloneSurfaces": [
+        "trace list",
+        "trace detail",
+        "graph",
+        "timeline"
+      ],
+      "tools": [
+        "readTraces",
+        "readTrace"
+      ]
+    },
+    "topics": [
+      "regression",
+      "sample",
+      "fixture",
+      "recovered",
+      "exhausted",
+      "error",
+      "failure",
+      "escalation",
+      "trace"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "readTraces",
+        "readTrace"
+      ],
+      "uiSurfaces": [
+        "trace list",
+        "trace detail",
+        "graph",
+        "timeline"
+      ],
+      "evidence": [
+        "Both samples appear in the trace list and open into deterministic detail, graph, and timeline views."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": []
+    }
   },
   {
     "id": "real-project-mutations-refused",
@@ -103,13 +574,68 @@
     "scope": "clone_only",
     "buyerProblem": "I need to know whether this demo can alter billing, alerts, projects, keys, or production traces.",
     "behaviour": "Tailor refuses real Neatlogs project mutations, billing or account changes, cross-session access, arbitrary code, and unsupported side effects.",
-    "limitations": ["Tailor can explain sourced product features but cannot configure them.", "Synthetic scenario changes affect only the local authorized session."],
+    "limitations": [
+      "Tailor can explain sourced product features but cannot configure them.",
+      "Synthetic scenario changes affect only the local authorized session."
+    ],
     "prerequisites": [],
-    "planAvailability": {"status": "unknown", "note": "Clone capability; ordinary Neatlogs plan availability does not apply."},
-    "sources": [{"url": "repo:docs/nit-269-contract.md", "verifiedOn": "2026-10-11", "claim": "The contract classifies real-product mutation, cross-session access, and arbitrary code as refusals."}],
-    "exampleQuestions": ["Delete my real Neatlogs project", "Change my subscription", "Rotate the API key", "Create this alert in production", "Read another user's session"],
-    "demonstration": {"level": "unsupported", "evidence": "Requests for real mutations are refused and local state remains unchanged.", "cloneSurfaces": ["conversation"], "tools": ["validateProposal"]},
-    "topics": ["unsupported", "billing", "account", "project", "api key", "alert", "incident", "mutation", "session", "user"]
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Clone capability; ordinary Neatlogs plan availability does not apply."
+    },
+    "sources": [
+      {
+        "url": "repo:docs/nit-269-contract.md",
+        "verifiedOn": "2026-10-11",
+        "claim": "The contract classifies real-product mutation, cross-session access, and arbitrary code as refusals."
+      }
+    ],
+    "exampleQuestions": [
+      "Delete my real Neatlogs project",
+      "Change my subscription",
+      "Rotate the API key",
+      "Create this alert in production",
+      "Read another user's session"
+    ],
+    "demonstration": {
+      "level": "unsupported",
+      "evidence": "Requests for real mutations are refused and local state remains unchanged.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": [
+        "validateProposal"
+      ]
+    },
+    "topics": [
+      "unsupported",
+      "billing",
+      "account",
+      "project",
+      "api key",
+      "alert",
+      "incident",
+      "mutation",
+      "session",
+      "user"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "refused",
+      "tools": [
+        "validateProposal"
+      ],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "Requests for real mutations are refused and local state remains unchanged."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": []
+    }
   },
   {
     "id": "official-traces-and-spans",
@@ -117,13 +643,86 @@
     "scope": "official_product",
     "buyerProblem": "My agent returned the wrong result and I need the exact model, tool, and retrieval steps that produced it.",
     "behaviour": "Neatlogs documents traces as complete agent runs made of nested spans with inputs, outputs, timing, metadata, and kind-specific detail.",
-    "limitations": ["What appears depends on what the application instrumentation captures.", "The Tailor clone does not reproduce every official span kind or column."],
-    "prerequisites": ["A Neatlogs project", "Instrumented application traces"],
-    "planAvailability": {"status": "unknown", "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."},
-    "sources": [{"url": "https://docs.neatlogs.com/docs/features/traces", "verifiedOn": "2026-10-11", "claim": "The official Traces page describes each run as a span tree with inputs, outputs, timing, metadata, and detailed model, tool, and retriever fields."}],
-    "exampleQuestions": ["Can I see every agent step?", "What did the model actually receive?", "Show the tool call result", "Where did this failure originate?"],
-    "demonstration": {"level": "demonstrable", "evidence": "The clone can demonstrate the core tree, I/O, error, and timing concepts using saved synthetic data.", "cloneSurfaces": ["trace list", "trace detail", "graph", "timeline"], "tools": ["readTraces", "readTrace"]},
-    "topics": ["trace", "span", "step", "tool call", "retrieval", "input", "output", "error", "exception", "failure", "latency", "duration"]
+    "limitations": [
+      "What appears depends on what the application instrumentation captures.",
+      "The Tailor clone does not reproduce every official span kind or column."
+    ],
+    "prerequisites": [
+      "A Neatlogs project",
+      "Instrumented application traces"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/docs/features/traces",
+        "verifiedOn": "2026-10-11",
+        "claim": "The official Traces page describes each run as a span tree with inputs, outputs, timing, metadata, and detailed model, tool, and retriever fields."
+      }
+    ],
+    "exampleQuestions": [
+      "Can I see every agent step?",
+      "What did the model actually receive?",
+      "Show the tool call result",
+      "Where did this failure originate?"
+    ],
+    "demonstration": {
+      "level": "demonstrable",
+      "evidence": "The clone can demonstrate the core tree, I/O, error, and timing concepts using saved synthetic data.",
+      "cloneSurfaces": [
+        "trace list",
+        "trace detail",
+        "graph",
+        "timeline"
+      ],
+      "tools": [
+        "readTraces",
+        "readTrace"
+      ]
+    },
+    "topics": [
+      "trace",
+      "span",
+      "step",
+      "tool call",
+      "retrieval",
+      "input",
+      "output",
+      "error",
+      "exception",
+      "failure",
+      "latency",
+      "duration"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "readTraces",
+        "readTrace"
+      ],
+      "uiSurfaces": [
+        "trace list",
+        "trace detail",
+        "graph",
+        "timeline"
+      ],
+      "evidence": [
+        "The clone can demonstrate the core tree, I/O, error, and timing concepts using saved synthetic data."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+        }
+      ]
+    }
   },
   {
     "id": "official-timeline-analysis",
@@ -131,13 +730,78 @@
     "scope": "official_product",
     "buyerProblem": "My agent is slow and I need to separate long work, parallel work, and idle gaps.",
     "behaviour": "The official timeline aligns spans to trace start so sequential work, overlapping parallel work, dominant spans, and idle gaps can be inspected.",
-    "limitations": ["Useful timing depends on complete and correctly ended spans.", "The clone's timeline is a bounded visual approximation."],
-    "prerequisites": ["Captured traces with span timing"],
-    "planAvailability": {"status": "unknown", "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."},
-    "sources": [{"url": "https://docs.neatlogs.com/docs/features/traces", "verifiedOn": "2026-10-11", "claim": "The official timeline maps spans to a time axis and uses overlap, width, and gaps to reveal concurrency, dominant latency, and idle time."}],
-    "exampleQuestions": ["Which step dominates latency?", "Are my awaits actually parallel?", "Where is the idle time?", "Why did this run take so long?"],
-    "demonstration": {"level": "demonstrable", "evidence": "The clone renders saved span offsets and durations in a timeline.", "cloneSurfaces": ["timeline", "span detail"], "tools": ["readTrace", "UI timeline"]},
-    "topics": ["timeline", "latency", "duration", "slow", "parallel", "sequential", "idle", "span", "step"]
+    "limitations": [
+      "Useful timing depends on complete and correctly ended spans.",
+      "The clone's timeline is a bounded visual approximation."
+    ],
+    "prerequisites": [
+      "Captured traces with span timing"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/docs/features/traces",
+        "verifiedOn": "2026-10-11",
+        "claim": "The official timeline maps spans to a time axis and uses overlap, width, and gaps to reveal concurrency, dominant latency, and idle time."
+      }
+    ],
+    "exampleQuestions": [
+      "Which step dominates latency?",
+      "Are my awaits actually parallel?",
+      "Where is the idle time?",
+      "Why did this run take so long?"
+    ],
+    "demonstration": {
+      "level": "demonstrable",
+      "evidence": "The clone renders saved span offsets and durations in a timeline.",
+      "cloneSurfaces": [
+        "timeline",
+        "span detail"
+      ],
+      "tools": [
+        "readTrace",
+        "UI timeline"
+      ]
+    },
+    "topics": [
+      "timeline",
+      "latency",
+      "duration",
+      "slow",
+      "parallel",
+      "sequential",
+      "idle",
+      "span",
+      "step"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "readTrace",
+        "UI timeline"
+      ],
+      "uiSurfaces": [
+        "timeline",
+        "span detail"
+      ],
+      "evidence": [
+        "The clone renders saved span offsets and durations in a timeline."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+        }
+      ]
+    }
   },
   {
     "id": "official-detections",
@@ -145,13 +809,94 @@
     "scope": "official_product",
     "buyerProblem": "I need important failures, expensive runs, or risky outputs surfaced without opening every trace.",
     "behaviour": "Neatlogs documents regex, condition, PII, and classifier detections that annotate matching spans and traces and can be filtered in the trace list.",
-    "limitations": ["Detections are read-only annotations and do not change application execution.", "The clone only demonstrates a fixed synthetic Execution Failed detection."],
-    "prerequisites": ["Captured spans", "A configured detection for official generalized detection behavior"],
-    "planAvailability": {"status": "unknown", "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."},
-    "sources": [{"url": "https://docs.neatlogs.com/docs/features/detections", "verifiedOn": "2026-10-11", "claim": "The official docs describe regex, condition, PII, and classifier rules that add filterable annotations to matching traces and spans."}],
-    "exampleQuestions": ["Flag runs over five seconds", "Can it catch PII in output?", "Find traces where status is failed", "What is an Execution Failed detection?"],
-    "demonstration": {"level": "demonstrable", "evidence": "The clone shows saved Execution Failed detections in list and detail and can filter by detection presence.", "cloneSurfaces": ["trace list", "trace detail", "detection filter"], "tools": ["readTraces", "readTrace", "UI detection filter"]},
-    "topics": ["detection", "classifier", "condition", "regex", "pii", "error", "failure", "latency", "cost", "filter", "trace", "span"]
+    "limitations": [
+      "Detections are read-only annotations and do not change application execution.",
+      "The clone only demonstrates a fixed synthetic Execution Failed detection."
+    ],
+    "prerequisites": [
+      "Captured spans",
+      "A configured detection for official generalized detection behavior"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/docs/features/detections",
+        "verifiedOn": "2026-10-11",
+        "claim": "The official docs describe regex, condition, PII, and classifier rules that add filterable annotations to matching traces and spans."
+      },
+      {
+        "url": "https://docs.neatlogs.com/api-reference/availability",
+        "verifiedOn": "2026-10-12",
+        "claim": "The October 6 release checks state the public classifier workflow is disabled in production behind tier-c-compute."
+      }
+    ],
+    "exampleQuestions": [
+      "Flag runs over five seconds",
+      "Can it catch PII in output?",
+      "Find traces where status is failed",
+      "What is an Execution Failed detection?"
+    ],
+    "demonstration": {
+      "level": "demonstrable",
+      "evidence": "The clone shows saved Execution Failed detections in list and detail and can filter by detection presence.",
+      "cloneSurfaces": [
+        "trace list",
+        "trace detail",
+        "detection filter"
+      ],
+      "tools": [
+        "readTraces",
+        "readTrace",
+        "UI detection filter"
+      ]
+    },
+    "topics": [
+      "detection",
+      "classifier",
+      "condition",
+      "regex",
+      "pii",
+      "error",
+      "failure",
+      "latency",
+      "cost",
+      "filter",
+      "trace",
+      "span"
+    ],
+    "productLimitations": [
+      "Detections annotate captured spans; they do not change agent execution.",
+      "The public classifier workflow is disabled behind tier-c-compute in production according to the dated release checks."
+    ],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "readTraces",
+        "readTrace",
+        "UI detection filter"
+      ],
+      "uiSurfaces": [
+        "trace list",
+        "trace detail",
+        "detection filter"
+      ],
+      "evidence": [
+        "The clone shows saved Execution Failed detections in list and detail and can filter by detection presence."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+        }
+      ]
+    }
   },
   {
     "id": "official-trace-ai-assistant",
@@ -159,13 +904,70 @@
     "scope": "official_product",
     "buyerProblem": "I do not know where to click; I want to ask why one run behaved this way in plain language.",
     "behaviour": "The official trace page documents a built-in assistant that answers questions grounded in the selected run's spans, inputs, outputs, token counts, and attributes.",
-    "limitations": ["Tailor does not reproduce the official assistant or make model calls.", "Answers depend on captured trace data."],
-    "prerequisites": ["A captured trace in Neatlogs"],
-    "planAvailability": {"status": "unknown", "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."},
-    "sources": [{"url": "https://docs.neatlogs.com/docs/features/traces", "verifiedOn": "2026-10-11", "claim": "The official docs say each trace has an AI assistant with read access to that run and grounded answers about its span data."}],
-    "exampleQuestions": ["Can I ask why the tool was skipped?", "Which call had the highest latency?", "What context did the second model call receive?", "Does Ask neat AI inspect this run?"],
-    "demonstration": {"level": "explain_only", "evidence": "The clone can explain this sourced feature but does not implement the official AI assistant.", "cloneSurfaces": ["conversation"], "tools": []},
-    "topics": ["ask neat ai", "assistant", "copilot", "trace", "span", "search", "question", "latency", "tool call"]
+    "limitations": [
+      "Tailor does not reproduce the official Neatlogs assistant.",
+      "The local planning provider can be mock or live, independently of official assistant access."
+    ],
+    "prerequisites": [
+      "A captured trace in Neatlogs"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/docs/features/traces",
+        "verifiedOn": "2026-10-11",
+        "claim": "The official docs say each trace has an AI assistant with read access to that run and grounded answers about its span data."
+      }
+    ],
+    "exampleQuestions": [
+      "Can I ask why the tool was skipped?",
+      "Which call had the highest latency?",
+      "What context did the second model call receive?",
+      "Does Ask neat AI inspect this run?"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "The clone can explain this sourced feature but does not implement the official AI assistant.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "ask neat ai",
+      "assistant",
+      "copilot",
+      "trace",
+      "span",
+      "search",
+      "question",
+      "latency",
+      "tool call"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "The clone can explain this sourced feature but does not implement the official AI assistant."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+        }
+      ]
+    }
   },
   {
     "id": "official-alerts-and-slack",
@@ -173,27 +975,166 @@
     "scope": "official_product",
     "buyerProblem": "I need the team notified when failures spike, latency crosses a limit, or traces stop arriving.",
     "behaviour": "Neatlogs documents threshold, per-event, compound, metric, and ingestion-health alert rules with Slack, email, in-app, and webhook destinations.",
-    "limitations": ["Tailor cannot create or modify real alert rules.", "Slack requires the official integration to be connected."],
-    "prerequisites": ["Incoming Neatlogs spans", "An alert rule", "A connected destination for Slack or webhooks"],
-    "planAvailability": {"status": "unknown", "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."},
-    "sources": [{"url": "https://docs.neatlogs.com/docs/features/alerts", "verifiedOn": "2026-10-11", "claim": "The official Alerts page lists detection, metric, and ingestion-health rules and Slack, email, in-app, and webhook destinations."}],
-    "exampleQuestions": ["Set up a Slack alert", "Page us when latency exceeds five seconds", "Notify me if ingestion stops", "Can a detection trigger email?", "How do alert cooldowns work?"],
-    "demonstration": {"level": "explain_only", "evidence": "The clone can explain alert concepts but cannot configure real destinations or rules.", "cloneSurfaces": ["conversation"], "tools": []},
-    "topics": ["alert", "slack", "incident", "notification", "webhook", "email", "detection", "latency", "threshold", "failure", "ingestion"]
+    "limitations": [
+      "Tailor cannot create or modify real alert rules.",
+      "Slack requires the official integration to be connected."
+    ],
+    "prerequisites": [
+      "Incoming Neatlogs spans",
+      "An alert rule",
+      "A connected destination for Slack or webhooks"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/docs/features/alerts",
+        "verifiedOn": "2026-10-11",
+        "claim": "The official Alerts page lists detection, metric, and ingestion-health rules and Slack, email, in-app, and webhook destinations."
+      }
+    ],
+    "exampleQuestions": [
+      "Set up a Slack alert",
+      "Page us when latency exceeds five seconds",
+      "Notify me if ingestion stops",
+      "Can a detection trigger email?",
+      "How do alert cooldowns work?"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "The clone can explain alert concepts but cannot configure real destinations or rules.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "alert",
+      "slack",
+      "incident",
+      "notification",
+      "webhook",
+      "email",
+      "detection",
+      "latency",
+      "threshold",
+      "failure",
+      "ingestion"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "The clone can explain alert concepts but cannot configure real destinations or rules."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+        }
+      ]
+    }
   },
   {
     "id": "official-evaluations",
     "title": "Human and AI evaluations",
     "scope": "official_product",
     "buyerProblem": "Rules cannot judge tone or correctness; I need structured review and measurable quality results.",
-    "behaviour": "Neatlogs documents evaluations that route captured traces or spans to human or AI reviewers through structured forms and aggregate or export the responses.",
-    "limitations": ["The clone has no evaluation workflow and leaves eval columns empty.", "Reviewer and evaluator setup occurs in the real product."],
-    "prerequisites": ["Captured traces or spans", "An evaluation form", "Assigned human or AI reviewers"],
-    "planAvailability": {"status": "unknown", "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."},
-    "sources": [{"url": "https://docs.neatlogs.com/docs/features/evals", "verifiedOn": "2026-10-11", "claim": "The official Evals page describes structured forms, per-question human or AI assignment, aggregate views, and CSV or JSON export."}],
-    "exampleQuestions": ["Can reviewers score answer quality?", "Run an eval on these traces", "Mix human and AI judges", "Export evaluation results", "Does the demo show evals?"],
-    "demonstration": {"level": "explain_only", "evidence": "The clone does not fabricate evaluations; it can only explain the sourced official workflow.", "cloneSurfaces": ["conversation", "empty Evals column"], "tools": []},
-    "topics": ["eval", "evaluation", "review", "human", "ai judge", "quality", "rating", "dataset", "export", "trace", "span"]
+    "behaviour": "Neatlogs documents structured forms over existing or arriving traces/spans, assigning human or AI reviewers per question, then aggregating results and exporting CSV/JSON.",
+    "limitations": [
+      "Hosted reviewer/evaluator setup and runtime access have not been verified.",
+      "The local Evals page uses fictional saved traces, buyer reviews and explicitly simulated judge values."
+    ],
+    "prerequisites": [
+      "Captured traces or spans",
+      "An evaluation form",
+      "Assigned human or AI reviewers"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/docs/features/evals",
+        "verifiedOn": "2026-10-12",
+        "claim": "Forms select traces/spans, assign human or AI reviewers per question and aggregate responses."
+      },
+      {
+        "url": "https://docs.neatlogs.com/api-reference/authentication",
+        "verifiedOn": "2026-10-12",
+        "claim": "SDK ingest credentials do not authorize Public API reads; evaluation workflows have separate scope families."
+      },
+      {
+        "url": "https://docs.neatlogs.com/api-reference/availability",
+        "verifiedOn": "2026-10-12",
+        "claim": "Runtime availability and plan access are separate checks; future collection has a final-cohort caveat."
+      }
+    ],
+    "exampleQuestions": [
+      "Can reviewers score answer quality?",
+      "Run an eval on these traces",
+      "Mix human and AI judges",
+      "Export evaluation results",
+      "Does the demo show evals?"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "The local synthetic eval workflow demonstrates the review concept; hosted reviewer dispatch and AI evaluation do not execute.",
+      "cloneSurfaces": [
+        "conversation",
+        "Evals page"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "eval",
+      "evaluation",
+      "review",
+      "human",
+      "ai judge",
+      "quality",
+      "rating",
+      "dataset",
+      "export",
+      "trace",
+      "span"
+    ],
+    "productLimitations": [
+      "Scheduled future collection has a documented final-cohort caveat in the October 6 release checks.",
+      "Ingest credentials do not authorize Public API reads; evaluation scopes, roles and entitlements are separate."
+    ],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation",
+        "Evals page"
+      ],
+      "evidence": [
+        "The local synthetic eval workflow demonstrates the review concept; hosted reviewer dispatch and AI evaluation do not execute."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+        }
+      ]
+    }
   },
   {
     "id": "official-session-replay",
@@ -201,13 +1142,80 @@
     "scope": "official_product",
     "buyerProblem": "I want to step through an agent run in order instead of reading a static trace.",
     "behaviour": "The official experimental replay turns a trace into a guided player with transport controls, structure graph, timeline, inspector, story, and tree views.",
-    "limitations": ["The official docs mark replay experimental and say one trace currently maps to one session.", "The clone has graph and timeline views but no live replay player."],
-    "prerequisites": ["A captured trace or an official bundled replay demo"],
-    "planAvailability": {"status": "unknown", "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."},
-    "sources": [{"url": "https://docs.neatlogs.com/docs/features/session-replay", "verifiedOn": "2026-10-11", "claim": "The official page labels Session Replay experimental and describes stepwise playback over structure, timeline, and inspector views."}],
-    "exampleQuestions": ["Can I replay this agent session?", "Step through the tool calls", "Does replay support multiple traces?", "Show decisions in order"],
-    "demonstration": {"level": "explain_only", "evidence": "The clone can show static graph and timeline projections but not the official transport or replay semantics.", "cloneSurfaces": ["graph", "timeline", "conversation"], "tools": ["readTrace"]},
-    "topics": ["replay", "session", "timeline", "graph", "step", "tool call", "decision", "experimental", "trace"]
+    "limitations": [
+      "The official docs mark replay experimental and say one trace currently maps to one session.",
+      "The clone has graph and timeline views but no live replay player."
+    ],
+    "prerequisites": [
+      "A captured trace or an official bundled replay demo"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/docs/features/session-replay",
+        "verifiedOn": "2026-10-11",
+        "claim": "The official page labels Session Replay experimental and describes stepwise playback over structure, timeline, and inspector views."
+      }
+    ],
+    "exampleQuestions": [
+      "Can I replay this agent session?",
+      "Step through the tool calls",
+      "Does replay support multiple traces?",
+      "Show decisions in order"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "The clone can show static graph and timeline projections but not the official transport or replay semantics.",
+      "cloneSurfaces": [
+        "graph",
+        "timeline",
+        "conversation"
+      ],
+      "tools": [
+        "readTrace"
+      ]
+    },
+    "topics": [
+      "replay",
+      "session",
+      "timeline",
+      "graph",
+      "step",
+      "tool call",
+      "decision",
+      "experimental",
+      "trace"
+    ],
+    "productLimitations": [
+      "Replay is experimental; the official docs currently map one trace to one session."
+    ],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [
+        "readTrace"
+      ],
+      "uiSurfaces": [
+        "graph",
+        "timeline",
+        "conversation"
+      ],
+      "evidence": [
+        "The clone can show static graph and timeline projections but not the official transport or replay semantics."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+        }
+      ]
+    }
   },
   {
     "id": "official-analytics",
@@ -215,13 +1223,80 @@
     "scope": "official_product",
     "buyerProblem": "One trace is not enough; I need trends in cost, latency, failures, tools, and detections.",
     "behaviour": "Neatlogs documents configurable aggregate dashboards for trace volume, error rate, cost, tokens, wall time, tool performance, detections, and common paths with filters and drill-down.",
-    "limitations": ["The clone does not implement aggregate analytics.", "Analytics quality depends on captured span data and selected filters."],
-    "prerequisites": ["Multiple captured traces"],
-    "planAvailability": {"status": "unknown", "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."},
-    "sources": [{"url": "https://docs.neatlogs.com/docs/features/analytics", "verifiedOn": "2026-10-11", "claim": "The official Analytics page describes aggregate cost, latency, error, token, tool, detection, and path widgets with filtering and trace drill-down."}],
-    "exampleQuestions": ["What did this workflow cost last week?", "Which tool drives p95 latency?", "Are failures increasing?", "Show detection trends", "Does the clone have analytics?"],
-    "demonstration": {"level": "explain_only", "evidence": "The clone can explain analytics but only reads per-session trace data.", "cloneSurfaces": ["conversation"], "tools": []},
-    "topics": ["analytics", "cost", "pricing", "latency", "duration", "error", "failure", "detection", "trend", "tool call", "filter"]
+    "limitations": [
+      "The clone does not implement aggregate analytics.",
+      "Analytics quality depends on captured span data and selected filters."
+    ],
+    "prerequisites": [
+      "Multiple captured traces"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/docs/features/analytics",
+        "verifiedOn": "2026-10-11",
+        "claim": "The official Analytics page describes aggregate cost, latency, error, token, tool, detection, and path widgets with filtering and trace drill-down."
+      },
+      {
+        "url": "https://docs.neatlogs.com/api-reference/availability",
+        "verifiedOn": "2026-10-12",
+        "claim": "The October 6 release checks state analytics export requires tier-c-compute and is disabled in production; this is narrower than all analytics."
+      }
+    ],
+    "exampleQuestions": [
+      "What did this workflow cost last week?",
+      "Which tool drives p95 latency?",
+      "Are failures increasing?",
+      "Show detection trends",
+      "Does the clone have analytics?"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "The clone can explain analytics but only reads per-session trace data.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "analytics",
+      "cost",
+      "pricing",
+      "latency",
+      "duration",
+      "error",
+      "failure",
+      "detection",
+      "trend",
+      "tool call",
+      "filter"
+    ],
+    "productLimitations": [
+      "Public API analytics export is disabled behind tier-c-compute in production according to the dated release checks."
+    ],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "The clone can explain analytics but only reads per-session trace data."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+        }
+      ]
+    }
   },
   {
     "id": "official-typescript-sdk",
@@ -229,13 +1304,83 @@
     "scope": "official_product",
     "buyerProblem": "I need to instrument my Node agent without replacing the OpenAI, Anthropic, Google, or framework client I already use.",
     "behaviour": "The TypeScript SDK documents explicit wrappers, handlers, processors, hooks, and plugins plus span and trace APIs for capturing inputs, outputs, timing, errors, prompts, sessions, and custom steps.",
-    "limitations": ["TypeScript integrations are explicit; the docs say there is no auto-instrumentation option.", "Applications must flush or shut down appropriately for their process lifecycle."],
-    "prerequisites": ["Node.js supported by the installed SDK", "The neatlogs package", "A project API key for export", "The provider or framework package being instrumented"],
-    "planAvailability": {"status": "unknown", "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."},
-    "sources": [{"url": "https://docs.neatlogs.com/sdk/typescript", "verifiedOn": "2026-10-11", "claim": "The official TypeScript guide documents explicit integrations, span and trace APIs, supported libraries, Doctor, and async flush/shutdown lifecycle."}, {"url": "https://github.com/neatlogs/neatlogs-typescript#readme", "verifiedOn": "2026-10-11", "claim": "The official SDK repository README describes OpenTelemetry-native TypeScript tracing and explicit wrappers for providers and frameworks."}],
-    "exampleQuestions": ["Does it support TypeScript?", "How do I trace OpenAI calls?", "Is Anthropic supported?", "Can I use LangChain callbacks?", "When should I flush?"],
-    "demonstration": {"level": "explain_only", "evidence": "Tailor uses the pinned SDK for separate telemetry setup, but the synthetic clone does not execute integrations.", "cloneSurfaces": ["conversation"], "tools": []},
-    "topics": ["sdk", "typescript", "node", "openai", "anthropic", "google", "langchain", "wrapper", "span", "trace", "tool call", "flush", "shutdown"]
+    "limitations": [
+      "TypeScript integrations are explicit; the docs say there is no auto-instrumentation option.",
+      "Applications must flush or shut down appropriately for their process lifecycle."
+    ],
+    "prerequisites": [
+      "Node.js supported by the installed SDK",
+      "The neatlogs package",
+      "A project API key for export",
+      "The provider or framework package being instrumented"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/sdk/typescript",
+        "verifiedOn": "2026-10-11",
+        "claim": "The official TypeScript guide documents explicit integrations, span and trace APIs, supported libraries, Doctor, and async flush/shutdown lifecycle."
+      },
+      {
+        "url": "https://github.com/neatlogs/neatlogs-typescript#readme",
+        "verifiedOn": "2026-10-11",
+        "claim": "The official SDK repository README describes OpenTelemetry-native TypeScript tracing and explicit wrappers for providers and frameworks."
+      }
+    ],
+    "exampleQuestions": [
+      "Does it support TypeScript?",
+      "How do I trace OpenAI calls?",
+      "Is Anthropic supported?",
+      "Can I use LangChain callbacks?",
+      "When should I flush?"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "Tailor uses the pinned SDK for separate telemetry setup, but the synthetic clone does not execute integrations.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "sdk",
+      "typescript",
+      "node",
+      "openai",
+      "anthropic",
+      "google",
+      "langchain",
+      "wrapper",
+      "span",
+      "trace",
+      "tool call",
+      "flush",
+      "shutdown"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "Tailor uses the pinned SDK for separate telemetry setup, but the synthetic clone does not execute integrations."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+        }
+      ]
+    }
   },
   {
     "id": "official-pii-redaction",
@@ -243,13 +1388,79 @@
     "scope": "official_product",
     "buyerProblem": "I need observability without sending raw sensitive inputs and outputs unchanged.",
     "behaviour": "The TypeScript SDK documents capture toggles, per-span or global mask functions, and PII redact or hash settings for telemetry.",
-    "limitations": ["Configuration must be chosen and tested by the application owner.", "The clone cannot inspect or change a real project's redaction settings.", "Telemetry masking does not imply managed prompt payloads are transformed."],
-    "prerequisites": ["The TypeScript SDK", "An application-specific redaction policy"],
-    "planAvailability": {"status": "unknown", "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."},
-    "sources": [{"url": "https://docs.neatlogs.com/sdk/typescript", "verifiedOn": "2026-10-11", "claim": "The official TypeScript guide documents captureInput/captureOutput, mask callbacks, and PII redaction controls."}, {"url": "https://www.npmjs.com/package/neatlogs", "verifiedOn": "2026-10-11", "claim": "The fetched package README lists mask, pii, piiEnabled, and piiSpanTypes initialization options."}],
-    "exampleQuestions": ["Can I redact email addresses?", "How do I hide one tool input?", "Does PII support hashing?", "Can I drop a sensitive span?", "Are prompt records masked too?"],
-    "demonstration": {"level": "explain_only", "evidence": "The clone can explain SDK controls but does not expose or mutate real redaction settings.", "cloneSurfaces": ["conversation"], "tools": []},
-    "topics": ["pii", "redaction", "mask", "hash", "privacy", "input", "output", "sdk", "typescript", "span"]
+    "limitations": [
+      "Configuration must be chosen and tested by the application owner.",
+      "The clone cannot inspect or change a real project's redaction settings.",
+      "Telemetry masking does not imply managed prompt payloads are transformed."
+    ],
+    "prerequisites": [
+      "The TypeScript SDK",
+      "An application-specific redaction policy"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/sdk/typescript",
+        "verifiedOn": "2026-10-11",
+        "claim": "The official TypeScript guide documents captureInput/captureOutput, mask callbacks, and PII redaction controls."
+      },
+      {
+        "url": "https://www.npmjs.com/package/neatlogs",
+        "verifiedOn": "2026-10-11",
+        "claim": "The fetched package README lists mask, pii, piiEnabled, and piiSpanTypes initialization options."
+      }
+    ],
+    "exampleQuestions": [
+      "Can I redact email addresses?",
+      "How do I hide one tool input?",
+      "Does PII support hashing?",
+      "Can I drop a sensitive span?",
+      "Are prompt records masked too?"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "The clone can explain SDK controls but does not expose or mutate real redaction settings.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "pii",
+      "redaction",
+      "mask",
+      "hash",
+      "privacy",
+      "input",
+      "output",
+      "sdk",
+      "typescript",
+      "span"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "The clone can explain SDK controls but does not expose or mutate real redaction settings."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+        }
+      ]
+    }
   },
   {
     "id": "official-prompt-management",
@@ -257,13 +1468,83 @@
     "scope": "official_product",
     "buyerProblem": "I need to version prompts, test changes safely, and move a production label without redeploying code.",
     "behaviour": "Neatlogs documents named prompt version history, movable labels such as production or staging, rollback, a no-production-side-effect playground, and SDK prompt retrieval and mutation APIs.",
-    "limitations": ["The clone cannot read or modify real managed prompts.", "The official docs mark evaluation datasets in Experiments as coming soon.", "Playground model runs require configured provider keys."],
-    "prerequisites": ["A Neatlogs project", "Managed prompts", "A configured provider for playground runs"],
-    "planAvailability": {"status": "unknown", "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."},
-    "sources": [{"url": "https://docs.neatlogs.com/docs/features/experiments", "verifiedOn": "2026-10-11", "claim": "The official Experiments page describes immutable-style prompt versions, labels, rollback, and a playground whose runs do not alter production."}, {"url": "https://github.com/neatlogs/neatlogs-typescript#readme", "verifiedOn": "2026-10-11", "claim": "The official TypeScript SDK README documents PromptClient operations for versioned prompt storage and retrieval."}],
-    "exampleQuestions": ["Can I roll back a prompt?", "Test a staging prompt without production impact", "How do production labels work?", "Does the SDK fetch managed prompts?", "Can Tailor change my prompt?"],
-    "demonstration": {"level": "explain_only", "evidence": "The clone can explain sourced prompt workflows but refuses real prompt mutations.", "cloneSurfaces": ["conversation"], "tools": []},
-    "topics": ["prompt", "version", "playground", "experiment", "label", "rollback", "sdk", "typescript", "eval", "dataset"]
+    "limitations": [
+      "The clone cannot read or modify real managed prompts.",
+      "The official docs mark evaluation datasets in Experiments as coming soon.",
+      "Playground model runs require configured provider keys."
+    ],
+    "prerequisites": [
+      "A Neatlogs project",
+      "Managed prompts",
+      "A configured provider for playground runs"
+    ],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/docs/features/experiments",
+        "verifiedOn": "2026-10-11",
+        "claim": "The official Experiments page describes immutable-style prompt versions, labels, rollback, and a playground whose runs do not alter production."
+      },
+      {
+        "url": "https://github.com/neatlogs/neatlogs-typescript#readme",
+        "verifiedOn": "2026-10-11",
+        "claim": "The official TypeScript SDK README documents PromptClient operations for versioned prompt storage and retrieval."
+      }
+    ],
+    "exampleQuestions": [
+      "Can I roll back a prompt?",
+      "Test a staging prompt without production impact",
+      "How do production labels work?",
+      "Does the SDK fetch managed prompts?",
+      "Can Tailor change my prompt?"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "The clone can explain sourced prompt workflows but refuses real prompt mutations.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "prompt",
+      "version",
+      "playground",
+      "experiment",
+      "label",
+      "rollback",
+      "sdk",
+      "typescript",
+      "eval",
+      "dataset"
+    ],
+    "productLimitations": [
+      "Experiments evaluation datasets are documented as coming soon.",
+      "Playground runs need configured model provider keys."
+    ],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "The clone can explain sourced prompt workflows but refuses real prompt mutations."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+        }
+      ]
+    }
   },
   {
     "id": "official-pricing-unverified",
@@ -271,12 +1552,417 @@
     "scope": "official_product",
     "buyerProblem": "How much does Neatlogs cost, is there a free option, and which plan includes this feature?",
     "behaviour": "The fetched homepage currently contains marketing pricing statements, but a dedicated official pricing URL could not be fetched, so this slice does not map capabilities to named plans or assert ordinary availability.",
-    "limitations": ["No dedicated pricing page was successfully fetched on 2026-10-11.", "Homepage statements are not used here to infer named plans or feature entitlements.", "Hackathon credits or access are not ordinary plan evidence."],
+    "limitations": [
+      "No dedicated pricing page was successfully fetched on 2026-10-11.",
+      "Homepage statements are not used here to infer named plans or feature entitlements.",
+      "Hackathon credits or access are not ordinary plan evidence."
+    ],
     "prerequisites": [],
-    "planAvailability": {"status": "unknown", "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."},
-    "sources": [{"url": "https://neatlogs.com/", "verifiedOn": "2026-10-11", "claim": "The fetched homepage includes a Start free pricing section and span-volume marketing statements, but it does not provide a verified named-plan entitlement table for this slice."}],
-    "exampleQuestions": ["How much does it cost?", "Is there a free plan?", "Which plan includes alerts?", "What is the price per span?", "Do hackathon credits mean I get this normally?"],
-    "demonstration": {"level": "unsupported", "evidence": "Tailor reports pricing as unverified and cannot inspect billing or change a subscription.", "cloneSurfaces": ["conversation"], "tools": []},
-    "topics": ["pricing", "cost", "plan", "free", "billing", "subscription", "credits", "span", "availability"]
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Pricing/plan availability not verified against an official page on 2026-10-11; hackathon access is not evidence of ordinary plan availability."
+    },
+    "sources": [
+      {
+        "url": "https://neatlogs.com/",
+        "verifiedOn": "2026-10-11",
+        "claim": "The fetched homepage includes a Start free pricing section and span-volume marketing statements, but it does not provide a verified named-plan entitlement table for this slice."
+      }
+    ],
+    "exampleQuestions": [
+      "How much does it cost?",
+      "Is there a free plan?",
+      "Which plan includes alerts?",
+      "What is the price per span?",
+      "Do hackathon credits mean I get this normally?"
+    ],
+    "demonstration": {
+      "level": "unsupported",
+      "evidence": "Tailor reports pricing as unverified and cannot inspect billing or change a subscription.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "pricing",
+      "cost",
+      "plan",
+      "free",
+      "billing",
+      "subscription",
+      "credits",
+      "span",
+      "availability"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "not_implemented",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "Tailor reports pricing as unverified and cannot inspect billing or change a subscription."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Published API contracts, deployment capabilities, authorization and plan access are separate checks; this buyer’s access was not verified."
+        }
+      ]
+    }
+  },
+  {
+    "id": "synthetic-quality-workflows",
+    "title": "Synthetic answer quality workflows",
+    "scope": "clone_only",
+    "buyerProblem": "Can a run execute successfully and still give the wrong answer?",
+    "behaviour": "The demo includes fictional retrieval grounding, missing invoice fields and unresolved support answers with substantive source/output differences. Execution can be OK while answer quality is degraded.",
+    "limitations": [
+      "These examples do not execute real retrievers, extractors or customer-support tools."
+    ],
+    "prerequisites": [],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Hosted access and ordinary plan entitlements were not verified; local synthetic behavior proves neither."
+    },
+    "sources": [
+      {
+        "url": "repo:src/clients/neatlogs/eval-fixtures.ts",
+        "verifiedOn": "2026-10-12",
+        "claim": "Quality workflow proposals contain distinct source inputs and flawed outputs without inventing execution errors."
+      }
+    ],
+    "exampleQuestions": [
+      "Can a run execute successfully and still give the wrong answer?"
+    ],
+    "demonstration": {
+      "level": "modifiable",
+      "evidence": "The demo includes fictional retrieval grounding, missing invoice fields and unresolved support answers with substantive source/output differences. Execution can be OK while answer quality is degraded.",
+      "cloneSurfaces": [
+        "conversation",
+        "trace list",
+        "trace detail",
+        "Evals page"
+      ],
+      "tools": [
+        "publishScenario",
+        "readTrace"
+      ]
+    },
+    "topics": [
+      "retrieval",
+      "grounding",
+      "hallucination",
+      "extraction",
+      "invoice",
+      "missing",
+      "support",
+      "quality",
+      "resolution"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "publishScenario",
+        "readTrace"
+      ],
+      "uiSurfaces": [
+        "conversation",
+        "trace list",
+        "trace detail",
+        "Evals page"
+      ],
+      "evidence": [
+        "The demo includes fictional retrieval grounding, missing invoice fields and unresolved support answers with substantive source/output differences. Execution can be OK while answer quality is degraded."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": []
+    }
+  },
+  {
+    "id": "synthetic-evaluation-review",
+    "title": "Local synthetic evaluation review",
+    "scope": "clone_only",
+    "buyerProblem": "Review this fictional answer against a quality form.",
+    "behaviour": "The local Evals page saves a bounded form and immutable trace snapshot, accepts buyer reviews and derives per-question aggregates. Deterministic placeholder verdicts retain simulated provenance; absent numeric scores are null.",
+    "limitations": [
+      "No hosted AI evaluator runs.",
+      "Dataset edits mark old evaluations stale; reviews never silently score a different trace version."
+    ],
+    "prerequisites": [],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Hosted access and ordinary plan entitlements were not verified; local synthetic behavior proves neither."
+    },
+    "sources": [
+      {
+        "url": "repo:src/clients/neatlogs/eval-service.ts",
+        "verifiedOn": "2026-10-12",
+        "claim": "The local service validates questions/answers, binds evidence to the demo and snapshot, and derives results from saved responses."
+      }
+    ],
+    "exampleQuestions": [
+      "Review this fictional answer against a quality form."
+    ],
+    "demonstration": {
+      "level": "modifiable",
+      "evidence": "The local Evals page saves a bounded form and immutable trace snapshot, accepts buyer reviews and derives per-question aggregates. Deterministic placeholder verdicts retain simulated provenance; absent numeric scores are null.",
+      "cloneSurfaces": [
+        "Evals list",
+        "Evals detail",
+        "review form",
+        "results"
+      ],
+      "tools": [
+        "EvaluationService.create",
+        "EvaluationService.review",
+        "EvaluationService.read"
+      ]
+    },
+    "topics": [
+      "eval",
+      "evaluation",
+      "review",
+      "rating",
+      "rubric",
+      "quality",
+      "score",
+      "form",
+      "result"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "executable",
+      "tools": [
+        "EvaluationService.create",
+        "EvaluationService.review",
+        "EvaluationService.read"
+      ],
+      "uiSurfaces": [
+        "Evals list",
+        "Evals detail",
+        "review form",
+        "results"
+      ],
+      "evidence": [
+        "The local Evals page saves a bounded form and immutable trace snapshot, accepts buyer reviews and derives per-question aggregates. Deterministic placeholder verdicts retain simulated provenance; absent numeric scores are null."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": []
+    }
+  },
+  {
+    "id": "official-human-review",
+    "title": "Neatlogs human evaluators",
+    "scope": "official_product",
+    "buyerProblem": "How do teammates review correctness or tone?",
+    "behaviour": "Human reviewers answer their assigned questions against a trace; evaluations aggregate results by question and recurring batch.",
+    "limitations": [
+      "The demo does not invite teammates, dispatch hosted reviews or create guest links."
+    ],
+    "prerequisites": [],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Hosted access and ordinary plan entitlements were not verified; local synthetic behavior proves neither."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/docs/features/evals/human-evaluators",
+        "verifiedOn": "2026-10-12",
+        "claim": "Reviewers see a trace and assigned questions; results provide per-question and batch breakdowns."
+      }
+    ],
+    "exampleQuestions": [
+      "How do teammates review correctness or tone?"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "Human reviewers answer their assigned questions against a trace; evaluations aggregate results by question and recurring batch.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "eval",
+      "human",
+      "reviewer",
+      "tone",
+      "correctness",
+      "assignment",
+      "review",
+      "batch"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "Human reviewers answer their assigned questions against a trace; evaluations aggregate results by question and recurring batch."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Operation gates are independent of schemas and credentials."
+        }
+      ]
+    }
+  },
+  {
+    "id": "official-ai-evaluators",
+    "title": "Neatlogs AI evaluators and playground",
+    "scope": "official_product",
+    "buyerProblem": "Can an AI judge review a trace with my rubric?",
+    "behaviour": "Neatlogs documents reusable rubric/verdict-schema judges: a single-shot LLM or a tool-using agent. Playground verdicts do not count as completed reviews.",
+    "limitations": [
+      "The local demo can explain AI evaluators but does not run one.",
+      "Hosted access and configured evaluator/provider prerequisites have not been verified."
+    ],
+    "prerequisites": [],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Hosted access and ordinary plan entitlements were not verified; local synthetic behavior proves neither."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/docs/features/evals/ai-evaluators",
+        "verifiedOn": "2026-10-12",
+        "claim": "LLM and agent judges use a rubric/verdict schema; playground runs are distinct from real reviews."
+      }
+    ],
+    "exampleQuestions": [
+      "Can an AI judge review a trace with my rubric?"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "Neatlogs documents reusable rubric/verdict-schema judges: a single-shot LLM or a tool-using agent. Playground verdicts do not count as completed reviews.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "eval",
+      "AI",
+      "evaluator",
+      "judge",
+      "rubric",
+      "verdict",
+      "playground",
+      "agent",
+      "LLM"
+    ],
+    "productLimitations": [],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "Neatlogs documents reusable rubric/verdict-schema judges: a single-shot LLM or a tool-using agent. Playground verdicts do not count as completed reviews."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "unknown",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Operation gates are independent of schemas and credentials."
+        }
+      ]
+    }
+  },
+  {
+    "id": "official-api-runtime-gates",
+    "title": "Neatlogs public API runtime gates",
+    "scope": "official_product",
+    "buyerProblem": "Does an ingestion key prove eval or classifier access?",
+    "behaviour": "Published contracts do not prove runtime access. Public API credentials, scopes, deployment capabilities and plan entitlements need independent verification.",
+    "limitations": [
+      "The demo makes no authenticated capability probe."
+    ],
+    "prerequisites": [],
+    "planAvailability": {
+      "status": "unknown",
+      "note": "Hosted access and ordinary plan entitlements were not verified; local synthetic behavior proves neither."
+    },
+    "sources": [
+      {
+        "url": "https://docs.neatlogs.com/api-reference/availability",
+        "verifiedOn": "2026-10-12",
+        "claim": "The October 6 release checks list classifier workflows, detection preview/suggestions and analytics export as disabled behind tier-c-compute."
+      },
+      {
+        "url": "https://docs.neatlogs.com/api-reference/authentication",
+        "verifiedOn": "2026-10-12",
+        "claim": "SDK ingest credentials do not authorize Public API reads."
+      }
+    ],
+    "exampleQuestions": [
+      "Does an ingestion key prove eval or classifier access?"
+    ],
+    "demonstration": {
+      "level": "explain_only",
+      "evidence": "Published contracts do not prove runtime access. Public API credentials, scopes, deployment capabilities and plan entitlements need independent verification.",
+      "cloneSurfaces": [
+        "conversation"
+      ],
+      "tools": []
+    },
+    "topics": [
+      "API",
+      "ingest",
+      "credential",
+      "availability",
+      "capability",
+      "classifier",
+      "preview",
+      "export",
+      "scope"
+    ],
+    "productLimitations": [
+      "Classifier workflows, detection preview/suggestions and analytics export are documented as gated off in production."
+    ],
+    "cloneSupport": {
+      "state": "explain_only",
+      "tools": [],
+      "uiSurfaces": [
+        "conversation"
+      ],
+      "evidence": [
+        "Published contracts do not prove runtime access. Public API credentials, scopes, deployment capabilities and plan entitlements need independent verification."
+      ]
+    },
+    "hostedAvailability": {
+      "state": "documented_gated",
+      "sources": [
+        {
+          "url": "https://docs.neatlogs.com/api-reference/availability",
+          "verifiedOn": "2026-10-12",
+          "claim": "Operation gates are independent of schemas and credentials."
+        }
+      ],
+      "operationGate": "tier-c-compute"
+    }
   }
 ]

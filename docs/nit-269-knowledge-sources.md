@@ -35,3 +35,18 @@ The fetched homepage contains span-volume marketing copy, but the dedicated pric
 ## Slice limits
 
 This slice is deliberately small and retrieval-oriented. It contains 20 records, uses deterministic keyword scoring, and returns at most six records per turn. Clone demonstrations use synthetic per-session data and cannot prove that an official feature is enabled for a buyer's project. Explain-only records never authorize Tailor to mutate a real Neatlogs project, alert, prompt, integration, account, or subscription.
+
+## 12 October 2026 capability/eval refresh
+
+The following first-party pages were successfully fetched read-only on 2026-10-12: Evals, Human Evaluators, AI Evaluators, Operation availability, Authentication and scopes, Detections, Experiments and Session Replay.
+
+- https://docs.neatlogs.com/docs/features/evals — existing/arriving trace sources, per-question human/AI assignments and structured aggregates/export.
+- https://docs.neatlogs.com/docs/features/evals/human-evaluators — trace review queues, assigned questions and question/batch results.
+- https://docs.neatlogs.com/docs/features/evals/ai-evaluators — LLM/agent judges, rubric/verdict schema and playground versus actual review.
+- https://docs.neatlogs.com/api-reference/availability — published schemas differ from runtime availability; October 6 release checks list classifier workflows, detection suggestions/preview and analytics export as disabled behind `tier-c-compute`, and future evaluation collection has a final-cohort caveat. This does not establish buyer eval access or imply all analytics is disabled.
+- https://docs.neatlogs.com/api-reference/authentication — ingest credentials do not authorize Public API reads; evaluation scopes, roles and entitlements are separate.
+- https://docs.neatlogs.com/docs/features/detections — rules annotate captured spans without changing execution.
+- https://docs.neatlogs.com/docs/features/experiments — labelled evaluation datasets remain coming soon.
+- https://docs.neatlogs.com/docs/features/session-replay — experimental status and current one-trace/session limit.
+
+The map contains 25 records at knowledge version 2026-10-12.1. Ordinary pricing/plan entitlements and this buyer's hosted runtime availability remain unknown. No authenticated calls, hosted evaluator runs or integration configuration were performed. The local Evals service is a separate synthetic demonstration with immutable snapshots, actual buyer inputs and explicitly simulated judge values.
