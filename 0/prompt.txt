@@ -1,0 +1,66 @@
+You are the lead auditor for a read-only UI fidelity audit of the completed NIT-265 Neatlogs replica. The parent is the coordinator. You own the audit end to end and must return a consolidated report. The work is internally parallelizable AFTER evidence collection. Use your Task tool to split the three review areas among parallel internal subagents once evidence exists. Those reviewers must not use the browser.
+
+## Repo and branch
+Primary checkout: /Users/nitinkhanna/Desktop/tailor-neathack
+A previous continuation found the NIT-265 worktree at /Users/nitinkhanna/.codex/worktrees/8dc3/tailor-neathack on branch codex/nit-265-replica-app at 1bee18f0cc631fbf5febb89e64346f4c80abfde4. VERIFY this. Do not trust it blindly.
+
+Verify the current branch contains Codex’s latest NIT-265 implementation. Compare worktrees, branch tips, the handoff, and Linear. Preserve ALL existing work: do not reset, clean, checkout away uncommitted work, amend, force-push, merge, deploy, delete files, or discard the worktree. If the replica lives only in that worktree, audit there. Do not start NIT-269.
+
+## Required reading before any browser or review work
+1. /Users/nitinkhanna/Desktop/tailor-neathack/AGENTS.md and the same file in the NIT-265 worktree if it differs.
+2. The project-local Entire skill. Find it in the repo (search for Entire skill / SKILL.md related to Entire recording). Follow its recording requirements for each supported agent session, including internal subagents. Report capture gaps honestly. Do not repair hooks, do not change .cursor/hooks.json or .entire/settings.json, do not skip hooks.
+3. Linear issue NIT-265 (read-only). Use the Linear MCP namespace (plugin-linear-linear or user-Linear). Call GetDynamicTools for the tool schema before any Linear call. Do not modify Linear issues, comments, or status.
+4. The existing handoff: docs/nit-265-cursor-handoff.md in the worktree that contains it, plus docs it points to that define replica scope (especially any fidelity or scope notes).
+
+## Hard constraints
+- AUDIT ONLY. Do not modify implementation, dependencies, configuration, package files, env files, hooks, or git state. The ONLY file you may create or edit is the audit report and its screenshot evidence directory (see below).
+- Do not merge, deploy, push, commit, amend, or force-push.
+- Do not add out-of-scope Neatlogs features just because they appear in the official UI. Record those as deliberate scope exclusions when NIT-265 / the handoff excludes them.
+- Secrets: never print, log, commit, or screenshot NEATLOGS_API_KEY or any credential value. Do not read .env.local. A prior checkpoint contains a live API-key argument; do not copy it into the report or screenshots. npm run env:check only if you must know whether a key is set; it reports presence only.
+- Official Neatlogs sandbox is READ-ONLY. Do not edit its data, settings, or either real project. Do not create, delete, or mutate traces, projects, API keys, or settings.
+- Use the existing browser session (cursor-ide-browser MCP). Call GetDynamicTools for cursor-ide-browser before use. If login or access is missing, stop that part and mark it unverified. Ask the user for access in your final report; do not invent credentials or scrape tokens.
+- YOU are the only browser user. Internal review subagents must not call browser tools, navigate, or open tabs. Do not run concurrent browser agents.
+- Inspect the actual rendered UI. Do not rely on memory or documentation for visual claims. Documentation is for scope and expected behavior only.
+
+## Browser evidence collection (you alone)
+1. List existing browser tabs first. Reuse the authenticated official Neatlogs sandbox session. If several tabs exist, do not disrupt unrelated user tabs more than needed; lock only the tab you are driving.
+2. Identify the local replica URL from the repo (dev server if already running; if none is running, you may start the existing replica dev server in the NIT-265 worktree ONLY if that does not change code or config). If you cannot run it without installs or config changes, mark local UI unverified and say why.
+3. Capture PAIRED official-versus-local screenshots at matching viewport size, zoom, theme, and equivalent UI states for:
+   - Layout / traces list: sidebar, header, table columns, spacing, typography, colours, borders, badges, icons, row density, scrolling, selected states.
+   - Trace details: detail view, span hierarchy, timeline, inputs/outputs, errors, timing, tabs, expandable sections, long content, nested spans, and the default view.
+   - Interaction and state: search, filters, sorting, navigation included in NIT-265; Back/Forward; direct links; reloads; empty results; loading/error states; repeated interactions. Confirm synthetic data stays consistent between list and detail.
+4. For each pair record: reference URL (no secrets), capture time, viewport, zoom, theme, and UI state.
+5. Use synthetic sandbox examples. Keep credentials and unrelated private information out of screenshots. Compare layout and behaviour, not identical trace text or timestamps.
+6. Mark anything inaccessible as unverified. Do not guess.
+7. Store screenshots under the NIT-265 worktree at docs/nit-265-ui-audit/ (create that evidence directory). Name files so pairs are obvious (e.g. list-official.png / list-local.png).
+
+## Then split the review
+After evidence is on disk, spawn three parallel internal generalPurpose subagents (run_in_background false so you wait for them, or background plus resume only if that is how your Task tool works — you must actually receive their findings before writing the final report). Give each the evidence directory, scope docs, and relevant code paths. They must NOT use the browser.
+
+1. Layout and visual fidelity — official traces list vs replica. Sidebar, header, table columns, spacing, typography, colours, borders, badges, icons, row density, scrolling, selected states.
+2. Trace details — detail view, span hierarchy, timeline, inputs/outputs, errors, timing, tabs, expandable sections, long content, nested spans, default view.
+3. Interaction and state — search, filters, sorting, navigation in NIT-265 scope. Back/Forward, direct links, reloads, empty results, loading/error, repeated interactions, synthetic list/detail consistency.
+
+Each reviewer returns: visual mismatches, functional defects, deliberate scope exclusions, unverified areas; affected screen; expected vs actual; reproduction steps; screenshot paths; relevant code locations; smallest suggested correction. They do not edit files.
+
+## Final report
+Write docs/NIT-265-ui-audit.md in the NIT-265 worktree (the replica branch). Do not commit it. Include:
+- Short verdict on visual fidelity, limited to screens actually inspected.
+- Prioritised findings: affected screen, expected vs actual, reproduction steps, screenshot evidence paths.
+- Relevant code locations and the smallest suggested correction.
+- Checklist of states inspected and gaps.
+- Proposed parallel fix plan with non-overlapping file ownership.
+- Separate sections or labels for visual mismatches, functional defects, deliberate scope exclusions, and unverified areas.
+- Entire capture status for this lead session and each internal review session, including honest gaps (resolution, worktree, branch). Do not claim a capture you did not verify.
+- Branch and commit you audited, and how you verified it is Codex’s latest implementation.
+
+Do not start fixes. The user will review first.
+
+## Return to the parent
+A standalone summary:
+1. Report path.
+2. Branch, commit, worktree audited, and whether it is Codex’s latest.
+3. Highest-impact findings only (severity, screen, expected vs actual), with screenshot paths.
+4. Unverified gaps and any access you still need from the user.
+5. Entire capture result and gaps.
+6. Confirmation this pass did not modify implementation, dependencies, configuration, git history, Linear, or the official project, and did not merge or deploy.
