@@ -24,4 +24,8 @@ test('beginner and guarantee answers address the question without admitting prov
  const guarantee=composeAnswer(cited,'Does that guarantee our customer answers are correct and improve conversion?','It guarantees conversion.',k.version);
  assert.match(guarantee,/does not establish/);assert.match(guarantee,/Green execution alone establishes neither/);assert.doesNotMatch(guarantee,/It guarantees conversion/);
  for(const answer of [beginner,guarantee]){assert.ok(answer.length<=2000);assert.match(answer,/Sources:/);}
+ const evalGuarantee=composeAnswer(r(['official-evaluations']),'Does that guarantee our customer answers are correct and improve conversion?','It guarantees conversion.',k.version);
+ assert.match(evalGuarantee,/does not establish/);
+ const setup=composeAnswer(r(['official-evaluations']),'Then explain what setup would be needed and what evidence would prove it ran.','It ran successfully.',k.version);
+ assert.match(setup,/actual evaluator execution record/);assert.match(setup,/has not run a hosted AI evaluator/);assert.doesNotMatch(setup,/It ran successfully/);assert.ok(setup.length<=2000);
 });
