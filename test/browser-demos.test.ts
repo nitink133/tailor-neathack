@@ -7,6 +7,7 @@ import { travelProposalV1 } from '../src/clients/neatlogs/examples/travel-bookin
 import type { DemoSwitchChoice } from '../src/tailor/demo-contract.ts';
 import { Store, Failure } from '../src/infrastructure/store.ts';
 import { qualityWorkflowProposal } from '../src/clients/neatlogs/eval-fixtures.ts';
+import { createProvider } from '../src/clients/neatlogs/provider.ts';
 import { createAgentService } from '../src/clients/neatlogs/service.ts';
 import { loadKnowledge } from '../src/clients/neatlogs/knowledge.ts';
 import { travelProposalV2 } from '../src/clients/neatlogs/examples/travel-booking.ts';
@@ -337,4 +338,49 @@ for (const route of ['selection', 'evaluation'] as const) test(`${route} body ca
     assert.equal(h.store.browserSession(browser.data.id).activeDemoId, browser.data.activeDemoId);
     assert.equal(h.store.listArtifacts(id, 'evaluations').length, 0);
   } finally { release(); h.agent.gate = null; await h.close(); }
+});
+
+test('real offline mock insurance switch and return to travel both require explicit confirmation', async () => {
+  const h = await harness(); const core = createAgentService(); const provider = createProvider({ kind: 'mock' });
+  h.agent.script = input => core.handleTurn({ ...input, provider, knowledge: loadKnowledge() });
+  try {
+    const owner = await h.call('/api/browser-session', 'POST');
+    const created = await h.call('/api/browser-session/demos', 'POST', { description: 'Fictional travel-booking agent' }, owner.cookie);
+    const id = created.data.id;
+    const travel = "I'm building a travel-booking agent. Show a booking API timeout followed by a successful retry.";
+    assert.equal((await h.call(`/api/sessions/${id}/turns`, 'POST', turn(travel), created.cookie)).data.outcome, 'committed');
+    const claims = 'Switch to an insurance claims agent. Show a policy lookup timing out, then a successful retry.';
+    for (const choice of ['keep_current', 'adapt_current'] as const) {
+      const before = h.store.read(id);
+      const asked = await h.call(`/api/sessions/${id}/turns`, 'POST', turn(claims), created.cookie);
+      assert.equal(asked.data.outcome, 'clarification'); assert.equal(asked.data.clarification.kind, 'demo_switch');
+      assert.deepEqual(h.store.read(id).dataset, before.dataset);
+      const confirmed = await h.call(`/api/sessions/${id}/turns`, 'POST', { ...turn(choice), choiceId: choice, confirmationRef: asked.data.clarification.referenceId }, created.cookie);
+      assert.equal(confirmed.data.outcome, choice === 'keep_current' ? 'answered' : 'committed');
+    }
+    const adapted = h.store.read(id);
+    const returned = await h.call(`/api/sessions/${id}/turns`, 'POST', turn('Switch to a travel-booking agent. Show a booking API timeout followed by a successful retry.'), created.cookie);
+    assert.equal(returned.data.outcome, 'clarification'); assert.equal(returned.data.clarification.kind, 'demo_switch');
+    assert.deepEqual(h.store.read(id).dataset, adapted.dataset);
+    const separate = await h.call(`/api/sessions/${id}/turns`, 'POST', { ...turn('Separate'), choiceId: 'start_separate', confirmationRef: returned.data.clarification.referenceId }, created.cookie);
+    assert.equal(separate.data.outcome, 'committed'); assert.notEqual(separate.data.demoId, id);
+    assert.deepEqual(h.store.read(id).dataset, adapted.dataset);
+  } finally { await h.close(); }
+});
+
+test('real offline same-workflow guardrail, retry and backoff edits stay direct', async () => {
+  const h = await harness(); const core = createAgentService(); const provider = createProvider({ kind: 'mock' });
+  h.agent.script = input => core.handleTurn({ ...input, provider, knowledge: loadKnowledge() });
+  try {
+    const owner = await h.call('/api/browser-session', 'POST');
+    const created = await h.call('/api/browser-session/demos', 'POST', { description: 'Fictional travel-booking agent' }, owner.cookie);
+    const id = created.data.id;
+    const initial = await h.call(`/api/sessions/${id}/turns`, 'POST', turn("I'm building a travel-booking agent. Show a booking API timeout followed by a successful retry."), created.cookie);
+    assert.equal(initial.data.outcome, 'committed');
+    for (const text of ['Add a guardrail step before calling booking_api.', 'Make the retry fail too.', 'Add a longer retry backoff.']) {
+      const result = await h.call(`/api/sessions/${id}/turns`, 'POST', turn(text), created.cookie);
+      assert.notEqual(result.data.clarification?.kind, 'demo_switch', text);
+      assert.equal(result.data.outcome, 'committed', text);
+    }
+  } finally { await h.close(); }
 });

@@ -475,7 +475,7 @@ export class Store {
     const session = this.read(id);
     if (!this.ownerOf(id) || session.version === 1 || proposal.expectedVersion !== session.version) return { state: 'ready' };
     const normalized = validateProposal(id, session.dataset, proposal, this.clock);
-    if (!normalized.ok || !materialSwitchReason(session, proposal, normalized.dataset)) return { state: 'ready' };
+    if (!normalized.ok || !materialSwitchReason(session, proposal, normalized.dataset, requestedText)) return { state: 'ready' };
     const ref = randomUUID();
     const confirmation: DemoSwitchConfirmation = {
       kind: 'demo_switch', referenceId: ref, sourceDemoId: id, sourceVersion: session.version, browserSessionVersion: this.browserRow(this.ownerOf(id)!).version,
@@ -542,7 +542,7 @@ export class Store {
    * Validate → BEGIN IMMEDIATE → re-check state/version → UPDATE dataset + story (+ mark the turn run published)
    * → COMMIT → independent readback.
    */
-  publish(id: string, proposal: ScenarioProposal, turn?: { clientTurnId: string; confirmationRef?: string }, observer?: PublishObserver): PublishResult {
+  publish(id: string, proposal: ScenarioProposal, turn?: { clientTurnId: string; confirmationRef?: string; requestedText?: string }, observer?: PublishObserver): PublishResult {
     let before: DemoSession;
     try { before = this.read(id); } catch (e) { if (isGone(e)) return { state: 'expired' }; throw e; }
     const verdict = validateProposal(id, before.dataset, proposal, this.clock);
@@ -560,7 +560,7 @@ export class Store {
         if (this.expired(row)) { this.db.prepare('DELETE FROM sessions WHERE id=?').run(id); this.purgeRuns(id); return { kind: 'expired' }; }
         const s = this.project(row);
         if (s.version !== expectedVersion) return { kind: 'conflict', current: s.version };
-        if (this.ownerOf(id) && materialSwitchReason(s, proposal, verdict.dataset)) {
+        if (this.ownerOf(id) && (materialSwitchReason(s, proposal, verdict.dataset, turn?.requestedText) || this.db.prepare('SELECT id FROM demo_switches WHERE demo_id=? AND source_version=? AND consumed_by IS NULL AND proposal=?').get(id, s.version, JSON.stringify(proposal)))) {
           const pending = turn?.confirmationRef ? this.db.prepare('SELECT * FROM demo_switches WHERE id=? AND demo_id=?').get(turn.confirmationRef, id) as PendingSwitchRow | undefined : undefined;
           if (!pending || pending.consumed_by !== null || pending.source_version !== s.version || pending.source_conversation_version + 1 !== s.conversationVersion || pending.owner_version !== this.browserRow(this.ownerOf(id)!).version || pending.proposal !== JSON.stringify(proposal)) return { kind: 'rejected', result: { state: 'rejected', version: s.version, problems: [{ path: 'mode', code: 'UNSUPPORTED_CAPABILITY', message: 'Confirm how to switch this workflow before replacing the current demo.' }] } };
         }

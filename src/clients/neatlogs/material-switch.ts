@@ -2,13 +2,13 @@
 import type { Dataset, DemoSession, Trace } from './contracts.ts';
 import type { ScenarioProposal } from './agent-contract.ts';
 
-const words = (text: string) => text.toLowerCase().normalize('NFKC').replace(/[^a-z0-9]+/g, ' ').trim();
+const words = (text: string) => text.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim();
 const domainWords = new Set(['a', 'an', 'the', 'my', 'our', 'your', 'agent', 'agents', 'assistant', 'bot', 'workflow', 'pipeline', 'copilot', 'fictional', 'synthetic', 'demo', 'project']);
 const rootWords = new Set([...domainWords, 'retry', 'retries', 'timeout', 'failure', 'failed', 'fail', 'fails', 'success', 'successful', 'recovered', 'recovery', 'scenario', 'variant']);
 function category(text: string): string | null {
   const t = words(text);
   if (/\b(?:invoice|extraction|extractor)\b/.test(t)) return 'extraction';
-  if (/\b(?:insurance|claims?)\b/.test(t)) return 'insurance';
+  if (/\b(?:insurance|claims?|policy (?:lookup|check|claim))\b/.test(t)) return 'insurance';
   if (/\b(?:travel|booking|flight|itinerary)\b/.test(t)) return 'travel';
   if (/\b(?:documentation|retrieval|retriever|rag|question answering|knowledge)\b/.test(t)) return 'retrieval';
   if (/\b(?:support|customer|order)\b/.test(t)) return 'support';
@@ -19,6 +19,9 @@ function identity(text: string): string {
   return category(text) ?? [...new Set(words(text).split(' ').filter(w => w && !domainWords.has(w)))].sort().join(' ');
 }
 function rootName(trace: Trace): string { return trace.spans.find(s => s.parentId === null)?.name ?? trace.name; }
+function operationCategory(trace: Trace): string | null {
+  return category(trace.spans.filter(s => s.parentId !== null && !/^(?:prepare|render|answer|explain|escalate|narrate)\b/.test(words(s.name))).map(s => s.name).join(' ')) ?? category(rootName(trace));
+}
 function rootTokens(trace: Trace): Set<string> { return new Set(words(rootName(trace)).split(' ').filter(w => w && !rootWords.has(w))); }
 function rootShape(trace: Trace): Set<string> {
   const root = trace.spans.find(s => s.parentId === null);
@@ -31,20 +34,19 @@ function rootShape(trace: Trace): Set<string> {
   };
   visit(root?.input); visit(root?.output); return keys;
 }
-export type MaterialSwitchReason = 'replace_dataset' | 'workflow_changed' | 'replace_all_records';
-export function materialSwitchReason(current: DemoSession, proposal: ScenarioProposal, normalized: Dataset): MaterialSwitchReason | null {
+export type MaterialSwitchReason = 'explicit_workflow_switch' | 'replace_dataset' | 'workflow_changed' | 'replace_all_records';
+export function materialSwitchReason(current: DemoSession, proposal: ScenarioProposal, normalized: Dataset, requestedText?: string): MaterialSwitchReason | null {
   if (current.version === 1) return null;
+  const savedActive = current.dataset.traces.find(t => t.scenario === current.dataset.activeScenario);
+  const currentIdentity = (savedActive ? operationCategory(savedActive) : null) ?? identity(current.story?.domain ?? current.description);
+  const explicit = /\bswitch\s+(?:over\s+)?to\s+(?:(?:a|an|the|my|our|another|new)\s+)?([^.?!\n]{1,120}?)\s+(?:agent|assistant|bot|workflow|pipeline|copilot)\b/i.exec(requestedText ?? '');
+  if (explicit && identity(explicit[1]!) && identity(explicit[1]!) !== currentIdentity) return 'explicit_workflow_switch';
   if (proposal.mode === 'new') return 'replace_dataset';
   const oldIdentity = current.story ? identity(current.story.domain) : null;
   const nextIdentity = identity(proposal.story.domain);
   if (oldIdentity && nextIdentity && oldIdentity !== nextIdentity) return 'workflow_changed';
   const oldKeys = new Set(current.dataset.traces.map(t => t.scenario));
   if (oldKeys.size && normalized.traces.every(t => !oldKeys.has(t.scenario))) return 'replace_all_records';
-  const active = normalized.traces.find(t => t.scenario === normalized.activeScenario);
-  const savedActive = current.dataset.traces.find(t => t.scenario === current.dataset.activeScenario);
-  const beforeCategory = current.story ? category(current.story.domain) : savedActive ? category(rootName(savedActive)) : null;
-  const afterCategory = active ? category(rootName(active)) : null;
-  if (beforeCategory && afterCategory && beforeCategory !== afterCategory) return 'workflow_changed';
   // Reusing old keys does not make replacing every workflow a small edit. Compare normalized saved roots as well.
   if (normalized.traces.length && normalized.traces.every(next => {
     const previous = current.dataset.traces.find(t => t.scenario === next.scenario);
