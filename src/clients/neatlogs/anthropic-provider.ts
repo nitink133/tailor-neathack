@@ -111,12 +111,8 @@ export const REFUSAL_REASONS = ['injection', 'arbitrary_code', 'cross_session', 
  * natural `anyOf` of objects as too large ("The compiled grammar is too large"), while this shape compiles.
  * `normaliseWireAction` rebuilds the union and `validateAgentAction` enforces the contract afterwards.
  */
-const GUIDANCE_SCHEMA = {
-  type: ['array', 'null'],
-  description: 'Optional contextual destinations selected with this answer; zero to three relevant targets only. Null for ask/refuse/unsupported. Never invent destinations.',
-  // Keep the already-large scenario grammar small. Saved IDs are resolved by the adapter, never needed on the wire.
-  items: { type: 'string', enum: ['trace.overview', 'trace.slowest-span', 'trace.model-call', 'trace.output', 'evals.overview', 'evals.evaluator', 'evals.criteria', 'evals.results', 'alerts.overview'] },
-} as const;
+// Keep target alternatives out of the already-large scenario grammar. Code enforces the registry and max3.
+const GUIDANCE_SCHEMA = nullableStr('JSON-ENCODED STRING of zero to three contextual target names. Allowed: trace.overview, trace.slowest-span, trace.model-call, trace.output, evals.overview, evals.evaluator, evals.criteria, evals.results, alerts.overview. Null for ask/refuse/unsupported. Saved IDs are assigned and validated by code.');
 export const AGENT_ACTION_SCHEMA = {
   type: 'object',
   description: 'Exactly one action. Fill only the fields that belong to that action type; every other field must be null.',
@@ -151,6 +147,7 @@ export const EVIDENCE_EXPLANATION_SCHEMA = {
 
 /** Appended to the system prompt: the wire format differs from the prose shapes in SYSTEM_PROMPT in these ways only. */
 export const WIRE_FORMAT_NOTES = [
+  'guidance is a JSON-ENCODED STRING such as [\"evals.criteria\",\"evals.results\"], or null. Select at most three names from the adapter registry; no arbitrary selectors, IDs, actions or URLs.',
   'Local review wire fields: create_local_evaluation uses evaluation as a JSON string containing expectedVersion,name,questions,checks optional; every quality reviewer is buyer. read_local_evaluation has evaluation null. Other actions have evaluation null.',
   'WIRE FORMAT (structured output): return ONE flat object with `type` set to the action and every field that does not belong to that action set to null.',
   '- ask: `clarification` (question, exactly three choices c1/c2/c3, allowFreeText true). propose: `proposal` + `explanation`. explain: `text` (+ `traceId`, `spanIds` when known). answer: `text` + `knowledgeIds`. unsupported: `text` (+ `capabilityId`). refuse: `text` + `reason`.',
@@ -205,8 +202,13 @@ export function normaliseWireAction(parsed: unknown): unknown | null {
   if (!isObj(parsed)) return null;
   const w = parsed;
   const opt = (key: string): Obj => (w[key] === null || w[key] === undefined ? {} : { [key]: w[key] });
-  const guidance = w.guidance == null ? {} : { guidance: Array.isArray(w.guidance)
-    ? w.guidance.map(v => typeof v === 'string' ? { targetId: v } : v) : w.guidance };
+  let selected: unknown = w.guidance;
+  if (typeof selected === 'string') {
+    if (selected.length > 1200) selected = [];
+    else try { selected = JSON.parse(selected); } catch { selected = []; }
+  }
+  const guidance = selected == null ? {} : { guidance: Array.isArray(selected)
+    ? selected.map(v => typeof v === 'string' ? { targetId: v } : v) : [] };
   switch (w.type) {
     case 'read_local_evaluation': return {type:'read_local_evaluation', ...guidance};
     case 'create_local_evaluation': {

@@ -11,7 +11,7 @@ import { BUYER_TEXT_BEGIN, CONTEXT_BEGIN, CONTEXT_END, REPAIR_BEGIN, parseUserMe
 export { BUYER_TEXT_BEGIN, CONTEXT_BEGIN, CONTEXT_END, REPAIR_BEGIN };
 
 /** Bump whenever SYSTEM_PROMPT, EXPLANATION_SYSTEM_PROMPT, the repair message or the wire-format notes change. */
-export const PROMPT_VERSION = 'neatlogs-prompts-2026-10-12.7';
+export const PROMPT_VERSION = 'neatlogs-prompts-2026-10-12.8';
 
 export const SYSTEM_PROMPT = [
   'You are Tailor, the product agent for a SYNTHETIC Neatlogs-style trace demo. A buyer describes their agent or workflow; you build and explain fictional traces for it.',

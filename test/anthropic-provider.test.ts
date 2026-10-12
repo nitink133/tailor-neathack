@@ -61,8 +61,8 @@ function toWire(action: AgentAction): Record<string, unknown> {
   const text = (v: unknown) => JSON.stringify(v);
   const base = { type: action.type, text: null, clarification: null, proposal: null, explanation: null, traceId: null, spanIds: null, knowledgeIds: null, capabilityId: null, reason: null };
   switch (action.type) {
-    case 'read_local_evaluation': return {...base,guidance:action.guidance?.map(g=>g.targetId) ?? null};
-    case 'create_local_evaluation': return { ...base, evaluation: JSON.stringify(action.evaluation), guidance: action.guidance?.map(g => g.targetId) ?? null };
+    case 'read_local_evaluation': return {...base,guidance:action.guidance ? JSON.stringify(action.guidance.map(g=>g.targetId)) : null};
+    case 'create_local_evaluation': return { ...base, evaluation: JSON.stringify(action.evaluation), guidance: action.guidance ? JSON.stringify(action.guidance.map(g => g.targetId)) : null };
     case 'ask': return { ...base, clarification: action.clarification };
     case 'propose': {
       const { kind: _kind, contractVersion: _cv, ...p } = action.proposal;
@@ -707,4 +707,13 @@ test('blocking guard uses its own schema, low effort, bounded timeout and separa
   assert.deepEqual(result.usage, { inputTokens: 20, outputTokens: 30, cacheReadInputTokens: 4 });
   assert.equal(spend.summary().byKind.guard!.calls, 1);
   assert.equal(spend.summary().byKind.plan, undefined);
+});
+
+test('guidance wire keeps registry alternatives out of scenario grammar while normalisation remains strict', () => {
+  assert.deepEqual(AGENT_ACTION_SCHEMA.properties.guidance.type, ['string','null']);
+  assert.equal('items' in AGENT_ACTION_SCHEMA.properties.guidance, false);
+  const action=normaliseWireAction({type:'answer',text:'Stored review configuration.',knowledgeIds:[],guidance:'["evals.criteria","evals.results"]'}) as any;
+  assert.deepEqual(action.guidance,[{targetId:'evals.criteria'},{targetId:'evals.results'}]);
+  const malformed=normaliseWireAction({type:'answer',text:'Stored review configuration.',knowledgeIds:[],guidance:'{malformed'}) as any;
+  assert.deepEqual(malformed.guidance,[]);
 });

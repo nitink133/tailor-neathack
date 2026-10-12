@@ -164,3 +164,31 @@ test('the release creation command runs requested no-error pass and explicit 1ms
     assert.equal(saved.evaluation.responses.length,0);
   }finally{h.store.close();}
 });
+
+test('compact live wire guidance JSON string preserves exact saved eval targets and rejects unknown/malformed/oversized guidance',async()=>{
+  for(const guidance of ['["evals.criteria","evals.results","evals.evaluator"]','["evals.results","arbitrary.selector"]','{bad json',JSON.stringify(['evals.criteria','evals.results','evals.evaluator','trace.overview'])]){
+    const h=fixture();try{
+      const scripted=structured({type:'create_local_evaluation',evaluation:JSON.stringify(plan(h.store.read(h.session.id).version)),guidance});
+      const result=await h.say('Create a local evaluation and check required output fields nextStep.',scripted.provider);
+      assert.equal(result.outcome,'answered');
+      assert.equal(h.evaluations.list(h.store.read(h.session.id)).evaluations.length,1);
+      const guides=result.messages[0]!.guidance??[];
+      const expected=guidance.startsWith('["evals.criteria","evals.results","evals.evaluator"]')?3:guidance.includes('arbitrary.selector')?1:0;
+      assert.equal(guides.length,expected);
+      assert.ok(guides.every(g=>['evals.criteria','evals.results','evals.evaluator'].includes(g.targetId)));
+    }finally{h.store.close();}
+  }
+});
+
+test('read-local-evaluation consumes actual compact wire guidance string without a save',async()=>{
+  const h=fixture();try{
+    const create=structured({type:'create_local_evaluation',evaluation:JSON.stringify(plan(h.store.read(h.session.id).version)),guidance:'["evals.criteria","evals.results"]'});
+    await h.say('Create a local evaluation and check required output fields nextStep.',create.provider);
+    const reader=structured({type:'read_local_evaluation',guidance:'["evals.criteria","evals.results","evals.evaluator"]'});
+    const result=await h.say('Explain the saved evaluation results and show criteria and results.',reader.provider);
+    assert.equal(result.outcome,'answered');
+    assert.deepEqual(result.messages[0]!.guidance?.map(g=>g.targetId),['evals.criteria','evals.results','evals.evaluator']);
+    assert.equal(h.evaluations.list(h.store.read(h.session.id)).evaluations.length,1);
+    assert.match(result.messages[0]!.text,/1 passed, 1 failed/);
+  }finally{h.store.close();}
+});
